@@ -1,3 +1,6 @@
+#ifndef INCLUDE_TOKDEFS_H
+#define INCLUDE_TOKDEFS_H
+
 /* $Id: tokdefs.h 397 2007-11-26 19:04:00Z mblack $
  * Copyright (C) 2007 Platform Computing Inc
  *
@@ -24,5 +27,7 @@ MAR,  APR,  MAY,  JUN, JUL, AUG, SEP, OCT, NOV, DEC, YY,  FY,
 WEEK, MONTH,QUARTER,    DAYS,    OR,  AND, LE,  GE,  EQ,  DOTS, 
 HH, MM, ESTRING,  NAME, RANGE, DATES, SZZZZ
 };
+
+#endif /* INCLUDE_TOKDEFS_H */
 
 

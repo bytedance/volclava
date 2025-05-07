@@ -1,3 +1,6 @@
+#ifndef INCLUDE_SET_H
+#define INCLUDE_SET_H
+
 /* $Id: set.h 397 2007-11-26 19:04:00Z mblack $
  * Copyright (C) 2007 Platform Computing Inc
  *
@@ -31,5 +34,7 @@ extern struct listSet *listSetDuplicate (struct listSet *);
 extern int listSetIn (int, struct listSet *);
 extern struct listSet *listSetInsert (int, struct listSet *);
 extern struct listSet *listSetSub(struct listSet *, struct listSet *);
+
+#endif /* INCLUDE_SET_H */
 
 

@@ -1,3 +1,6 @@
+#ifndef INCLUDE_LIM_CONF_H
+#define INCLUDE_LIM_CONF_H
+
 /* $Id: lim.conf.h 397 2007-11-26 19:04:00Z mblack $
  * Copyright (C) 2007 Platform Computing Inc
  *
@@ -15,4 +18,6 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA
  *
  */
+
+#endif /* INCLUDE_LIM_CONF_H */
 
