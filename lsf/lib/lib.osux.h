@@ -1,3 +1,6 @@
+#ifndef INCLUDE_LIB_OSUX_H
+#define INCLUDE_LIB_OSUX_H
+
 /* $Id: lib.osux.h 397 2007-11-26 19:04:00Z mblack $
  * Copyright (C) 2007 Platform Computing Inc
  *
@@ -305,5 +308,7 @@ getEnvVar_( char* name,
 	return len;
     }
 }
+
+#endif /* INCLUDE_LIB_OSUX_H */
 
 

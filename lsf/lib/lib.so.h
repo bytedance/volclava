@@ -1,3 +1,6 @@
+#ifndef INCLUDE_LIB_SO_H
+#define INCLUDE_LIB_SO_H
+
 /* $Id: lib.so.h 397 2007-11-26 19:04:00Z mblack $
  * Copyright (C) 2007 Platform Computing Inc
  *
@@ -23,3 +26,5 @@ typedef int SO_HANDLE_T;
 extern SO_HANDLE_T soOpen_(const char *libFileName);
 extern void soClose_(SO_HANDLE_T handle);
 extern void *soSym_(SO_HANDLE_T handle, const char *entryName);
+
+#endif /* INCLUDE_LIB_SO_H */

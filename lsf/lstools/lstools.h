@@ -1,3 +1,6 @@
+#ifndef INCLUDE_LSTOOLS_H
+#define INCLUDE_LSTOOLS_H
+
 /* $Id: lstools.h 397 2007-11-26 19:04:00Z mblack $
  * Copyright (C) 2007 Platform Computing Inc
  *
@@ -17,3 +20,5 @@
  */
 
 #include <signal.h>
+
+#endif /* INCLUDE_LSTOOLS_H */

@@ -1,3 +1,6 @@
+#ifndef INCLUDE_LISTSET_H
+#define INCLUDE_LISTSET_H
+
 /* $Id: listset.h 397 2007-11-26 19:04:00Z mblack $
  * Copyright (C) 2007 Platform Computing Inc
  *
@@ -49,3 +52,5 @@ extern long  *listSetIteratorEnd(struct listSetIterator   *);
 extern long  *listSetIteratorGetNext(struct listSetIterator *);
 extern void  listSetIteratorDestroy(struct listSetIterator *);
 extern void  listSetIteratorDetach(struct listSetIterator *);
+
+#endif /* INCLUDE_LISTSET_H */
