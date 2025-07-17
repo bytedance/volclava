@@ -499,7 +499,17 @@ parseSelect(char *resReq, struct resVal *resVal, struct lsInfo *lsInfo, bool_t p
                 if (i == 0 ) {
                     sprintf(resReq2, "(%s)", expr);
 		} else {
-                    sprintf(resReq2, "%s||(%s)", resReq2, expr);
+                    char tmpbuf[4096];
+                    snprintf(tmpbuf, sizeof(tmpbuf), "%s||(%s)", resReq2, expr);
+                    /* We're assuming resReq2 has enough space — old code,
+                     * we trust it *for now*
+                     */
+                    if (strlen(tmpbuf) + 1 > strlen(resReq) + numXorExprs * 4 - 1) {
+                        // Bail out or truncate
+                        return PARSE_BAD_MEM;
+                    }
+                    strcpy(resReq2, tmpbuf);
+
 		}
 		freeResVal(&tmpResVal);
 		expr = strtok(NULL, ",");
@@ -834,9 +844,9 @@ validValue(char *value, struct lsInfo *lsInfo, int nentry)
 static int
 resToClassNew(char *resReq, struct resVal *resVal, struct lsInfo *lsInfo, int unitForLimits)
 {
-    int i, j, s, t, len, entry, hasFunction = FALSE, hasQuote;
+    int i, j, s, t, len, entry, hasQuote;
     char res[MAXLSFNAMELEN], val[MAXLSFNAMELEN];
-    char tmpbuf[MAXLSFNAMELEN*2];
+    char tmpbuf[MAXLSFNAMELEN * 7];
     char *sp, *op;
 
     len = strlen(resReq);
@@ -997,7 +1007,6 @@ resToClassNew(char *resReq, struct resVal *resVal, struct lsInfo *lsInfo, int un
                 default:
                     break;
             }
-            hasFunction = FALSE;
         } else {
             return (PARSE_BAD_EXP);
         }

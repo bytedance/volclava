@@ -125,15 +125,4 @@ The following article offers plentiful user and administrator operation guides, 
 ## Contact Us
 We welcome inquiries and collaboration opportunities regarding the advanced applications of our scheduler, such as developing new features and coming up with new product design. Let's jointly promote the growth of VolcLava. Please feel free to contact us at volclava@bytedance.com
 
-# Compile
-# Building Notes
-
-If you are building this on a modern system where `rpc/xdr.h` is not found,
-you likely need the `libtirpc-devel` package. On RHEL9/Amazon Linux 2023,Rocky Linux 9, run:
-
-```bash
-sudo dnf install libtirpc libtirpc-devel
-./configure CPPFLAGS="-I/usr/include/tirpc" LDFLAGS="-ltirpc"
-
-
 &copy; Copyright (C) 2021-2025 ByteBance Ltd. and/or its affiliates
