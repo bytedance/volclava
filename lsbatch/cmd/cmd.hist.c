@@ -1,4 +1,5 @@
-/* $Id: cmd.hist.c 397 2007-11-26 19:04:00Z mblack $
+/* Copyright (C) 2021-2025 Bytedance Ltd. and/or its affiliates
+ * $Id: cmd.hist.c 397 2007-11-26 19:04:00Z mblack $
  * Copyright (C) 2007 Platform Computing Inc
  *
  * This program is free software; you can redistribute it and/or modify
@@ -168,9 +169,6 @@ displayEvent(struct eventRec *log, struct histReq *req)
 {
     char prline[MSGSIZE];
     char localTimeStr[60];
-    char *fName;
-
-    fName = putstr_ ("displayEvent");
 
     if (req->eventTime[1] != 0
 	&& req->eventTime[0] < req->eventTime[1]) {
@@ -215,7 +213,8 @@ displayEvent(struct eventRec *log, struct histReq *req)
                 sprintf(prline, (_i18n_msg_get(ls_catd,NL_SETN,1058, "master resigned.\n"))); /* catgets  1058  */
                 break;
 	    case MASTER_RECONFIG:
-                sprintf(prline, (_i18n_msg_get(ls_catd,NL_SETN,1059, "reconfiguration initiated.\n"))); /* catgets  1059  */
+                sprintf(prline, (_i18n_msg_get(ls_catd,NL_SETN,1059, "reconfiguration initiated. %s\n")),
+                        log->eventLog.mbdDieLog.msg); /* catgets  1059  */
                 break;
 	    case MASTER_FATAL:
                 sprintf(prline, (_i18n_msg_get(ls_catd,NL_SETN,1060, "fatal errors.\n"))); /* catgets  1060  */
@@ -267,10 +266,21 @@ displayEvent(struct eventRec *log, struct histReq *req)
 	    }
             prtLine(prline);
             if (log->eventLog.queueCtrlLog.userName
-		&& log->eventLog.queueCtrlLog.userName[0])
-                sprintf(prline, (_i18n_msg_get(ls_catd,NL_SETN,1070, " by user or administrator <%s>.\n")), log->eventLog.queueCtrlLog.userName); /* catgets  1070  */
-             else
-                sprintf(prline, ".\n");
+		&& log->eventLog.queueCtrlLog.userName[0]) {
+                if (log->eventLog.queueCtrlLog.msg[0] != '\0') {
+                    sprintf(prline, (_i18n_msg_get(ls_catd,NL_SETN,1070, " by user or administrator <%s>. %s.\n")),
+                            log->eventLog.queueCtrlLog.userName,
+                            log->eventLog.queueCtrlLog.msg); /* catgets  1070  */ 
+                } else {
+                    sprintf(prline, (_i18n_msg_get(ls_catd,NL_SETN,1070, " by user or administrator <%s>.\n")), log->eventLog.queueCtrlLog.userName); /* catgets  1070  */
+                }
+            } else {
+                if (log->eventLog.queueCtrlLog.msg[0] != '\0') {
+                     sprintf(prline, ". %s.\n", log->eventLog.queueCtrlLog.msg);
+                } else {
+                     sprintf(prline, ".\n");
+                }
+            }
 
 	    prtLine(prline);
     	}
@@ -307,10 +317,21 @@ displayEvent(struct eventRec *log, struct histReq *req)
 	    }
 	    prtLine(prline);
             if (log->eventLog.hostCtrlLog.userName
-	        && log->eventLog.hostCtrlLog.userName[0])
-                sprintf(prline, (_i18n_msg_get(ls_catd,NL_SETN,1077, " by administrator <%s>.\n")), log->eventLog.hostCtrlLog.userName); /* catgets  1077  */
-             else
-                sprintf(prline, ".\n");
+	        && log->eventLog.hostCtrlLog.userName[0]) {
+                if (log->eventLog.hostCtrlLog.msg[0] != '\0') {
+                    sprintf(prline, (_i18n_msg_get(ls_catd,NL_SETN,1077, " by administrator <%s>. %s.\n")),
+                           log->eventLog.hostCtrlLog.userName, log->eventLog.hostCtrlLog.msg); /* catgets  1077  */
+                } else {
+                    sprintf(prline, (_i18n_msg_get(ls_catd,NL_SETN,1077, " by administrator <%s>.\n")), log->eventLog.hostCtrlLog.userName); /* catgets  1077  */
+                }
+            } else {
+                if (log->eventLog.hostCtrlLog.msg[0] != '\0') {
+                    sprintf(prline, ". %s.\n", log->eventLog.hostCtrlLog.msg);
+                } else {
+                    sprintf(prline, ".\n");
+                }
+            }
+
             prtLine(prline);
 	}
         break;

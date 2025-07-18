@@ -1352,6 +1352,9 @@ readQueueCtrl(char *line, struct queueCtrlLog *queueCtrlLog)
 
     copyQStr(line, MAX_LSB_NAME_LEN, 1, queueCtrlLog->userName);
 
+    if (version >= _VOLCLAVA_VERSION2_1_)
+        copyQStr(line, MAXLINELEN, 0, queueCtrlLog->msg);
+
     return (LSBE_NO_ERROR);
 }
 
@@ -1374,6 +1377,9 @@ readHostCtrl(char *line, struct hostCtrlLog *hostCtrlLog)
 
     copyQStr(line, MAX_LSB_NAME_LEN, 1, hostCtrlLog->userName);
 
+    if (version >= _VOLCLAVA_VERSION2_1_)
+        copyQStr(line, MAXLINELEN, 0, hostCtrlLog->msg);    
+
     return (LSBE_NO_ERROR);
 
 }
@@ -1388,6 +1394,9 @@ readMbdDie (char *line, struct mbdDieLog *mbdDieLog)
                 &(mbdDieLog->exitCode));
     if (cc != 2)
         return (LSBE_EVENT_FORMAT);
+
+    if (version >= _VOLCLAVA_VERSION2_1_)
+        copyQStr(line, MAXLINELEN, 0,  mbdDieLog->msg);
 
     return (LSBE_NO_ERROR);
 }
@@ -2339,6 +2348,9 @@ writeQueueCtrl(FILE *log_fp, struct queueCtrlLog *queueCtrlLog)
     if (addQStr(log_fp, queueCtrlLog->userName) < 0)
         return (LSBE_SYS_CALL);
 
+    if (addQStr(log_fp, queueCtrlLog->msg) < 0)
+        return (LSBE_SYS_CALL);
+
     if (fprintf(log_fp, "\n") < 0)
         return (LSBE_SYS_CALL);
 
@@ -2358,6 +2370,9 @@ writeHostCtrl(FILE *log_fp, struct hostCtrlLog *hostCtrlLog)
     if (addQStr(log_fp, hostCtrlLog->userName) < 0)
         return (LSBE_SYS_CALL);
 
+    if (addQStr(log_fp, hostCtrlLog->msg) < 0)
+        return (LSBE_SYS_CALL);
+
     if (fprintf(log_fp, "\n") < 0)
         return (LSBE_SYS_CALL);
 
@@ -2367,10 +2382,15 @@ writeHostCtrl(FILE *log_fp, struct hostCtrlLog *hostCtrlLog)
 static int
 writeMbdDie (FILE *log_fp, struct mbdDieLog *mbdDieLog)
 {
-    if (addQStr (log_fp, mbdDieLog->master) < 0)
+    if (addQStr(log_fp, mbdDieLog->master) < 0)
         return (LSBE_SYS_CALL);
-    if (fprintf(log_fp, " %d %d\n", mbdDieLog->numRemoveJobs,
+    if (fprintf(log_fp, " %d %d", mbdDieLog->numRemoveJobs,
                 mbdDieLog->exitCode) < 0)
+        return (LSBE_SYS_CALL);
+    if (addQStr(log_fp, mbdDieLog->msg))
+        return (LSBE_SYS_CALL);
+
+    if (fprintf(log_fp, "\n") < 0)
         return (LSBE_SYS_CALL);
 
     return (LSBE_NO_ERROR);
@@ -3442,7 +3462,6 @@ getJobIdIndexFromEventFile (char *eventFile, struct sortIntList *header,
     char                    nameBuf[MAXLINELEN];
     int                     eventKind;
     int                     eventType;
-    time_t                  eventTime;
     int                     tempTimeStamp;
     int                     cc;
 
@@ -3501,8 +3520,6 @@ getJobIdIndexFromEventFile (char *eventFile, struct sortIntList *header,
         cc = sscanf(line, "%d%n", &tempTimeStamp,&ccount);
         if (cc != 1)
             continue;
-
-        eventTime = tempTimeStamp;
 
         line += ccount + 1;
 

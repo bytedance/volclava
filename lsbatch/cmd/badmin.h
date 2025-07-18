@@ -1,4 +1,6 @@
-/* $Id: badmin.h 397 2007-11-26 19:04:00Z mblack $
+/* 
+ * Copyright (C) 2021-2025 Bytedance Ltd. and/or its affiliates
+ * $Id: badmin.h 397 2007-11-26 19:04:00Z mblack $
  * Copyright (C) 2007 Platform Computing Inc
  *
  * This program is free software; you can redistribute it and/or modify
@@ -98,28 +100,28 @@ static char *cmdList[] = {
 
 static char *cmdSyntax[] = 
 {
-  "[-v] [-f]",                     
-  "[-v]",                          
-  "[ queue_name ... | all ]",      
-  "[ queue_name ... | all ]",      
-  "[ queue_name ... | all ]",      
-  "[ queue_name ... | all ]",      
-  "[-t time0,time1] [-f logfile_name] [ queue_name ...]", 
-  "[ host_name ... | host_group ... | all ]",            
-  "[ host_name ... | host_group ... | all ]",            
-  "[-f] [ host_name ... | all ]",                        
-  "[-f] [ host_name ... | all ]",                        
-  "[-f] [ host_name ... | all ]",                        
-  "[-t time0,time1] [-f logfile_name] [ host_name ...]", 
-  "[-t time0,time1] [-f logfile_name]",                  
-  "[-t time0,time1] [-f logfile_name]",                  
-  "[-c class_name] [-l debug_level] [-f logfile_name] [-o]", 
-  "[-l timing_level] [-f logfile_name] [-o]",            
-  "[-v] [-f]",                                           
+  "[-v] [-f]",
+  "[-v]",
+  "[-C \"comments\"] [ queue_name ... | all ]",
+  "[-C \"comments\"] [ queue_name ... | all ]",
+  "[-C \"comments\"] [ queue_name ... | all ]",
+  "[-C \"comments\"] [ queue_name ... | all ]",
+  "[-t time0,time1] [-f logfile_name] [ queue_name ...]",
+  "[-C \"comments\"] [ host_name ... | host_group ... | all ]",
+  "[-C \"comments\"] [ host_name ... | host_group ... | all ]",
+  "[-f] [ host_name ... | all ]",
+  "[-f] [ host_name ... | all ]",
+  "[-f] [ host_name ... | all ]",
+  "[-t time0,time1] [-f logfile_name] [ host_name ...]",
+  "[-t time0,time1] [-f logfile_name]",
+  "[-t time0,time1] [-f logfile_name]",
+  "[-c class_name] [-l debug_level] [-f logfile_name] [-o]",
+  "[-l timing_level] [-f logfile_name] [-o]",
+  "[-C \"comments\"] [-v] [-f]",
   "[-c class_name] [-l debug_level] [-f logfile_name] [-o] [ host_name ...]",
-  "[-l timing_level] [-f logfile_name] [-o] [ host_name ...]",  
-  "[ command ...]",                                             
-  "[ command ...]",                                             
+  "[-l timing_level] [-f logfile_name] [-o] [ host_name ...]",
+  "[ command ...]",
+  "[ command ...]",
   "",                                                           
   "[-t time0,time1] [-f logfile_name]",
   NULL

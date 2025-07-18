@@ -1,4 +1,5 @@
-/* $Id: lsb.hc.c 397 2007-11-26 19:04:00Z mblack $
+/* Copyright (C) 2021-2025 Bytedance Ltd. and/or its affiliates
+ * $Id: lsb.hc.c 397 2007-11-26 19:04:00Z mblack $
  * Copyright (C) 2007 Platform Computing Inc
  *
  * This program is free software; you can redistribute it and/or modify
@@ -25,7 +26,7 @@
 #include "lsb.h"
 
 int 
-lsb_hostcontrol (char *host, int opCode)
+lsb_hostcontrol (char *host, int opCode, char *message)
 {
     XDR xdrs;
     char request_buf[MSGSIZE];
@@ -79,7 +80,8 @@ lsb_hostcontrol (char *host, int opCode)
 	hdr.opCode = BATCH_HOST_CTRL;
 	break;
     }
-   
+  
+    hostControlReq.msg = message; 
     
     if (authTicketTokens_(&auth, contactHost) == -1)
 	return (-1);

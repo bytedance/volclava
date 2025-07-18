@@ -1331,10 +1331,6 @@ mbdDie (int sig)
     sigaddset(&newmask, SIGINT);
     sigprocmask(SIG_BLOCK, &newmask, NULL);
 
-
-
-
-
     for (list = 0; list < NJLIST; list++) {
         if (jDataList[list] != NULL) {
             for (jpbw = jDataList[list]->back; jpbw != jDataList[list];
@@ -1357,8 +1353,6 @@ mbdDie (int sig)
         ls_syslog(LOG_ERR, I18N_FUNC_FAIL_M, "mbdDie", "gethostname");
         strcpy(myhostp, "localhost");
     }
-
-
 
     die (sig);
 

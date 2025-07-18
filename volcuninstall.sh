@@ -35,8 +35,8 @@ else
     chkconfig volclava off
     chkconfig --del volclava
 
-    if rpm -qa | grep volclava-2.0* > /dev/null 2>&1; then
-       rpm -e volclava-2.0*
+    if rpm -qa | grep volclava-2.1* > /dev/null 2>&1; then
+       rpm -e volclava-2.1*
     fi
 fi
 

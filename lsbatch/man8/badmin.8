@@ -10,7 +10,7 @@
 .PP
 .PP
 \fBbadmin\fR\fB \fR\fIsubcommand
-\fR.PP
+.PP
 \fBbadmin\fR\fB \fR[\fB-h\fR | \fB-V\fR]
 .SH SUBCOMMAND LIST
 .BR
@@ -20,21 +20,21 @@
 .br
 \fBreconfig\fR [\fB-v\fR] [\fB-f\fR]
 .br
-\fBmbdrestart\fR [\fB-v\fR] [\fB-f\fR]
+\fBmbdrestart\fR [\fB-C\fR \fI"comment"\fR] [\fB-v\fR] [\fB-f\fR]
 .br
-\fBqopen\fR [\fIqueue_name\fR ... | \fBall\fR]
+\fBqopen\fR [\fB-C\fR \fI"comment"\fR] [\fIqueue_name\fR ... | \fBall\fR]
 .br
-\fBqclose\fR [\fIqueue_name\fR ... | \fBall\fR]
+\fBqclose\fR [\fB-C\fR \fI"comment"\fR] [\fIqueue_name\fR ... | \fBall\fR]
 .br
-\fBqact\fR [\fIqueue_name\fR ... | \fBall\fR]
+\fBqact\fR [\fB-C\fR \fI"comment"\fR] [\fIqueue_name\fR ... | \fBall\fR]
 .br
-\fBqinact\fR [\fIqueue_name\fR ... | \fBall\fR]
+\fBqinact\fR [\fB-C\fR \fI"comment"\fR] [\fIqueue_name\fR ... | \fBall\fR]
 .br
 \fBqhist\fR [\fB-t\fR \fItime0\fR,\fItime1\fR] [\fB-f\fR \fIlogfile_name\fR] [\fIqueue_name \fR...]
 .br
-\fBhopen\fR [\fIhost_name\fR ... | \fIhost_group\fR ... | \fBall\fR]
+\fBhopen\fR [\fB-C\fR \fI"comment"\fR] [\fIhost_name\fR ... | \fIhost_group\fR ... | \fBall\fR]
 .br
-\fBhclose\fR [\fIhost_name\fR ... | \fIhost_group\fR ... | \fBall\fR]
+\fBhclose\fR [\fB-C\fR \fI"comment"\fR] [\fIhost_name\fR ... | \fIhost_group\fR ... | \fBall\fR]
 .br
 \fBhrestart\fR [\fB-f\fR] [\fIhost_name\fR ...| \fBall\fR]
 .br
@@ -50,8 +50,8 @@
 .br
 \fBhelp\fR [\fIcommand\fR ...] | \fB?\fR [\fIcommand\fR ...]
 .br
-\fBquit
-\fR.br
+\fBquit\fR
+.br
 \fBsbddebug\fR [\fB-c\fR \fIclass_name ...\fR] [\fB-l\fR \fIdebug_level\fR] [\fB-f\fR \fIlogfile_name\fR] [\fB-o\fR] 
 [\fIhost_name ...\fR]
 .br
@@ -217,7 +217,7 @@ configuration files contain no fatal errors.
 .RE
 
 .TP 
-\fBmbdrestart\fR [\fB-v\fR] [\fB-f\fR]
+\fBmbdrestart\fR [\fB-C\fR \fI"comment"\fR] [\fB-v\fR] [\fB-f\fR]
 
 .IP
 Dynamically reconfigures Lava and restarts MBD. Configuration files are 
@@ -236,15 +236,12 @@ If lsb.events is large, or many jobs are running, restarting MBD can
 take several minutes. If you only need to reload the configuration files, 
 use badmin reconfig.
 
-
 .IP
-\fB-v\fR 
-.BR
+\fB-C comment\fR
 .RS
 .IP
-Verbose mode. Displays detailed messages about the status of 
-configuration files. All messages from configuration checking 
-are printed to stderr.
+Add comments to the operations and record them in lsb.events file. The
+maximum length of the comment string is 511 characters.
 
 .RE
 
@@ -259,7 +256,7 @@ to proceed if configuration files contain no fatal errors.
 .RE
 
 .TP 
-\fBqopen\fR [\fIqueue_name ... \fR| \fBall\fR]
+\fBqopen\fR [\fB-C\fR \fI"comment"\fR] [\fIqueue_name ... \fR| \fBall\fR]
 
 .IP
 Opens specified queues, or all queues if the reserved word all is 
@@ -267,18 +264,34 @@ specified. If no queue is specified, the system default queue is assumed
 (see lsb.queues(5) for DEFAULT_QUEUE). A queue can accept batch 
 jobs only if it is open.
 
+.IP
+\fB-C comment\fR
+.RS
+.IP
+Add comments to the operations and record them in lsb.events file. The
+maximum length of the comment string is 511 characters.
+
+.RE
 
 .TP 
-\fBqclose\fR [\fIqueue_name\fR ... | \fBall\fR]
+\fBqclose\fR [\fB-C\fR \fI"comment"\fR] [\fIqueue_name\fR ... | \fBall\fR]
 
 .IP
 Closes specified queues, or all queues if the reserved word all is 
 specified. If no queue is specified, the system default queue is 
 assumed. A queue will not accept any job if it is closed.
 
+.IP
+\fB-C comment\fR
+.RS
+.IP
+Add comments to the operations and record them in lsb.events file. The
+maximum length of the comment string is 511 characters.
+
+.RE
 
 .TP 
-\fBqact \fR[\fIqueue_name\fR ... | \fBall\fR]
+\fBqact\fR [\fB-C\fR \fI"comment"\fR] [\fIqueue_name\fR ... | \fBall\fR]
 
 .IP
 Activates specified queues, or all queues if the reserved word all is 
@@ -289,9 +302,17 @@ assumed. Jobs in a queue can be dispatched if the queue is activated.
 A queue inactivated by its run windows cannot be reactivated by this 
 command (see lsb.queues(5) for RUN_WINDOW).
 
+.IP
+\fB-C comment\fR
+.RS
+.IP 
+Add comments to the operations and record them in lsb.events file. The
+maximum length of the comment string is 511 characters.
+
+.RE
 
 .TP 
-\fBqinact\fR [\fIqueue_name\fR ... | \fBall\fR]
+\fBqinact\fR [\fB-C\fR \fI"comment"\fR] [\fIqueue_name\fR ... | \fBall\fR]
 
 .IP
 Inactivates specified queues, or all queues if the reserved word all is 
@@ -299,6 +320,14 @@ specified. If no queue is specified, the system default queue is
 assumed. No job in a queue can be dispatched if the queue is 
 inactivated.
 
+.IP
+\fB-C comment\fR
+.RS
+.IP 
+Add comments to the operations and record them in lsb.events file. The
+maximum length of the comment string is 511 characters.
+
+.RE
 
 .TP 
 \fBqhist\fR [\fB-t\fR \fItime0\fR,\fItime1\fR] [\fB-f\fR \fIlogfile_name\fR] [\fIqueue_name\fR ...]
@@ -335,7 +364,7 @@ LSB_SHAREDIR/cluster_name/logdir/lsb.events. Option
 .RE
 
 .TP 
-\fBhopen\fR [\fIhost_name \fR... | \fIhost_group \fR... | \fBall\fR]
+\fBhopen\fR [\fB-C\fR \fI"comment"\fR] [\fIhost_name \fR... | \fIhost_group \fR... | \fBall\fR]
 
 .IP
 Opens batch server hosts. Specify the names of any server hosts or host 
@@ -343,9 +372,17 @@ groups (see bmgroup(1)). All batch server hosts will be opened if the
 reserved word all is specified. If no host or host group is specified, 
 the local host is assumed. A host accepts batch jobs if it is open.
 
+.IP
+\fB-C comment\fR
+.RS
+.IP
+Add comments to the operations and record them in lsb.events file. The
+maximum length of the comment string is 511 characters.
+
+.RE
 
 .TP 
-\fBhclose\fR [\fIhost_name \fR... | \fIhost_group \fR... | \fBall\fR]
+\fBhclose\fR [\fB-C\fR \fI"comment"\fR] [\fIhost_name \fR... | \fIhost_group \fR... | \fBall\fR]
 
 .IP
 Closes batch server hosts. Specify the names of any server hosts or host 
@@ -356,6 +393,14 @@ already dispatched to the host will not be affected. Note that this is
 different from a host closed by a window \fB-\fR all jobs on it are suspended 
 in that case.
 
+.IP
+\fB-C comment\fR
+.RS
+.IP
+Add comments to the operations and record them in lsb.events file. The
+maximum length of the comment string is 511 characters.
+
+.RE
 
 .TP 
 \fBhrestart\fR [\fB-f\fR] [\fIhost_name \fR... | \fBall\fR]

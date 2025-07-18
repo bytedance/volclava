@@ -1,4 +1,5 @@
-/* $Id: lsb.reconfig.c 397 2007-11-26 19:04:00Z mblack $
+/* Copyright (C) 2021-2025 Bytedance Ltd. and/or its affiliates
+ * $Id: lsb.reconfig.c 397 2007-11-26 19:04:00Z mblack $
  * Copyright (C) 2007 Platform Computing Inc
  *
  * This program is free software; you can redistribute it and/or modify
@@ -22,7 +23,7 @@
 #include "lsb.h"
 
 int
-lsb_reconfig (int configFlag)
+lsb_reconfig (struct controlReq *req)
 {
     mbdReqType mbdReqtype;
     XDR xdrs;
@@ -31,7 +32,6 @@ lsb_reconfig (int configFlag)
     int cc;
     struct LSFHeader hdr;
     struct lsfAuth auth;
-    int tmp;
 
     mbdReqtype = BATCH_RECONFIG;
 
@@ -42,10 +42,8 @@ lsb_reconfig (int configFlag)
 
     initLSFHeader_(&hdr);
     hdr.opCode = mbdReqtype;
-    tmp = (short) configFlag;
-    hdr.reserved = tmp;
 
-    if (!xdr_encodeMsg(&xdrs, NULL, &hdr, NULL, 0, &auth)) {
+    if (!xdr_encodeMsg(&xdrs, (char *)req, &hdr, xdr_controlReq, 0, &auth)) {
         lsberrno = LSBE_XDR;
         return(-1);
     }

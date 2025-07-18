@@ -3215,6 +3215,7 @@ initHostInfo (struct hostInfoEnt *hp)
         hp->mig = INFINIT_INT;
         hp->attr = INFINIT_INT;
         hp->chkSig = INFINIT_INT;
+        hp->actionComment = NULL;
     }
 }
 
@@ -3227,6 +3228,7 @@ freeHostInfo (struct hostInfoEnt *hp)
         FREEUP(hp->loadStop);
         FREEUP(hp->windows);
         FREEUP(hp->load);
+        FREEUP(hp->actionComment);
     }
 }
 
@@ -5225,6 +5227,7 @@ initQueueInfo(struct queueInfoEnt *qp)
     qp->fsFactors.runTimeFactor = -1;
     qp->fsFactors.runJobFactor = -1;
     qp->fsFactors.histHours = -1;
+    qp->actionComment = NULL;
 }
 
 static void
@@ -5257,6 +5260,7 @@ freeQueueInfo(struct queueInfoEnt *qp)
     FREEUP(qp->resumeActCmd);
     FREEUP(qp->terminateActCmd);
     FREEUP(qp->userShares);
+    FREEUP(qp->actionComment);
 }
 
 char

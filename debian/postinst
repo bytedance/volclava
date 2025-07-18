@@ -1,21 +1,22 @@
 #!/usr/bin/env bash
 # Copyright (C) 2021-2025 Bytedance Ltd. and/or its affiliates
 
-chmod 755 /opt/volclava-2.0/lib/liblsf.a || true
-chmod 755 /opt/volclava-2.0/lib/liblsbatch.a || true
+VERSION="2.1"
+chmod 755 /opt/volclava-${VERSION}/lib/liblsf.a || true
+chmod 755 /opt/volclava-${VERSION}/lib/liblsbatch.a || true
 
 chmod 755 /etc/profile.d/volclava.sh || true
 chmod 755 /etc/profile.d/volclava.csh || true
-chmod 755 /opt/volclava-2.0/etc/volclava.sh || true
-chmod 755 /opt/volclava-2.0/etc/volclava.csh || true
+chmod 755 /opt/volclava-${VERSION}/etc/volclava.sh || true
+chmod 755 /opt/volclava-${VERSION}/etc/volclava.csh || true
 
 source /etc/profile.d/volclava.sh || true
 
 chmod 755 /etc/init.d/volclava || true
-chmod 755 /opt/volclava-2.0/etc/volclava || true
+chmod 755 /opt/volclava-${VERSION}/etc/volclava || true
 
 groupadd -f volclava || true
 useradd -c "volclava Administrator" -g volclava -m -d /home/volclava volclava || true
 
-chown -R volclava:volclava /opt/volclava-2.0/*
-chgrp -R volclava /opt/volclava-2.0/*
+chown -R volclava:volclava /opt/volclava-${VERSION}/*
+chgrp -R volclava /opt/volclava-${VERSION}/*

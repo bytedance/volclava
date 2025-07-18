@@ -20,9 +20,6 @@
 #define LIB_XDR_H
 #include "lib.hdr.h"
 
-
-
-
 extern bool_t xdr_time_t (XDR *, time_t *);
 extern bool_t xdr_lsfRusage(XDR *, struct lsfRusage *);
 extern bool_t xdr_lvector(XDR *, float *, int);

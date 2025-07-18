@@ -19,7 +19,7 @@
 #
 
 %define major 2
-%define minor 0
+%define minor 1
 %define release 0
 %define build_timestamp %(date +"%Y%m%d")
 
@@ -36,7 +36,7 @@
 
 Summary: volclava Distributed Batch Scheduler
 Name: volclava
-Version: 2.0
+Version: 2.1
 # Release: 0.b.%{build_timestamp}
 Release: 0.b.20250616
 License: GPLv2

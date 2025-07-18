@@ -1,12 +1,12 @@
 Source: volclava
 Section: misc
 Priority: optional
-Maintainer: Mingze Li <limingze.jiayou@bytedance.com>; Guangbo Shu <shuguangbo@bytedance.com>
+Maintainer: Mingze Li <limingze.jiayou@bytedance.com>; Guangbo Shu <shuguangbo@bytedance.com>; Nan Qi <qinan.cn@bytedance.com>
 Build-Depends: autoconf, automake, tcl-dev, libncurses-dev
-Standards-Version: 2.0-0
+Standards-Version: 2.1-0
 Homepage:
 
 Package: volclava
 Architecture: any
 Depends: tcl-dev, libncurses-dev
-Description: volclava 2.0 for Ubuntu/Debian
+Description: volclava 2.1 for Ubuntu/Debian
