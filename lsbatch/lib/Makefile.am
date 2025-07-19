@@ -1,7 +1,7 @@
 #
 # Copyright (C) 2011 openlava foundation
 #
-INCLUDES = -I$(top_srcdir)/lsf -I$(top_srcdir)/lsf/lib \
+AM_CPPFLAGS = -I$(top_srcdir)/lsf -I$(top_srcdir)/lsf/lib \
            -I$(top_srcdir)/lsbatch -I./
 
 lib_LIBRARIES = liblsbatch.a

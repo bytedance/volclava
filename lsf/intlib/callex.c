@@ -15,8 +15,11 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA
  *
  */
-# include "stdio.h"
+#include "stdio.h"
+#include<stdint.h>
 #if (defined(__STDC__))
+#define SPTR_BUFLEN 1024
+char tmpbuf[SPTR_BUFLEN];
 extern int yyreject();
 extern int yywrap();
 extern int yylook();
@@ -30,7 +33,7 @@ extern int yyless();
 extern void allprint();
 extern void sprint();
 #endif
-#endif	
+#endif
 # define U(x) x
 # define NLSTATE yyprevious=YYNEWLINE
 # define BEGIN yybgin = yysvec + 1 +
@@ -63,7 +66,7 @@ int yytchar;
 #define yyin stdin
 #define yyout stdout
 extern int yylineno;
-struct yysvf { 
+struct yysvf {
     int yystoff;
     struct yysvf *yyother;
     int *yystops;};
@@ -80,7 +83,7 @@ extern struct yysvf yysvec[], *yybgin;
 #if defined(__linux__)
 #include <linux/limits.h>
 unsigned char *yysptr, yysbuf[];
-#endif 
+#endif
 #include <syslog.h>
 #include <malloc.h>
 
@@ -89,10 +92,10 @@ unsigned char *yysptr, yysbuf[];
 #endif
 #include "tokdefs.h"
 #include "yparse.h"
-#include "../lib/lsi18n.h" 
+#include "../lib/lsi18n.h"
 
 #define MAXTOKENLEN 302
-#define NL_SETN      22       
+#define NL_SETN      22
 
 typedef struct stream Stream;
 struct stream { char *buf, *bp; Stream * prev; };
@@ -119,7 +122,9 @@ int yylex(){
     while((nstr = yylook()) >= 0)
         switch(nstr){
             case 0:
-                if(yywrap()) return(0); break;
+                if(yywrap())
+                    return(0);
+                break;
             case 1:
                 yymark() ;
                 break;
@@ -239,10 +244,10 @@ static struct rwtable {
 
 struct rwtable *END(low)
     struct rwtable *low;
-{ 
+{
     int c ;
     struct rwtable *i;
-    
+
     for (i=low; ; i++){
         if ((c=strcmp(i->rw_name, "zzzz"))==0)
             return(i);
@@ -253,10 +258,10 @@ struct rwtable *END(low)
 void set_lower(str)
     char *str;
 { int i ;
-  
+
     for (i=0; i<strlen(str); i++){
         if ('A' <=str[i] && str[i]<='Z')
-            str[i]=str[i]+'a'-'A' ; 
+            str[i]=str[i]+'a'-'A' ;
     }
 }
 
@@ -288,9 +293,9 @@ static void s_lookup(yylex)
     int yylex;
 {
     if (!token){
-        token = (char *)malloc(MAXTOKENLEN); 
+        token = (char *)malloc(MAXTOKENLEN);
         token[0] = '\0';
-    } 
+    }
     strcpy(token, (char *)yytext) ;
 }
 
@@ -320,14 +325,13 @@ void idxerror(s)
 
 
 
-int yywhere(sptr)
-    char *sptr;
+int yywhere(char *sptr)
 { char colon=0;
 
     if (source && *source && strcmp(source, "\"\""))
     { char * cp=source ;
         int len =strlen(source);
-    
+
         if (*cp=='*')
             ++cp, len-=2;
         if (strncmp(cp, "./", 2 )==0)
@@ -336,29 +340,44 @@ int yywhere(sptr)
         colon=1;
     }
     if (yylineno >0)
-    {	if (colon)
-            sprintf(sptr,"%s, ",sptr) ;
-	sprintf(sptr, "%s line %d", sptr, yylineno - 
-                (*yytext =='\n' || ! *yytext));
+    {	if (colon) {
+            snprintf(tmpbuf, sizeof(tmpbuf), "%s, ", sptr);
+            strncpy(sptr, tmpbuf, SPTR_BUFLEN);
+            sptr[SPTR_BUFLEN - 1] = '\0';
+        }
+        snprintf(tmpbuf, sizeof(tmpbuf), "%s line %d", sptr,
+                 yylineno - (*yytext == '\n' || !*yytext));
+        strncpy(sptr, tmpbuf, SPTR_BUFLEN);
+        sptr[SPTR_BUFLEN - 1] = '\0';
 	colon=1;
     }
     if (*yytext)
     {	register int i;
-	
+
 	for (i=0; i<20; ++i)
             if (!yytext[i] || yytext[i]=='\n')
                 break;
 	if (i)
    	{
-            if (colon)
-                sprintf(sptr,"%s ", sptr);
-            sprintf(sptr,"%s near \"%.*s%.8s\"", sptr, i, yytext, yybuff);
+            if (colon) {
+                snprintf(tmpbuf, sizeof(tmpbuf), "%s ", sptr);
+                strncpy(sptr, tmpbuf, SPTR_BUFLEN);
+                sptr[sizeof(sptr) - 1] = '\0';
+            }
+            snprintf(tmpbuf, sizeof(tmpbuf), "%s near \"%.*s%.8s\"",
+                     sptr, i, yytext, yybuff);
+            strncpy(sptr, tmpbuf, SPTR_BUFLEN);
+            sptr[sizeof(tmpbuf) - 1] = '\0';
+
             colon=1;
 	}
     }
-    if (colon)
-	sprintf(sptr,"%s: ",sptr);
-	
+    if (colon) {
+        snprintf(tmpbuf, sizeof(tmpbuf), "%s: ", sptr);
+        strncpy(sptr, tmpbuf, SPTR_BUFLEN);
+        sptr[sizeof(sptr) - 1] = '\0';
+    }
+
     return(yylineno);
 }
 
@@ -371,7 +390,7 @@ yywrap(void)
         if (in) {
             free(in);
             in=NULL;
-        }    
+        }
         in=sp;
         return 0;
     }
@@ -405,11 +424,11 @@ yyalloc(struct mallocList  **head, int size)
         *head = entry;
     };
     return(space);
-} 
+}
 
 
 
-void 
+void
 yyfree(struct mallocList  **head, void *space)
 {
     struct mallocList  *entry;
@@ -420,26 +439,26 @@ yyfree(struct mallocList  **head, void *space)
             break;
         entry = entry->next;
     }
-    
+
     if (entry)
         entry->space = NULL;
     free(space);
-} 
+}
 
 void
 yparseSucc(struct mallocList  **head)
 {
     struct mallocList  *entry, *freeEntry;
 
-    entry = *head; 
+    entry = *head;
     while (entry) {
         freeEntry = entry;
-        entry = entry->next; 
+        entry = entry->next;
         free(freeEntry);
     }
-    *head = NULL;     
+    *head = NULL;
     return;
-} 
+}
 
 void
 yparseFail(struct mallocList  **head)
@@ -448,7 +467,7 @@ yparseFail(struct mallocList  **head)
 
     if (!head)
         return;
-    entry = *head; 
+    entry = *head;
     while (entry) {
         freeEntry = entry;
         entry = entry->next;
@@ -456,12 +475,12 @@ yparseFail(struct mallocList  **head)
             free(freeEntry->space);
         free(freeEntry);
     }
-    *head = NULL;    
+    *head = NULL;
     return;
-} 
+}
 
- 
-int 
+
+int
 checkNameSpec(char *name, char **errMsg )
 {
     static char bufMess[1024];
@@ -471,41 +490,41 @@ checkNameSpec(char *name, char **errMsg )
     yybuff = name;
     lexCode = yylex();
 
-    if ( lexCode != NAME) { 
+    if ( lexCode != NAME) {
         if (lexCode == UNDEF)
-            sprintf(bufMess, 
-		    _i18n_msg_get(ls_catd, NL_SETN, 350, 
-                                  "Name is invalid: \"%s\""), /* catgets 350 */ 
-		    name);  
+            sprintf(bufMess,
+		    _i18n_msg_get(ls_catd, NL_SETN, 350,
+                                  "Name is invalid: \"%s\""), /* catgets 350 */
+		    name);
         else if (lexCode == ICON || lexCode == RCON)
-            sprintf(bufMess, 
-		    _i18n_msg_get(ls_catd, NL_SETN, 351, 
-                                  "Name cannot start with digits: \"%s\""), /* catgets 351 */ 
-		    name);  
+            sprintf(bufMess,
+		    _i18n_msg_get(ls_catd, NL_SETN, 351,
+                                  "Name cannot start with digits: \"%s\""), /* catgets 351 */
+		    name);
         else if (lexCode == CCON)
-            sprintf(bufMess, 
-		    _i18n_msg_get(ls_catd, NL_SETN, 352, 
-                                  "Name cannot be const string: \"%s\""), /* catgets 352 */ 
-		    name);  
+            sprintf(bufMess,
+		    _i18n_msg_get(ls_catd, NL_SETN, 352,
+                                  "Name cannot be const string: \"%s\""), /* catgets 352 */
+		    name);
         else if (MON <= lexCode && lexCode <= SUN)
-            sprintf(bufMess, 
-		    _i18n_msg_get(ls_catd, NL_SETN, 353, 
-                                  "Name cannot be name of week: \"%s\""), /* catgets 353 */ 
-		    name);  
+            sprintf(bufMess,
+		    _i18n_msg_get(ls_catd, NL_SETN, 353,
+                                  "Name cannot be name of week: \"%s\""), /* catgets 353 */
+		    name);
         else if (JAN <= lexCode && lexCode <= DEC)
-            sprintf(bufMess, 
-		    _i18n_msg_get(ls_catd, NL_SETN, 354, 
-                                  "Name cannot be name of month: \"%s\""), /* catgets 354 */ 
-		    name);  
+            sprintf(bufMess,
+		    _i18n_msg_get(ls_catd, NL_SETN, 354,
+                                  "Name cannot be name of month: \"%s\""), /* catgets 354 */
+		    name);
         else if (YY <= lexCode && lexCode <= SZZZZ)
-            sprintf(bufMess, 
-		    _i18n_msg_get(ls_catd, NL_SETN, 355, 
-                                  "Name cannot be reserved word: \"%s\""), /* catgets 355 */ 
-		    name);   
+            sprintf(bufMess,
+		    _i18n_msg_get(ls_catd, NL_SETN, 355,
+                                  "Name cannot be reserved word: \"%s\""), /* catgets 355 */
+		    name);
         else
-            sprintf(bufMess, 
-		    _i18n_msg_get(ls_catd, NL_SETN, 350, 
-                                  "Name is invalid: \"%s\""), name);   
+            sprintf(bufMess,
+		    _i18n_msg_get(ls_catd, NL_SETN, 350,
+                                  "Name is invalid: \"%s\""), name);
         retVal = 0;
         goto Exit;
     }
@@ -514,19 +533,19 @@ checkNameSpec(char *name, char **errMsg )
         if ((char)lexCode == '@') {
             lexCode = yylex();
             if (lexCode != NAME) {
-                sprintf(bufMess, 
-			_i18n_msg_get(ls_catd, NL_SETN, 357, 
-                                      "User name is wrong: \"%s\""), /* catgets 357 */ 
-			token);  
+                sprintf(bufMess,
+			_i18n_msg_get(ls_catd, NL_SETN, 357,
+                                      "User name is wrong: \"%s\""), /* catgets 357 */
+			token);
                 retVal = 0;
                 goto Exit;
             }
             lexCode = yylex();
-        }   
+        }
         if (lexCode > 0 ) {
-            sprintf(bufMess, 
-                    _i18n_msg_get(ls_catd, NL_SETN, 350, 
-                                  "Name is invalid: \"%s\""), name); 
+            sprintf(bufMess,
+                    _i18n_msg_get(ls_catd, NL_SETN, 350,
+                                  "Name is invalid: \"%s\""), name);
             retVal = 0;
             goto Exit;
         }
@@ -540,7 +559,7 @@ Exit:
     yysptr=yysbuf;
     yylineno =1;
     return(retVal);
-} 
+}
 int yyvstop[] = {
     0,
 
@@ -631,83 +650,83 @@ int yyvstop[] = {
     0};
 # define YYTYPE unsigned char
 struct yywork { YYTYPE verify, advance; } yycrank[] = {
-    {0,0},	{0,0},	{1,3},	{0,0},	
-    {0,0},	{0,0},	{0,0},	{0,0},	
-    {0,0},	{0,0},	{1,4},	{1,5},	
-    {0,0},	{9,21},	{4,5},	{4,5},	
-    {0,0},	{6,18},	{0,0},	{0,0},	
-    {0,0},	{9,21},	{9,0},	{0,0},	
-    {0,0},	{6,18},	{6,0},	{33,0},	
-    {21,0},	{22,0},	{0,0},	{18,0},	
-    {19,0},	{0,0},	{0,0},	{1,6},	
-    {1,7},	{4,5},	{0,0},	{1,8},	
-    {1,9},	{2,6},	{2,7},	{8,20},	
-    {11,24},	{2,8},	{2,9},	{1,10},	
-    {1,11},	{1,12},	{6,19},	{9,22},	
-    {10,23},	{2,10},	{2,11},	{18,19},	
-    {19,19},	{21,22},	{22,22},	{33,32},	
-    {9,21},	{1,13},	{1,14},	{1,15},	
-    {6,18},	{13,27},	{1,16},	{2,13},	
-    {2,14},	{2,15},	{14,28},	{15,29},	
-    {0,0},	{0,0},	{0,0},	{0,0},	
-    {32,0},	{9,21},	{0,0},	{0,0},	
-    {12,25},	{6,18},	{12,26},	{12,26},	
-    {12,26},	{12,26},	{12,26},	{12,26},	
-    {12,26},	{12,26},	{12,26},	{12,26},	
-    {0,0},	{0,0},	{0,0},	{0,0},	
-    {1,3},	{25,25},	{25,25},	{25,25},	
-    {25,25},	{25,25},	{25,25},	{25,25},	
-    {25,25},	{25,25},	{25,25},	{9,21},	
-    {32,32},	{0,0},	{0,0},	{6,18},	
-    {0,0},	{32,33},	{0,0},	{16,30},	
-    {16,30},	{16,30},	{16,30},	{16,30},	
-    {16,30},	{16,30},	{16,30},	{16,30},	
-    {16,30},	{1,17},	{17,31},	{0,0},	
-    {0,0},	{0,0},	{0,0},	{2,17},	
-    {16,30},	{16,30},	{16,30},	{16,30},	
-    {16,30},	{16,30},	{16,30},	{16,30},	
-    {16,30},	{16,30},	{16,30},	{16,30},	
-    {16,30},	{16,30},	{16,30},	{16,30},	
-    {16,30},	{16,30},	{16,30},	{16,30},	
-    {16,30},	{16,30},	{16,30},	{16,30},	
-    {16,30},	{16,30},	{0,0},	{0,0},	
-    {0,0},	{0,0},	{16,30},	{0,0},	
-    {16,30},	{16,30},	{16,30},	{16,30},	
-    {16,30},	{16,30},	{16,30},	{16,30},	
-    {16,30},	{16,30},	{16,30},	{16,30},	
-    {16,30},	{16,30},	{16,30},	{16,30},	
-    {16,30},	{16,30},	{16,30},	{16,30},	
-    {16,30},	{16,30},	{16,30},	{16,30},	
-    {16,30},	{16,30},	{24,24},	{0,0},	
-    {0,0},	{0,0},	{0,0},	{0,0},	
-    {0,0},	{0,0},	{24,24},	{24,0},	
-    {0,0},	{0,0},	{0,0},	{0,0},	
-    {0,0},	{0,0},	{0,0},	{0,0},	
-    {0,0},	{0,0},	{0,0},	{0,0},	
-    {0,0},	{0,0},	{0,0},	{0,0},	
-    {0,0},	{0,0},	{0,0},	{0,0},	
-    {0,0},	{0,0},	{0,0},	{0,0},	
-    {0,0},	{0,0},	{0,0},	{0,0},	
-    {0,0},	{0,0},	{0,0},	{24,32},	
-    {0,0},	{0,0},	{0,0},	{0,0},	
-    {0,0},	{24,24},	{0,0},	{0,0},	
-    {0,0},	{0,0},	{0,0},	{0,0},	
-    {0,0},	{0,0},	{0,0},	{0,0},	
-    {0,0},	{0,0},	{0,0},	{0,0},	
-    {0,0},	{0,0},	{24,24},	{0,0},	
-    {0,0},	{0,0},	{0,0},	{0,0},	
-    {0,0},	{0,0},	{0,0},	{0,0},	
-    {0,0},	{0,0},	{0,0},	{0,0},	
-    {0,0},	{0,0},	{0,0},	{0,0},	
-    {0,0},	{0,0},	{0,0},	{0,0},	
-    {0,0},	{0,0},	{0,0},	{0,0},	
-    {0,0},	{0,0},	{0,0},	{0,0},	
-    {24,24},	{0,0},	{0,0},	{0,0},	
+    {0,0},	{0,0},	{1,3},	{0,0},
+    {0,0},	{0,0},	{0,0},	{0,0},
+    {0,0},	{0,0},	{1,4},	{1,5},
+    {0,0},	{9,21},	{4,5},	{4,5},
+    {0,0},	{6,18},	{0,0},	{0,0},
+    {0,0},	{9,21},	{9,0},	{0,0},
+    {0,0},	{6,18},	{6,0},	{33,0},
+    {21,0},	{22,0},	{0,0},	{18,0},
+    {19,0},	{0,0},	{0,0},	{1,6},
+    {1,7},	{4,5},	{0,0},	{1,8},
+    {1,9},	{2,6},	{2,7},	{8,20},
+    {11,24},	{2,8},	{2,9},	{1,10},
+    {1,11},	{1,12},	{6,19},	{9,22},
+    {10,23},	{2,10},	{2,11},	{18,19},
+    {19,19},	{21,22},	{22,22},	{33,32},
+    {9,21},	{1,13},	{1,14},	{1,15},
+    {6,18},	{13,27},	{1,16},	{2,13},
+    {2,14},	{2,15},	{14,28},	{15,29},
+    {0,0},	{0,0},	{0,0},	{0,0},
+    {32,0},	{9,21},	{0,0},	{0,0},
+    {12,25},	{6,18},	{12,26},	{12,26},
+    {12,26},	{12,26},	{12,26},	{12,26},
+    {12,26},	{12,26},	{12,26},	{12,26},
+    {0,0},	{0,0},	{0,0},	{0,0},
+    {1,3},	{25,25},	{25,25},	{25,25},
+    {25,25},	{25,25},	{25,25},	{25,25},
+    {25,25},	{25,25},	{25,25},	{9,21},
+    {32,32},	{0,0},	{0,0},	{6,18},
+    {0,0},	{32,33},	{0,0},	{16,30},
+    {16,30},	{16,30},	{16,30},	{16,30},
+    {16,30},	{16,30},	{16,30},	{16,30},
+    {16,30},	{1,17},	{17,31},	{0,0},
+    {0,0},	{0,0},	{0,0},	{2,17},
+    {16,30},	{16,30},	{16,30},	{16,30},
+    {16,30},	{16,30},	{16,30},	{16,30},
+    {16,30},	{16,30},	{16,30},	{16,30},
+    {16,30},	{16,30},	{16,30},	{16,30},
+    {16,30},	{16,30},	{16,30},	{16,30},
+    {16,30},	{16,30},	{16,30},	{16,30},
+    {16,30},	{16,30},	{0,0},	{0,0},
+    {0,0},	{0,0},	{16,30},	{0,0},
+    {16,30},	{16,30},	{16,30},	{16,30},
+    {16,30},	{16,30},	{16,30},	{16,30},
+    {16,30},	{16,30},	{16,30},	{16,30},
+    {16,30},	{16,30},	{16,30},	{16,30},
+    {16,30},	{16,30},	{16,30},	{16,30},
+    {16,30},	{16,30},	{16,30},	{16,30},
+    {16,30},	{16,30},	{24,24},	{0,0},
+    {0,0},	{0,0},	{0,0},	{0,0},
+    {0,0},	{0,0},	{24,24},	{24,0},
+    {0,0},	{0,0},	{0,0},	{0,0},
+    {0,0},	{0,0},	{0,0},	{0,0},
+    {0,0},	{0,0},	{0,0},	{0,0},
+    {0,0},	{0,0},	{0,0},	{0,0},
+    {0,0},	{0,0},	{0,0},	{0,0},
+    {0,0},	{0,0},	{0,0},	{0,0},
+    {0,0},	{0,0},	{0,0},	{0,0},
+    {0,0},	{0,0},	{0,0},	{24,32},
+    {0,0},	{0,0},	{0,0},	{0,0},
+    {0,0},	{24,24},	{0,0},	{0,0},
+    {0,0},	{0,0},	{0,0},	{0,0},
+    {0,0},	{0,0},	{0,0},	{0,0},
+    {0,0},	{0,0},	{0,0},	{0,0},
+    {0,0},	{0,0},	{24,24},	{0,0},
+    {0,0},	{0,0},	{0,0},	{0,0},
+    {0,0},	{0,0},	{0,0},	{0,0},
+    {0,0},	{0,0},	{0,0},	{0,0},
+    {0,0},	{0,0},	{0,0},	{0,0},
+    {0,0},	{0,0},	{0,0},	{0,0},
+    {0,0},	{0,0},	{0,0},	{0,0},
+    {0,0},	{0,0},	{0,0},	{0,0},
+    {24,24},	{0,0},	{0,0},	{0,0},
     {0,0}};
 struct yysvf yysvec[] = {
     {0,	0,	0},
-    {-1,	0,		0},	
-    {-7,	yysvec+1,	0},	
+    {-1,	0,		0},
+    {-7,	yysvec+1,	0},
     {0,	0,		yyvstop+1},
     {5,	0,		yyvstop+3},
     {0,	yysvec+4,	yyvstop+6},
@@ -723,13 +742,13 @@ struct yysvf yysvec[] = {
     {10,	0,		yyvstop+28},
     {67,	0,		yyvstop+30},
     {2,	0,		yyvstop+33},
-    {-21,	yysvec+6,	0},	
+    {-21,	yysvec+6,	0},
     {-22,	yysvec+6,	yyvstop+35},
     {0,	0,		yyvstop+37},
-    {-18,	yysvec+9,	0},	
+    {-18,	yysvec+9,	0},
     {-19,	yysvec+9,	yyvstop+39},
     {0,	0,		yyvstop+41},
-    {-189,	0,		0},	
+    {-189,	0,		0},
     {49,	0,		yyvstop+43},
     {0,	yysvec+12,	yyvstop+45},
     {0,	0,		yyvstop+47},
@@ -737,7 +756,7 @@ struct yysvf yysvec[] = {
     {0,	0,		yyvstop+51},
     {0,	yysvec+16,	yyvstop+53},
     {0,	0,		yyvstop+55},
-    {-66,	yysvec+24,	0},	
+    {-66,	yysvec+24,	0},
     {-17,	yysvec+24,	yyvstop+57},
     {0,	0,	0}};
 struct yywork *yytop = yycrank+284;
@@ -783,22 +802,22 @@ unsigned char yyextra[] = {
 int yylineno =1;
 # define YYU(x) x
 # define NLSTATE yyprevious=YYNEWLINE
- 
+
 #ifdef YYNLS16_WCHAR
 unsigned char yytextuc[YYLMAX * sizeof(wchar_t)];
-# ifdef YY_PCT_POINT 
+# ifdef YY_PCT_POINT
 wchar_t yytextarr[YYLMAX];
 wchar_t *yytext;
-# else               
+# else
 wchar_t yytextarr[1];
 wchar_t yytext[YYLMAX];
 # endif
 #else
 unsigned char yytextuc;
-# ifdef YY_PCT_POINT 
+# ifdef YY_PCT_POINT
 unsigned char yytextarr[YYLMAX];
 unsigned char *yytext;
-# else               
+# else
 unsigned char yytextarr[1];
 # ifdef YYCHAR_ARRAY
 char yytext[YYLMAX];
@@ -824,7 +843,7 @@ int yylook(){
     int debug;
 # endif
     unsigned char *yylastch;
-	
+
 # ifdef LEXDEBUG
     debug = 0;
 # endif
@@ -860,7 +879,7 @@ int yylook(){
             if(debug)fprintf(yyout,"state %d\n",yystate-yysvec-1);
 # endif
             yyt = &yycrank[yystate->yystoff];
-            if(yyt == yycrank && !yyfirst){  
+            if(yyt == yycrank && !yyfirst){
                 yyz = yystate->yyother;
                 if(yyz == 0)break;
                 if(yyz->yystoff == 0)break;
@@ -876,24 +895,24 @@ int yylook(){
             }
 # endif
             yyr = yyt;
-            if ( (int)yyt > (int)yycrank){
+            if ( (intptr_t)yyt > (intptr_t)yycrank){
                 yyt = yyr + yych;
                 if (yyt <= yytop && yyt->verify+yysvec == yystate){
-                    if(yyt->advance+yysvec == YYLERR)	
+                    if(yyt->advance+yysvec == YYLERR)
                     {unput(*--yylastch);break;}
                     *lsp++ = yystate = yyt->advance+yysvec;
                     goto contin;
                 }
             }
 # ifdef YYOPTIM
-            else if((int)yyt < (int)yycrank) {		
+            else if((intptr_t)yyt < (intptr_t)yycrank) {
                 yyt = yyr = yycrank+(yycrank-yyt);
 # ifdef LEXDEBUG
                 if(debug)fprintf(yyout,"compressed state\n");
 # endif
                 yyt = yyt + yych;
                 if(yyt <= yytop && yyt->verify+yysvec == yystate){
-                    if(yyt->advance+yysvec == YYLERR)	
+                    if(yyt->advance+yysvec == YYLERR)
                     {unput(*--yylastch);break;}
                     *lsp++ = yystate = yyt->advance+yysvec;
                     goto contin;
@@ -907,7 +926,7 @@ int yylook(){
                 }
 # endif
                 if(yyt <= yytop && yyt->verify+yysvec == yystate){
-                    if(yyt->advance+yysvec == YYLERR)	
+                    if(yyt->advance+yysvec == YYLERR)
                     {unput(*--yylastch);break;}
                     *lsp++ = yystate = yyt->advance+yysvec;
                     goto contin;
@@ -943,7 +962,7 @@ int yylook(){
             *yylastch-- = 0;
             if (*lsp != 0 && (yyfnd= (*lsp)->yystops) && *yyfnd > 0){
                 yyolsp = lsp;
-                if(yyextra[*yyfnd]){		
+                if(yyextra[*yyfnd]){
                     while(yyback((*lsp)->yystops,-*yyfnd) != 1 && lsp > yylstate){
                         lsp--;
                         unput(*yylastch--);
@@ -1001,9 +1020,9 @@ int yylook(){
                 fourth = input();
 #ifdef YYNLS16_WCHAR
                 noBytes = MultiByte(yytextuc[0],sec,third,fourth);
-#else 
+#else
                 noBytes = MultiByte(yytext[0],sec,third,fourth);
-#endif          
+#endif
                 switch(noBytes) {
                     case 2:
 #ifdef YYNLS16_WCHAR
@@ -1023,7 +1042,7 @@ int yylook(){
                         output(yyprevious=yytext[0]=third);
 #endif
                         unput(fourth);
-                        break; 
+                        break;
                     case 4:
 #ifdef YYNLS16_WCHAR
                         output(yyprevious=yytextuc[0]=sec);
@@ -1034,7 +1053,7 @@ int yylook(){
                         output(yyprevious=yytext[0]=third);
                         output(yyprevious=yytext[0]=fourth);
 #endif
-                        break;                                                                                            
+                        break;
                     default:
                         unput(fourth);
                         unput(third);
@@ -1059,7 +1078,7 @@ int yylook(){
     }
 }
 
-int yyback(p, m) int *p;
+int yyback(int *p, int m)
 {
     if (p==0) return(0);
     while (*p)
@@ -1069,10 +1088,10 @@ int yyback(p, m) int *p;
     }
     return(0);
 }
-	
+
 int yyinput(){
     return(input());
-	
+
 }
 
 #if (defined(__STDC__))
