@@ -117,6 +117,9 @@ usage(void)
 lim: [-C] [-V] [-h] [-t] [-debug_level] [-d env_dir]\n");
 }
 
+int li_len = 0;
+struct liStruct *li = NULL;
+
 /* LIM main()
  */
 int

@@ -2,7 +2,7 @@
 # Copyright (C) openlava foundation
 #
 
-INCLUDES = -I$(top_srcdir)/lsf
+AM_CPPFLAGS = -I$(top_srcdir)/lsf
 
 sbin_PROGRAMS = pim
 pim_SOURCES  = pim.main.c pim.linux.h
