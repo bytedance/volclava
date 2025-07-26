@@ -37,28 +37,29 @@ static void clientReq(XDR *, struct LSFHeader *, int );
 static void shutDownChan(int);
 
 void
-clientIO(struct Masks *chanmasks)
+clientIO(struct epoll_event *ev,int nReady)
 {
     int  i;
 
-    for (i = 0; (i < chanIndex) && (i < MAXCLIENTS); i++) {
-
-        if (i == limSock || i == limTcpSock)
+    for(i=0; (i < nReady) && (i < MAXCLIENTS); i++){
+        int sockfd = ev[i].data.fd;
+        int chfd = sockChan_(sockfd);
+        if (chfd == limSock || chfd == limTcpSock)
             continue;
 
-        if (FD_ISSET(i, &chanmasks->emask)) {
+        if (chanEventsReady(chfd, EPOLLERR)) {
 
-            if (clientMap[i])
+            if (clientMap[chfd])
                 ls_syslog(LOG_ERR, "\
 %s: Lost connection with client %s IO or decode error",
                           __func__,
-                          sockAdd2Str_(&clientMap[i]->from));
-            shutDownChan(i);
+                          sockAdd2Str_(&clientMap[chfd]->from));
+            shutDownChan(chfd);
             continue;
         }
 
-        if (FD_ISSET(i, &chanmasks->rmask)) {
-            processMsg(i);
+        if (chanEventsReady(chfd, EPOLLIN)) {
+            processMsg(chfd);
         }
     }
 }

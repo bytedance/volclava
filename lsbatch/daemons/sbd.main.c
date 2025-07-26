@@ -34,7 +34,7 @@ extern void do_sbdDebug(XDR *xdrs, int chfd, struct LSFHeader *reqHdr);
 void sinit(void);
 void init_sstate(void);
 static void processMsg(struct clientNode *);
-static void clientIO(struct Masks *);
+static void clientIO();
 static void houseKeeping(void);
 static int authCmdRequest(struct clientNode *client, XDR *xdrs,
 			  struct LSFHeader *reqHdr);
@@ -128,10 +128,10 @@ int
 main (int argc, char **argv)
 {
     static char fname[] = "sbatchd/main";
-    int nready, i;
+    int nready = 0, i;
     sigset_t oldsigmask, newmask;
     struct timeval timeout;
-    struct Masks sockmask, chanmask;
+    struct epoll_event *ev;
     int aopt;
     extern char *optarg;
     extern int opterr;
@@ -404,14 +404,12 @@ main (int argc, char **argv)
 	    TIMEIT(1, checkFinish(), "checkFinish");
         }
 
-        FD_ZERO(&sockmask.rmask);
-
 	houseKeeping();
 
 	if (logclass & LC_COMM)
 	    ls_syslog(LOG_DEBUG3, "Into select");
 
-        nready = chanSelect_(&sockmask, &chanmask, &timeout);
+        nready = chanEpoll_(&ev, &timeout);
 
 	if (logclass & LC_COMM)
 	    ls_syslog(LOG_DEBUG3, "Out of select: nready=%d", nready);
@@ -443,20 +441,20 @@ main (int argc, char **argv)
             continue;
         }
 
-	if (statusChan >= 0 && (FD_ISSET(statusChan, &chanmask.rmask) ||
-				FD_ISSET(statusChan, &chanmask.emask))) {
+	if (statusChan >= 0 && (chanEventsReady(statusChan,EPOLLIN) ||
+				chanEventsReady(statusChan,EPOLLERR))) {
 
 	    if (logclass & LC_COMM)
 		ls_syslog(LOG_DEBUG,
-			  "main: Exception on statusChan <%d>, rmask <%x>",
-			  statusChan, chanmask.rmask);
+			  "main: Exception on statusChan <%d>, EPOLLIN %s",
+			  statusChan, chanEventsReady(statusChan,EPOLLIN) ? "yes" : "no");
 	    chanClose_(statusChan);
 	    statusChan = -1;
 	}
 
-        if (!FD_ISSET(batchSock, &chanmask.rmask)) {
+    if (!chanEventsReady(batchSock,EPOLLIN)) {
 	    ls_syslog(LOG_DEBUG,"main: connection already known");
-            clientIO(&chanmask);
+        clientIO();
 	    continue;
 	}
 
@@ -487,7 +485,7 @@ main (int argc, char **argv)
         if (logclass & LC_COMM )
 	    ls_syslog(LOG_DEBUG, "%s: Accepted connection from host <%s> on channel <%d>", fname, sockAdd2Str_(&from), client->chanfd);
 
-	clientIO(&chanmask);
+	clientIO();
      }
 
     return(0);
@@ -495,7 +493,7 @@ main (int argc, char **argv)
 }
 
 static void
-clientIO(struct Masks *chanmask)
+clientIO()
 {
     struct clientNode *cliPtr, *nextClient;
 
@@ -505,13 +503,13 @@ clientIO(struct Masks *chanmask)
 
     for(cliPtr=clientList->forw; cliPtr != clientList; cliPtr=nextClient) {
         nextClient = cliPtr->forw;
-        if (FD_ISSET(cliPtr->chanfd, &chanmask->emask)) {
+        if (chanEventsReady(cliPtr->chanfd, EPOLLERR)) {
 
             shutDownClient(cliPtr);
             continue;
         }
 
-        if (FD_ISSET(cliPtr->chanfd, &chanmask->rmask)) {
+        if (chanEventsReady(cliPtr->chanfd, EPOLLIN)) {
 	    processMsg(cliPtr);
         }
 
@@ -865,6 +863,8 @@ sinit (void)
     struct hostInfo *myinfo;
     char *myhostname;
 
+    chanEpollStart();
+    
     if (logclass & (LC_TRACE | LC_HANG))
         ls_syslog(LOG_DEBUG, "sbatchd/%s: Entering this routine...", fname);
 

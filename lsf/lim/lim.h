@@ -504,7 +504,7 @@ extern int xdr_loadmatrix(XDR *, int, struct loadVectorStruct *,
                           struct LSFHeader *);
 extern int xdr_masterReg(XDR *, struct masterReg *, struct LSFHeader *);
 extern int xdr_statInfo(XDR *, struct statInfo *, struct LSFHeader *);
-extern void clientIO(struct Masks *);
+extern void clientIO(struct epoll_event *, int);
 
 /* openlava floating host management
  */
