@@ -191,7 +191,7 @@ main (int argc, char **argv)
 {
     struct timeval timeout;
     int nready = 0;
-    struct epoll_event *ev;
+    int *readyChans;
     int i;
     int cc;
     int hsKeeping = FALSE;
@@ -444,7 +444,7 @@ main (int argc, char **argv)
         }
 
 
-        nready = chanEpoll_(&ev, &timeout);
+        nready = chanEpoll_(&readyChans, &timeout);
         if (nready < 0) {
             if (errno != EINTR)
                 ls_syslog(LOG_ERR, "\

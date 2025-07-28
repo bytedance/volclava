@@ -131,7 +131,7 @@ main (int argc, char **argv)
     int nready = 0, i;
     sigset_t oldsigmask, newmask;
     struct timeval timeout;
-    struct epoll_event *ev;
+    int *readyChans;
     int aopt;
     extern char *optarg;
     extern int opterr;
@@ -409,7 +409,7 @@ main (int argc, char **argv)
 	if (logclass & LC_COMM)
 	    ls_syslog(LOG_DEBUG3, "Into select");
 
-        nready = chanEpoll_(&ev, &timeout);
+        nready = chanEpoll_(&readyChans, &timeout);
 
 	if (logclass & LC_COMM)
 	    ls_syslog(LOG_DEBUG3, "Out of select: nready=%d", nready);

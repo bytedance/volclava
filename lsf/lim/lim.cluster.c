@@ -37,13 +37,12 @@ static void clientReq(XDR *, struct LSFHeader *, int );
 static void shutDownChan(int);
 
 void
-clientIO(struct epoll_event *ev,int nReady)
+clientIO(int *chfds,int nReady)
 {
     int  i;
 
     for(i=0; (i < nReady) && (i < MAXCLIENTS); i++){
-        int sockfd = ev[i].data.fd;
-        int chfd = sockChan_(sockfd);
+        int chfd = chfds[i];
         if (chfd == limSock || chfd == limTcpSock)
             continue;
 

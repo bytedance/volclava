@@ -105,7 +105,7 @@ int chanEnqueue_(int chfd, struct Buffer *buf);
 int chanDequeue_(int chfd, struct Buffer **buf);
 
 int chanSelect_(struct Masks *, struct Masks *, struct timeval *timeout);
-int chanEpoll_(struct epoll_event **, struct timeval *timeout);
+int chanEpoll_(int **, struct timeval *timeout);
 int chanClose_(int chfd);
 void chanCloseAll_(void);
 int chanSock_(int chfd);

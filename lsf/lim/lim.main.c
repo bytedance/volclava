@@ -125,7 +125,7 @@ main(int argc, char **argv)
     struct timeval timer;
     struct timeval t0;
     struct timeval t1;
-    struct epoll_event *ev;
+    int *readyChans;
     int    maxfd;
     char   *sp;
     int    showTypeModel;
@@ -330,7 +330,7 @@ Reading configuration from %s/lsf.conf\n", env_dir);
         ls_syslog(LOG_DEBUG2, "\
 %s: Before select: timer %dsec", __func__, timer.tv_sec);
 
-        nReady = chanEpoll_(&ev, &timer);
+        nReady = chanEpoll_(&readyChans, &timer);
         if (nReady < 0) {
             if (errno != EINTR)
                 ls_syslog(LOG_ERR, "\
@@ -383,7 +383,7 @@ Reading configuration from %s/lsf.conf\n", env_dir);
             doAcceptConn();
         }
 
-        clientIO(ev, nReady);
+        clientIO(readyChans, nReady);
 
         sigprocmask(SIG_SETMASK, &oldMask, NULL);
 

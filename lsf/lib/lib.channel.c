@@ -41,6 +41,7 @@
 static struct chanData *channels;
 static struct handleData *handles;
 static struct epoll_event *events;
+static int *readyChans;
 static int nReady;
 int cherrno = 0;
 extern int errno;
@@ -61,7 +62,7 @@ static void chanBindSock(int, int);
 static void chanUnbindSock(int);
 static void chanUpdateListenEvents(int);
 static void upDateListenEvents(int);
-static void chanClearReadyEvents(struct epoll_event *, int);
+static void chanClearReadyEvents();
 static void doreadEpoll(int chfd);
 static void dowriteEpoll(int chfd);
 
@@ -653,16 +654,15 @@ chanCloseAllBut_(int chfd)
 }
 
 int
-chanEpoll_(struct epoll_event **ev, struct timeval *timeout)
+chanEpoll_(int **readyfds, struct timeval *timeout)
 {
     static char fname[] = "chanEpoll_";
     int i, ready;
     
     int timeout_ms = -1;
     int chfd, sockfd;
-    int start, end;
 
-    chanClearReadyEvents(events, nReady);
+    chanClearReadyEvents();
     if (timeout != NULL) {
         timeout_ms = timeout->tv_sec * 1000 + timeout->tv_usec / 1000;
     }
@@ -673,8 +673,7 @@ chanEpoll_(struct epoll_event **ev, struct timeval *timeout)
         return nReady;
     }
 
-    ready=nReady;
-    for (i = 0; i < ready; i++) {
+    for (i = 0; i < nReady; i++) {
         sockfd = events[i].data.fd;
         chfd = sockChan_(sockfd);
         if (chfd < 0 || chfd >= chanMaxSize) {
@@ -726,33 +725,26 @@ chanEpoll_(struct epoll_event **ev, struct timeval *timeout)
         } else {
             if (events[i].events & EPOLLIN) {
                 doreadEpoll(chfd);
-                if (!chanEventsReady(chfd, EPOLLIN)&&!chanEventsReady(chfd, EPOLLERR)) {
-                    nReady--;
-                }
             }
 
             if (channels[chfd].send && channels[chfd].send->forw != channels[chfd].send &&
                 (events[i].events & EPOLLOUT)) {
                 dowriteEpoll(chfd);
-                if (!chanEventsReady(chfd, EPOLLERR)) {
-                    nReady--;
-                }
             }
 
             channels[chfd].readyEvents |= EPOLLOUT;
         }
     }
-    //监听到的ready个就绪事件只有nReady个上报给mbd处理，需要全部放到前面
-    start = 0;
-    end = ready-1;
-    while(end>start){
-        while(end>start&&!chanEventsReady(sockChan_(events[end].data.fd), EPOLLIN)&&!chanEventsReady(sockChan_(events[end].data.fd), EPOLLERR))
-            end--;
-        while(end>start&&(chanEventsReady(sockChan_(events[start].data.fd), EPOLLIN)||chanEventsReady(sockChan_(events[start].data.fd), EPOLLERR)))
-            start++;
-        events[start++] = events[end--];
+
+    ready = nReady;
+    nReady = 0;
+    for(i = 0; i< ready ;i++){
+        chfd = sockChan_(events[i].data.fd);
+        if(chanEventsReady(chfd, EPOLLIN)||chanEventsReady(chfd, EPOLLERR)){
+            readyChans[nReady++] = chfd;
+        }
     }
-    *ev = events;
+    *readyfds = readyChans;
     return nReady;
 }
 
@@ -1613,7 +1605,7 @@ chanUnbindSock(int sockfd)
 }
 
 static void
-chanClearReadyEvents(struct epoll_event *ev, int nReady)
+chanClearReadyEvents()
 {
     static char *fname = "chanClearReadyEvents";
     int i;
@@ -1623,15 +1615,17 @@ chanClearReadyEvents(struct epoll_event *ev, int nReady)
     }
 
     for (i = 0; i < nReady; i++) {
-        int sockfd = ev[i].data.fd;
-        int chfd = sockChan_(sockfd);
+        int chfd = readyChans[i];
 
         if (chfd < 0 || chfd >= chanMaxSize) {
             continue;
         }
-
+        if (logclass & LC_COMM) {
+            ls_syslog(LOG_DEBUG3, "%s: channel %d handle %d state %d type %d events 0x%X",
+                    fname, chfd, channels[chfd].handle, channels[chfd].state, channels[chfd].type, channels[chfd].readyEvents);
+        }
         channels[chfd].readyEvents = 0;
-
+        
     }
 
     return ;
@@ -1670,6 +1664,7 @@ int chanEpollStart(){
     epollfd = epoll_create(5);
     handles = calloc(chanMaxSize, sizeof(struct handleData));
     events = calloc(chanMaxSize, sizeof(struct epoll_event));
+    readyChans = calloc(chanMaxSize, sizeof(int));
     nReady = 0;
     if(epollfd == -1 || handles == NULL || events == NULL){
         return -1;
