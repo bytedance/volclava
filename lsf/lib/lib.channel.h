@@ -20,7 +20,6 @@
 #include <sys/types.h>
 #include "lib.hdr.h"
 
-
 enum chanState {CH_FREE,
                 CH_DISC,
                 CH_PRECONN,
@@ -62,7 +61,6 @@ struct Masks {
     fd_set emask;
 };
 
-
 struct chanData {
     int  handle;		
     enum chanType type;
@@ -71,7 +69,10 @@ struct chanData {
     int chanerr; 
     struct Buffer *send;
     struct Buffer *recv;
-    
+
+    int listenEvents;
+    int readyEvents;
+
 };
 
 #define  CHANE_NOERR      0
@@ -87,6 +88,12 @@ struct chanData {
 #define  CHANE_NOMSG      10
 #define  CHANE_CONNRESET  11
 
+struct handleData {
+    int chanIndex;
+    struct chanData *channel;
+};
+
+
 int chanInit_(void);
 
 
@@ -98,9 +105,11 @@ int chanEnqueue_(int chfd, struct Buffer *buf);
 int chanDequeue_(int chfd, struct Buffer **buf);
 
 int chanSelect_(struct Masks *, struct Masks *, struct timeval *timeout);
+int chanEpoll_(int **, struct timeval *timeout);
 int chanClose_(int chfd);
 void chanCloseAll_(void);
 int chanSock_(int chfd);
+int sockChan_(int sockfd);
 
 int chanServSocket_(int, u_short, int, int);
 int chanAccept_(int, struct sockaddr_in *);
@@ -121,8 +130,14 @@ int chanFreeStashedBuf_(struct Buffer *buf);
 int chanOpenSock_(int , int);
 int chanSetMode_(int, int);
 
+int chanEventsReady(int chfd, int events);
+void chanQuitReadyEvents(int chfd, int events);
+
 extern int chanIndex;
 extern int cherrno;
+
+/*需要在负责listen的socket创建之前调用这个函数*/
+int chanEpollStart();
 
 #endif
 
