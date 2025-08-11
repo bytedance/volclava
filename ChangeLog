@@ -1,3 +1,11 @@
+2025-08-11  Mingze Li <limingze.jiayou@bytedance.com>
+            Nan Qi <qinan.cn@bytedance.com>
+	
+	* release volclava 2.1.0.
+
+	* Summary of changes:
+	1. support adding comments to badmin operations
+
 2025-06-16  Mingze Li <limingze.jiayou@bytedance.com>
             Nan Qi <qinan.cn@bytedance.com>
             Guangbo Shu <shuguangbo@bytedance.com>

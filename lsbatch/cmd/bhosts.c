@@ -124,10 +124,9 @@ main(int argc, char **argv)
     char **hosts=NULL, **hostPoint, *resReq = NULL;
     char lflag = FALSE, sOption = FALSE, otherOption = FALSE;
     int numHosts;
-    int rc;
 
     _lsb_recvtimeout = 30;
-    rc = _i18n_init ( I18N_CAT_MIN );
+    _i18n_init ( I18N_CAT_MIN );
 
     if (lsb_init(argv[0]) < 0) {
 	lsb_perror("lsb_init");
@@ -356,8 +355,15 @@ prtHostsLong (int numReply, struct hostInfoEnt  *hInfo)
 	printf("\n");
 
 
-	if (hPtr->mig < INFINIT_INT)
+	if (hPtr->mig < INFINIT_INT) {
 	    printf(( _i18n_msg_get(ls_catd, NL_SETN, 1616, "Migration threshold is %d min \n")), hPtr->mig);  /* catgets  1616  */
+            printf("\n");
+        }
+
+        if (hPtr->actionComment && hPtr->actionComment[0] != '\0') {
+            printf(( _i18n_msg_get(ls_catd, NL_SETN, 1617, "ADMIN ACTION COMMENT:  %s\n")), hPtr->actionComment);  /* catgets  1617  */
+            printf("\n");
+        }
 
         printf("\n");
     }
@@ -530,7 +536,7 @@ prtLoad (struct hostInfoEnt  *hPtrs, struct lsInfo *lsInfo)
 
     static char fname[] = "prtLoad";
     char **nlp = NULL;
-    int i, nf;
+    int i;
     char **loadval;
     char **loadval1;
     int start = 0;
@@ -580,8 +586,8 @@ prtLoad (struct hostInfoEnt  *hPtrs, struct lsInfo *lsInfo)
 	}
     }
 
-    nf = makeFields(hPtrs, loadval, nlp, TRUE);
-    nf = makeFields(hPtrs, loadval1, nlp, FALSE);
+    makeFields(hPtrs, loadval, nlp, TRUE);
+    makeFields(hPtrs, loadval1, nlp, FALSE);
 
     while ((end = getDispLastItem(nlp, start, last)) > start
 	   && start < last) {

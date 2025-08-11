@@ -775,6 +775,7 @@ struct queueInfoEnt {
     char   *userShares;
     struct shareAcctInfoEnt *shareAcctTree;
     struct fsFactors fsFactors;
+    char   *actionComment;
 };
 
 struct shareAcctInfoEnt {
@@ -818,6 +819,7 @@ struct hostInfoEnt {
     float *realLoad;
     int   numRESERVE;
     int   chkSig;
+    char  *actionComment;
 };
 
 #define DEF_MAX_JOBID   999999
@@ -1188,6 +1190,7 @@ struct queueCtrlLog {
     char   queue[MAX_LSB_NAME_LEN];
     int    userId;
     char   userName[MAX_LSB_NAME_LEN];
+    char   msg[MAXLINELEN];
 };
 
 struct newDebugLog {
@@ -1204,6 +1207,7 @@ struct hostCtrlLog {
     char   host[MAXHOSTNAMELEN];
     int    userId;
     char   userName[MAX_LSB_NAME_LEN];
+    char   msg[MAXLINELEN];
 };
 
 struct mbdStartLog {
@@ -1217,6 +1221,7 @@ struct mbdDieLog {
     char   master[MAXHOSTNAMELEN];
     int    numRemoveJobs;
     int    exitCode;
+    char   msg[MAXLINELEN];
 };
 
 struct unfulfillLog {
@@ -1447,6 +1452,11 @@ struct queueConf {
     struct queueInfoEnt *queues;
 };
 
+struct controlReq {
+    int         opCode;  
+    char        *name;
+    char        *msg;
+};
 
 #define  IS_PEND(s)  (((s) & JOB_STAT_PEND) || ((s) & JOB_STAT_PSUSP))
 
@@ -1514,9 +1524,9 @@ extern LS_LONG_INT lsb_submit P_((struct submit  *, struct submitReply *));
 
 extern void lsb_closejobinfo P_((void));
 
-extern int  lsb_hostcontrol P_((char *, int));
+extern int  lsb_hostcontrol P_((char *, int, char *));
 extern struct queueInfoEnt *lsb_queueinfo P_((char **queues, int *numQueues, char *host, char *userName, int options));
-extern int  lsb_reconfig P_((int));
+extern int  lsb_reconfig P_((struct controlReq *));
 extern int  lsb_signaljob P_((LS_LONG_INT, int));
 extern int  lsb_msgjob P_((LS_LONG_INT, char *));
 extern int  lsb_chkpntjob P_((LS_LONG_INT, time_t, int));
@@ -1534,7 +1544,7 @@ extern struct hostInfoEnt *lsb_hostinfo P_(( char **, int *));
 extern struct hostInfoEnt *lsb_hostinfo_ex P_(( char **, int *, char *, int));
 extern int lsb_movejob P_((LS_LONG_INT jobId, int *, int));
 extern int lsb_switchjob P_((LS_LONG_INT jobId, char *queue));
-extern int lsb_queuecontrol P_((char *, int));
+extern int lsb_queuecontrol P_((char *, int, char *));
 extern struct userInfoEnt *lsb_userinfo P_(( char **, int *));
 extern struct groupInfoEnt *lsb_hostgrpinfo P_((char**, int *, int));
 extern struct groupInfoEnt *lsb_usergrpinfo P_((char **, int *, int));

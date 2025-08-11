@@ -436,6 +436,7 @@ checkQueues(struct infoReq*        queueInfoReqPtr,
                 qRep->userShares = qp->userShares;
                 addSAInfoTree(qRep, qp);
             }
+            qRep->actionComment = (qp->actionComment ? qp->actionComment : "");
 
             queueInfoReplyPtr->numQueues++;
 
@@ -500,6 +501,8 @@ ctrlQueue (struct controlReq *qcReq, struct lsfAuth *auth)
     if (qcReq->opCode == QUEUE_ACTIVATE &&
         !(qp->qStatus & QUEUE_STAT_RUN)) {
         qp->qStatus |= QUEUE_STAT_ACTIVE;
+        FREEUP(qp->actionComment);
+        qp->actionComment = safeSave(qcReq->msg);
         log_queuestatus(qp, qcReq->opCode, auth->uid, auth->lsfUserName);
         return(LSBE_QUEUE_WINDOW);
     }
@@ -514,22 +517,36 @@ ctrlQueue (struct controlReq *qcReq, struct lsfAuth *auth)
                                 (qcReq->opCode == QUEUE_INACTIVATE)))
         return(LSBE_NO_ERROR);
 
-    if (qcReq->opCode == QUEUE_OPEN) {
-        qp->qStatus |= QUEUE_STAT_OPEN;
-        log_queuestatus(qp, qcReq->opCode, auth->uid, auth->lsfUserName);
+    switch (qcReq->opCode) {
+        case QUEUE_OPEN:
+            qp->qStatus |= QUEUE_STAT_OPEN;
+            break;
+        case QUEUE_CLOSED:
+            qp->qStatus &= ~QUEUE_STAT_OPEN;
+            break;
+        case QUEUE_ACTIVATE:
+            qp->qStatus |= QUEUE_STAT_ACTIVE;
+            break; 
+        case QUEUE_INACTIVATE:
+            qp->qStatus &= ~QUEUE_STAT_ACTIVE;
+            break;
+        default:
+            break;
     }
-    if (qcReq->opCode == QUEUE_CLOSED) {
-        qp->qStatus &= ~QUEUE_STAT_OPEN;
-        log_queuestatus(qp, qcReq->opCode, auth->uid, auth->lsfUserName);
+
+    switch (qcReq->opCode) {
+        case QUEUE_OPEN:
+        case QUEUE_CLOSED:
+        case QUEUE_ACTIVATE:
+        case QUEUE_INACTIVATE:
+            FREEUP(qp->actionComment);
+            qp->actionComment = safeSave(qcReq->msg);
+            log_queuestatus(qp, qcReq->opCode, auth->uid, auth->lsfUserName);
+            break;
+        default:
+            break;
     }
-    if (qcReq->opCode == QUEUE_ACTIVATE ) {
-        qp->qStatus |= QUEUE_STAT_ACTIVE;
-        log_queuestatus(qp, qcReq->opCode, auth->uid, auth->lsfUserName);
-    }
-    if (qcReq->opCode == QUEUE_INACTIVATE ) {
-        qp->qStatus &= ~QUEUE_STAT_ACTIVE;
-        log_queuestatus(qp, qcReq->opCode, auth->uid, auth->lsfUserName);
-    }
+
     return(LSBE_NO_ERROR);
 
 }
@@ -739,7 +756,6 @@ freeQueueInfoReply (struct queueInfoReply *reply, char *freeAll)
         FREEUP (reply->queues[i].resumeActCmd);
         FREEUP (reply->queues[i].terminateActCmd);
         FREEUP (reply->queues[i].chkpntDir);
-        FREEUP (reply->queues[i].userShares);
         if (reply->queues[i].shareAcctTree) {
             freeShareAcctInfoEnt(reply->queues[i].shareAcctTree);
             FREEUP(reply->queues[i].shareAcctTree);

@@ -4,9 +4,9 @@
 # Copyright (C) 2021-2025 Bytedance Ltd. and/or its affiliates
 # Copyright (C) 2011 David Bigagli
 #
-AC_INIT(volclava, 2.0)
+AC_INIT(volclava, 2.1)
 AC_CONFIG_HEADERS(config.h)
-AC_PREFIX_DEFAULT([/opt/volclava-2.0])
+AC_PREFIX_DEFAULT([/opt/volclava-2.1])
 
 
 # Set some cluster configuration variables .

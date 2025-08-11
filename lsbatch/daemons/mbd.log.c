@@ -878,6 +878,10 @@ replay_qc(char *filename, int lineNum)
         qp->qStatus |= QUEUE_STAT_ACTIVE;
     if (opCode == QUEUE_INACTIVATE)
         qp->qStatus &= ~QUEUE_STAT_ACTIVE;
+    FREEUP(qp->actionComment);
+    if (logPtr->eventLog.queueCtrlLog.msg && logPtr->eventLog.queueCtrlLog.msg[0] != '\0') {
+        qp->actionComment = safeSave(logPtr->eventLog.queueCtrlLog.msg);
+    }
     return (TRUE);
 
 }
@@ -903,6 +907,11 @@ replay_hostcontrol(char *filename, int lineNum)
         hp->hStatus &= ~HOST_STAT_DISABLED;
     if (opCode == HOST_CLOSE)
         hp->hStatus |= HOST_STAT_DISABLED;
+    FREEUP(hp->actionComment);
+    if (logPtr->eventLog.hostCtrlLog.msg && logPtr->eventLog.hostCtrlLog.msg[0] != '\0') {
+        hp->actionComment = safeSave(logPtr->eventLog.hostCtrlLog.msg);
+    }
+
     return (TRUE);
 
 }
@@ -1886,6 +1895,9 @@ log_queuestatus(struct qData * qp, int opCode, int userId, char *userName)
     strcpy(logPtr->eventLog.queueCtrlLog.queue, qp->queue);
     logPtr->eventLog.queueCtrlLog.userId = userId;
     strcpy(logPtr->eventLog.queueCtrlLog.userName, userName);
+    if (qp->actionComment){
+        strncpy(logPtr->eventLog.queueCtrlLog.msg, qp->actionComment, MAXLINELEN-1);
+    }
     if (putEventRec(fname) < 0)
         ls_syslog(LOG_ERR, I18N_QUEUE_FAIL,
                   fname,
@@ -1912,6 +1924,10 @@ log_hoststatus(struct hData * hp, int opCode, int userId, char *userName)
     strcpy(logPtr->eventLog.hostCtrlLog.host, hp->host);
     logPtr->eventLog.hostCtrlLog.userId = userId;
     strcpy(logPtr->eventLog.hostCtrlLog.userName, userName);
+    if (hp->actionComment) {
+        strncpy(logPtr->eventLog.hostCtrlLog.msg, hp->actionComment, MAXLINELEN - 1);
+    }
+
     if (putEventRec(fname) < 0)
         ls_syslog(LOG_ERR, I18N_HOST_FAIL,
                   fname,
@@ -1937,6 +1953,7 @@ log_mbdDie(int sig)
 
     logPtr->eventLog.mbdDieLog.numRemoveJobs = numRemoveJobs;
     logPtr->eventLog.mbdDieLog.exitCode = sig;
+    strncpy(logPtr->eventLog.mbdDieLog.msg, mbdCtrlReq.msg, MAXLINELEN-1);
     putEventRec(fname);
 }
 

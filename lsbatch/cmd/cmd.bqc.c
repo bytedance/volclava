@@ -1,4 +1,5 @@
-/* $Id: cmd.bqc.c 397 2007-11-26 19:04:00Z mblack $
+/* Copyright (C) 2021-2025 Bytedance Ltd. and/or its affiliates
+ * $Id: cmd.bqc.c 397 2007-11-26 19:04:00Z mblack $
  * Copyright (C) 2007 Platform Computing Inc
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,16 +21,34 @@
 
 #define NL_SETN 8
 
-static int ctrlQueue (char *, int);
+static int ctrlQueue (char *, int, char *);
 static int exitrc = 0;
+extern char *myGetOpt (int nargc, char **nargv, char *ostr);
 
 int
-bqc (int argc, char *argv[], int opCode)
+bqc (int argc, char **argv, int opCode)
 {
     struct queueInfoEnt *queueInfo;
     char **queueList=NULL, **queues ;
     int numQueues, all = FALSE;
     int i;
+    char message[MAXLINELEN];
+    char *optName = NULL;
+
+    memset(message, 0, MAXLINELEN);
+    while ( (optName = myGetOpt(argc, argv, "C:")) != NULL ) { 
+        switch (optName[0]) {
+        case 'C':             
+            strncpy(message, optarg, MAXLINELEN-1);
+            if ( strstr(message, "\n") ) {
+                fprintf(stderr, "Error: The comment contains an illegal newline character (\\n). Please remove line breaks and submit again."); 
+                return(-2);
+            }
+            break;
+        default:
+            return(-2);
+        }
+    }
 
     queues = NULL;
     if (argc == optind)
@@ -51,15 +70,14 @@ bqc (int argc, char *argv[], int opCode)
     }
 
     for (i = 0; i < numQueues; i++) {
-        ctrlQueue (queueInfo[i].queue, opCode);
+        ctrlQueue (queueInfo[i].queue, opCode, message);
     }
     return (exitrc);
 }
 static int
-ctrlQueue (char *queue, int opCode)
+ctrlQueue (char *queue, int opCode, char *message)
 {
-
-    if (lsb_queuecontrol(queue, opCode) < 0) {
+    if (lsb_queuecontrol(queue, opCode, message) < 0) {
         exitrc = -1;
         switch (lsberrno) {
         case LSBE_BAD_QUEUE:
