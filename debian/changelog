@@ -1,8 +1,9 @@
-volclava (2.1-0.b.20250811) UNRELEASED; urgency=medium
+volclava (2.1-0.b.20250815) UNRELEASED; urgency=medium
   
   * support adding comments to badmin operations
+  * JOB_SPOOL_DIR supports the %U dynamic pattern format
 
- -- Nan Qi <qinan.cn@bytedance.com>  Mon, 11 Aug 2025 18:00:00 +0800
+ -- Nan Qi <qinan.cn@bytedance.com>  Mon, 15 Aug 2025 18:00:00 +0800
 
 volclava (2.0-0.b.20250616) UNRELEASED; urgency=medium
 

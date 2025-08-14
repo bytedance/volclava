@@ -1,4 +1,5 @@
-/*
+/* 
+ * Copyright (C) 2021-2025 Bytedance Ltd. and/or its affiliates
  * Copyright (C) 2007 Platform Computing Inc
  *
  * This program is free software; you can redistribute it and/or modify
@@ -66,6 +67,12 @@ static void determineFilebufStdoutDirect(char *filebuf,
 static int stdoutDirectSymLink(char *jobFile,
                                char *ext,
                                struct jobSpecs *jobSpecsPtr);
+static int replaceAllPattern(char *str, char *find, char *replace);
+static int createDirWithMode(char *path, mode_t mode);
+static int processJobSpoolDir(struct jobCard *jp);
+static int my_access(char * path, int mode);
+static void saveCreatedPaths(char ***pathList, int *size, char * newPath, int *len);
+static void removeCreatedPaths(char ***pathList, int *size, char * newPath, int *len);
 
 int
 rcpFile(struct jobSpecs *jp, struct xFile *xf, char *host, int op,
@@ -430,14 +437,10 @@ initPaths(struct jobCard *jp, struct hostent *fromHp, struct lenData *jf)
     }
 
     if (jp->jobSpecs.jobSpoolDir[0] != '\0') {
-        if (access(jp->jobSpecs.jobSpoolDir, W_OK) == 0)
+        if (processJobSpoolDir(jp) != 0) {
+            jp->jobSpecs.jobSpoolDir[0] = '\0';
+        } else {
             goodSpoolDir = TRUE;
-        else{
-            struct stat tmpspdir;
-            if (stat(jp->jobSpecs.jobSpoolDir, &tmpspdir) == 0)
-                goodSpoolDir = TRUE;
-            else
-                jp->jobSpecs.jobSpoolDir[0] = '\0';
         }
     }
 
@@ -768,6 +771,12 @@ lsbatchDir(char *lsbDir, struct jobCard *jp, struct hostent *fromHp,
 
 
     sprintf(lsbDir, "%s%d", lsbTmp(), jp->jobSpecs.userId);
+
+    snprintf(errMsg,  MAXLINELEN-1, "%s: Neither spool dir nor <home>/.lsbatch could be used by the job <%s>, temp dir <%s> will be used",
+            fname, 
+            lsb_jobid2str(jp->jobSpecs.jobId), 
+            lsbDir);
+    sbdSyslog(LOG_WARNING, errMsg);
 
     if (mkdir(lsbDir, 0700) == -1 && errno != EEXIST) {
         sprintf(errMsg, I18N_JOB_FAIL_S_M, fname,
@@ -1195,7 +1204,6 @@ openStdFiles(char *lsbDir, char *chkpntDir, struct jobCard *jobCardPtr, struct h
     char filebuf[MAXFILENAMELEN], filebufLink[MAXFILENAMELEN];
     static char stdinName[MAXFILENAMELEN];
     char xMsg[3*MSGSIZE], rcpMsg[MSGSIZE];
-    char xfile = FALSE;
     char errMsg[MAXLINELEN];
     struct jobSpecs *jobSpecsPtr = &(jobCardPtr->jobSpecs);
     char jobFile[MAXFILENAMELEN], jobFileLink[MAXFILENAMELEN];
@@ -1356,7 +1364,6 @@ openStdFiles(char *lsbDir, char *chkpntDir, struct jobCard *jobCardPtr, struct h
     xMsg[0] = '\0';
     for (i = 0; i < jobSpecsPtr->nxf; i++) {
         if (jobSpecsPtr->xf[i].options & XF_OP_SUB2EXEC) {
-            xfile = TRUE;
 
             if (rcpFile(jobSpecsPtr, jobSpecsPtr->xf+i,
                         jobCardPtr->jobSpecs.fromHost, XF_OP_SUB2EXEC,
@@ -2038,3 +2045,437 @@ return_error:
 
 }
 
+/*------------------------------------------------------------------------
+ * my_access()
+ * Param:
+ *     path: the path we will check
+ *     mode:the mode (F_OK|W_OK|R_OK|X_OK) we will check
+ * Return:
+ * 0: success
+ * -1: failed due to mode missed and other error
+ * -2: failed due to file/dir not exist
+ *------------------------------------------------------------------------
+ */
+static int my_access(char * path, int mode)
+{
+    static char fname[] = "my_access()";
+    struct stat stats;
+    uid_t euid, ruid;
+    gid_t egid, rgid;
+    int ret;
+    int myMode = 0;
+    int nRetry = 1;
+    char errMsg[MAXLINELEN];
+    
+    euid = geteuid();
+    egid = getegid();
+    ruid = getuid();
+    rgid = getgid();
+
+    errno = 0;
+    if (ruid==euid && rgid==egid) {
+        /*Using access() to check mode*/
+        while (nRetry-- >= 0){
+            if (access(path, mode) == 0)
+                return 0;
+        }
+        if (errno == ENOENT) {
+            return -2;
+        } else {
+            return -1;
+        }
+    }
+
+    /*Using stat() to check mode*/
+    nRetry = 1;
+    errno = 0;
+    while (nRetry-- >= 0){
+        ret = stat(path, &stats);
+        if (ret == 0) {
+            break;
+        }
+    }
+
+    /*check mode details if success*/
+    if (ret == 0) {
+        mode &= (X_OK | W_OK | R_OK); /*only keep modes which we care about*/
+        if (mode == F_OK)
+            return 0;   /* The file exists */
+
+        if (euid == 0 && ((mode & X_OK) == 0
+            || (stats.st_mode & (S_IXUSR | S_IXGRP | S_IXOTH)))) {
+            return 0;
+        }
+
+        if (euid == stats.st_uid) {
+            /*checking owner premission*/
+            myMode = (unsigned int) (stats.st_mode & (mode << 6)) >> 6;
+        } else if (egid == stats.st_gid) {
+            /*checking group premission*/
+            myMode = (unsigned int) (stats.st_mode & (mode << 3)) >> 3;
+        } else {
+            /*checking whether this is subgroup*/
+            int   gid_size, i, isMember;
+
+            /*set checking of others as default*/
+            myMode = (stats.st_mode & mode);
+            /*check groups*/
+            gid_t *gid_list;
+            isMember = 0;
+            gid_size = getgroups(0, NULL);
+            if (gid_size > 0) {
+                gid_list = calloc(gid_size, sizeof(gid_t));
+                /* Failed to allocate memory for group list, cannot call
+                 * Beowulf API. Set the default number of cpus.
+                 */
+                if (gid_list == NULL) {
+                    sprintf(errMsg, I18N_FUNC_FAIL_M, fname, "calloc()");
+                    sbdSyslog(LOG_ERR, errMsg);
+                    return(-1);
+                }
+                getgroups(gid_size, gid_list);
+
+                for(i=0; i<gid_size; i++){
+                    if (gid_list[i] == stats.st_gid) {
+                        isMember = 1;
+                        break;
+                    }
+                }
+                FREEUP(gid_list);
+            } else {
+                sprintf(errMsg, I18N_FUNC_FAIL_M, fname, "getgroup()");
+                sbdSyslog(LOG_ERR, errMsg);
+                return -1;
+            }
+
+            if (isMember) {
+                myMode = (unsigned int) (stats.st_mode & (mode << 3)) >> 3;
+            }
+        }
+
+        if (myMode == mode)
+            return 0;
+
+        return -1;
+    } else if (errno == ENOENT) {
+        return -2;
+    }
+
+    return -1;
+
+}
+
+
+static int replaceAllPattern(char *str, char *find, char *replace) {
+    char buffer[MAXFILENAMELEN] = {0};
+    char *p = NULL;
+    size_t find_len = strlen(find);
+    size_t replace_len = strlen(replace);
+    
+    if (find_len == 0) {
+        return -1;
+    }
+    
+    p = strstr(str, find);
+    if (p == NULL) {
+        return 0; // No occurrences found
+    }
+    
+    while (p != NULL) {
+        // Check if the resulting string would be too long
+        if ((strlen(str) - find_len + replace_len) >= MAXFILENAMELEN - 1) {
+            return -1;
+        }
+        
+        // Copy the part before the match
+        strncpy(buffer, str, p - str);
+        buffer[p - str] = '\0';
+        
+        // Add the replacement
+        strcat(buffer, replace);
+        
+        // Add the rest of the string after the match
+        strcat(buffer, p + find_len);
+        
+        // Copy back to the original string
+        strcpy(str, buffer);
+        
+        // Find the next occurrence
+        p = strstr(str, find);
+    }
+    
+    return 1; // Replacements made
+}
+
+
+static void saveCreatedPaths(char ***pathList, int *size, char * newPath, int *len) {
+    static char fname[] = "saveCreatedPaths()";
+    char **newList = NULL;
+    char errMsg[MAXLINELEN];
+    
+    if (*pathList == NULL) {
+        *pathList = (char **)calloc(*size, sizeof(char *));
+        if (*pathList == NULL) {
+            return;
+        }
+        *len = 0;
+    }
+
+    if (len >= size) {
+        newList = (char **)realloc(*pathList, (*size)*2*sizeof(char *));
+        if (newList == NULL) {
+            snprintf(errMsg, MAXLINELEN-1,"%s: realloc() failed for appending <%s> when creating sub-directory of job spool dir with dynamic patten.", 
+                    fname, newPath);
+            sbdSyslog(LOG_ERR, errMsg);            
+            return;
+        }
+        *size *= 2;
+        *pathList = newList;
+    }
+
+    (*pathList)[*len] = calloc(strlen(newPath+1), sizeof(char));
+    strcpy((*pathList)[*len], newPath);
+    (*len)++;
+    return;
+} /*saveCreatedPaths*/
+
+static void removeCreatedPaths(char ***pathList, int *size, char * newPath, int *len) {
+    static char fname[] = "removeCreatedPaths()";
+    int i;
+    char errMsg[MAXLINELEN];
+
+    if (*pathList == NULL) {
+        return;
+    }
+
+    for (i = *len - 1; i >=0; i--) {
+        errno = 0;
+        if (rmdir((*pathList)[i]) != 0) {
+            snprintf(errMsg, MAXLINELEN-1, "%s: Failed to clear directory <%s>. %s", fname, (*pathList)[i], strerror(errno));
+            sbdSyslog(LOG_ERR, errMsg);
+            break;
+        }
+    }
+
+    for (i = 0; i < *len; i++) {
+        free((*pathList)[i]);
+    }
+    
+    *len = 0;
+    free(*pathList);
+    *pathList = NULL;
+    *size = 0;
+}
+
+static int createDirWithMode(char *path, mode_t mode) {
+    static char fname[] = "createDirWithMode()";
+    char errMsg[MAXLINELEN];
+
+    errno = 0;
+    if (mkdir(path, mode) == -1) {
+        if (errno == EEXIST) {
+            /*Directory already exists, just set permissions*/
+            if (chmod(path, mode) == -1) {
+                snprintf(errMsg, MAXLINELEN-1, "%s: chmod() failed to change directory <%s> as mode <%#o>. %s", fname, path, mode, strerror(errno));
+                sbdSyslog(LOG_DEBUG, errMsg);
+                return -1;
+            }
+            return 0;
+        } else {
+            snprintf(errMsg, MAXLINELEN-1, "%s: mkdir() failed to create directory <%s>. %s", fname, path, strerror(errno));
+            sbdSyslog(LOG_DEBUG, errMsg);
+            return -1;
+        }
+    }
+    
+    /*There may be umask setting, let us use chmod to modify mode*/
+    if (chmod(path, mode) == -1) {
+        snprintf(errMsg, MAXLINELEN-1, "%s: chmod() failed to change directory <%s> as mode <%#o>. %s", fname, path, mode, strerror(errno));
+        sbdSyslog(LOG_DEBUG, errMsg);
+        return -1;
+    }
+
+    return 0; /*Directory created*/
+}
+
+static int processJobSpoolDir(struct jobCard *jp) {
+    static char fname[] = "processJobSpoolDir()";
+    char errMsg[MAXLINELEN] = {0};
+    char temp_path[MAXFILENAMELEN] = {0};
+    char *first_place = NULL;
+    char *p = NULL;
+    char *str = NULL;
+    char **pathList = NULL;
+    int  pathSize = 10;
+    int  pathCount = 0;
+    int  ret = 0;
+    
+    if (jp->jobSpecs.jobSpoolDir[0] == '\0') {
+        return -1;
+    }
+
+    if (logclass & LC_EXEC) {
+        snprintf(errMsg, MAXLINELEN-1,"%s: job <%s> original jobSpoolDir is <%s>.", fname, lsb_jobidinstr(jp->jobSpecs.jobId), jp->jobSpecs.jobSpoolDir);
+        sbdSyslog(LOG_DEBUG, errMsg);
+    }
+
+    /*Make a copy of the jobSpoolDir to work with*/
+    strncpy(temp_path, jp->jobSpecs.jobSpoolDir, MAXFILENAMELEN - 1);
+    
+    /*Check if the path contains %U*/
+    first_place = strstr(temp_path, "%U");
+    
+    if (first_place == NULL) {
+        /*No %U found, just check if the directory exists*/
+        if (my_access(jp->jobSpecs.jobSpoolDir, W_OK) != 0) {
+
+            snprintf(errMsg, MAXLINELEN-1,"%s: job <%s> jobSpoolDir <%s> cannot be used. %s",
+                    fname, 
+                    lsb_jobidinstr(jp->jobSpecs.jobId),
+                    jp->jobSpecs.jobSpoolDir,
+                    (errno != 0 ? strerror(errno):""));
+            sbdSyslog(LOG_WARNING, errMsg);
+            return -1;
+        }
+
+        return 0;
+    }
+    
+    /*Replace all %U occurrences with username*/
+    if (replaceAllPattern(temp_path, "%U", jp->execUsername) <= 0) {
+        snprintf(errMsg, MAXLINELEN-1,"%s: Failed to extend jobSpoolDir <%s> with username <%s> for job <%s>.",
+                fname,
+                jp->jobSpecs.jobSpoolDir,
+                jp->execUsername,
+                lsb_jobidinstr(jp->jobSpecs.jobId));
+        sbdSyslog(LOG_WARNING, errMsg);
+        jp->jobSpecs.jobSpoolDir[0] = '\0';
+        return -1;
+    }
+    
+    /*Now process the path*/
+    str = temp_path;
+    /*quick check*/
+    if (my_access(temp_path, W_OK) == 0) {
+        if (logclass & LC_EXEC) {
+            snprintf(errMsg, MAXLINELEN-1, "%s: Job <%s> execution jobSpoolDir <%s>.", 
+                    fname,
+                    lsb_jobidinstr(jp->jobSpecs.jobId),
+                    temp_path);
+            sbdSyslog(LOG_DEBUG, errMsg);  
+        }
+        strncpy(jp->jobSpecs.jobSpoolDir, temp_path, MAXFILENAMELEN - 1);
+        return 0;
+    }
+    /*check and try to create missing directory*/
+    while (str[0] != '\0' && ((p = strchr(str, '/')) != NULL)) {
+        mode_t mode;
+
+        str = p + 1;
+        if (p == temp_path) {
+            /*Skip root directory*/
+            continue;
+        }
+
+        *p = '\0'; /*Temporarily terminate the string*/
+        
+        /*Check each sub-directory*/
+        errno = 0;
+        ret = my_access(temp_path, F_OK);
+        if (ret == -2) { /*check F_OK failed*/
+            if (logclass & LC_EXEC) {
+                snprintf(errMsg, MAXLINELEN-1, "%s: Job <%s> sub-directory <%s> of jobSpoolDir <%s> not exist, let us create it.",
+                        fname,
+                        lsb_jobidinstr(jp->jobSpecs.jobId),
+                        temp_path,
+                        jp->jobSpecs.jobSpoolDir);
+                sbdSyslog(LOG_DEBUG, errMsg);   
+            }
+            if (p < first_place) {
+                /*Before first %U - create with 777 if needed*/
+                mode = 0777;
+            } else {
+                /*After first %U - create with 700 if needed*/
+                mode = 0700;
+            }
+            if (createDirWithMode(temp_path, mode) < 0) {                
+                snprintf(errMsg, MAXLINELEN-1, "%s: Failed to create sub-directory <%s> of jobSpoolDir <%s> for job <%s>, try to use <home>/.lsbatch. %s",
+                        fname,
+                        temp_path,
+                        jp->jobSpecs.jobSpoolDir,
+                        lsb_jobidinstr(jp->jobSpecs.jobId),
+                        (errno != 0 ? strerror(errno):""));
+                sbdSyslog(LOG_WARNING, errMsg);
+                jp->jobSpecs.jobSpoolDir[0] = '\0';
+                removeCreatedPaths(&pathList, &pathSize, temp_path, &pathCount);
+                return -1;
+            }
+            saveCreatedPaths(&pathList, &pathSize, temp_path, &pathCount);
+        } else if (ret != 0) {
+            snprintf(errMsg, MAXLINELEN-1, "%s: Job <%s> directory <%s> of jobSpoolDir <%s> cannot be used. Try to use <home>/.lsbatch. %s",
+                fname,
+                lsb_jobidinstr(jp->jobSpecs.jobId),
+                temp_path,
+                jp->jobSpecs.jobSpoolDir,
+                (errno != 0 ? strerror(errno):""));
+            sbdSyslog(LOG_WARNING, errMsg);
+            jp->jobSpecs.jobSpoolDir[0] = '\0';
+            removeCreatedPaths(&pathList, &pathSize, temp_path, &pathCount);
+            return -1;
+        }
+
+        *p = '/'; /*Restore the slash*/
+    }
+    
+    /*Handle the last component (after last slash)*/
+    if (str[0] != '\0') {
+        errno = 0;
+
+        ret = my_access(temp_path, W_OK|F_OK);
+        if (ret == -2) {
+            if (logclass & LC_EXEC) {
+                snprintf(errMsg, MAXLINELEN-1, "%s: Job <%s> directory <%s> of jobSpoolDir <%s> not exist, let us create it.",
+                        fname,
+                        lsb_jobidinstr(jp->jobSpecs.jobId),
+                        temp_path,
+                        jp->jobSpecs.jobSpoolDir);
+                sbdSyslog(LOG_DEBUG, errMsg);
+            }
+            if (createDirWithMode(temp_path, 0700) < 0) {     
+                snprintf(errMsg, MAXLINELEN-1, "%s: Failed to create directory <%s> of jobSpoolDir <%s> for job <%s>. Try to use <home>/.lsbatch. %s",
+                        fname,
+                        temp_path,
+                        jp->jobSpecs.jobSpoolDir,
+                        lsb_jobidinstr(jp->jobSpecs.jobId),
+                        (errno != 0 ? strerror(errno):""));
+                sbdSyslog(LOG_WARNING, errMsg);
+                jp->jobSpecs.jobSpoolDir[0] = '\0';
+                removeCreatedPaths(&pathList, &pathSize, temp_path, &pathCount);                
+                return -1;
+            }             
+        } else if (ret != 0) {
+            snprintf(errMsg, MAXLINELEN-1, "%s: Job <%s> directory <%s> of jobSpoolDir <%s> cannot be used, try to use <home>/.lsbatch. %s",
+                    fname,
+                    lsb_jobidinstr(jp->jobSpecs.jobId),
+                    temp_path,
+                    jp->jobSpecs.jobSpoolDir,
+                    (errno != 0 ? strerror(errno):""));
+            sbdSyslog(LOG_WARNING, errMsg);
+            jp->jobSpecs.jobSpoolDir[0] = '\0';
+            removeCreatedPaths(&pathList, &pathSize, temp_path, &pathCount);
+            return -1;
+        }
+    }
+    
+    /*Copy the result to output directory*/
+    if (logclass & LC_EXEC) {
+        snprintf(errMsg, MAXLINELEN-1, "%s: Job <%s> execution jobSpoolDir <%s>.", 
+                fname,
+                lsb_jobidinstr(jp->jobSpecs.jobId),
+                temp_path);
+        sbdSyslog(LOG_DEBUG, errMsg);
+    }
+    strncpy(jp->jobSpecs.jobSpoolDir, temp_path, MAXFILENAMELEN - 1);
+    removeCreatedPaths(&pathList, &pathSize, temp_path, &pathCount);
+    return 0;
+}
