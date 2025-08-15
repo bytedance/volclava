@@ -5,6 +5,7 @@
 
 	* Summary of changes:
 	1. support adding comments to badmin operations
+	2. JOB_SPOOL_DIR supports the %U dynamic pattern format
 
 2025-06-16  Mingze Li <limingze.jiayou@bytedance.com>
             Nan Qi <qinan.cn@bytedance.com>
