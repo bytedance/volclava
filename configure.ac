@@ -10,10 +10,17 @@ AC_PREFIX_DEFAULT([/opt/volclava-2.1])
 
 
 # Set some cluster configuration variables .
-AC_SUBST([volclavadmin], [volclava])
-AC_ARG_VAR([volclavaadmin], "")
-AC_SUBST([volclavacluster], [volclava])
-AC_ARG_VAR([volclavacluster], "")
+AC_ARG_VAR([volclavaadmin], "customize cluster administrator")
+if test -z "$volclavaadmin"; then
+    volclavaadmin="volclava"
+fi
+AC_SUBST([volclavaadmin])
+
+AC_ARG_VAR([volclavacluster], "customize cluster name")
+if test -z "$volclavacluster"; then
+    volclavacluster="volclava"
+fi
+AC_SUBST([volclavacluster])
 
 # Cygwin support
 AC_CANONICAL_SYSTEM
@@ -68,6 +75,7 @@ AC_CHECK_LIB([tcl], [Tcl_CreateInterp], [], [
                             AC_MSG_ERROR([cannot build volclava without tcl8.*])
 ])])])])])])])])
 
+CLUSTERFILE=config/lsf.cluster.${volclavacluster}:config/lsf.cluster.in
 AC_CONFIG_FILES([
 	Makefile                 \
 	config/Makefile          \
@@ -99,7 +107,7 @@ AC_CONFIG_FILES([
 	config/lsb.params        \
 	config/lsb.queues        \
 	config/lsb.users         \
-	config/lsf.cluster.volclava \
+        ${CLUSTERFILE} \
 	config/lsf.shared        \
 	config/lsf.task          \
 	config/volclava.csh      \

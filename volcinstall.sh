@@ -22,7 +22,7 @@
 #
 # Note:
 # --hosts=/path/file: It is a file which lists hosts' name in one column. Default is not to add hosts into
-#          lsf.cluster.volclava. If defined, installer will append hosts into lsf.cluster.volclava.
+#          lsf.cluster.${CLUSTERNAME}. If defined, installer will append hosts into lsf.cluster.${CLUSTERNAME}.
 # --startup: Default is N. When set as Y, you also need define "--hosts", then we will startup cluster after
 #          installation. Without "--hosts", volclava fails to startup cluster because of no hosts in cluster.
 # --uid: specify uniform uid for user "volclava". Default is undefined.
@@ -46,6 +46,17 @@ PHASE="all"
 USRID=""
 HOSTS=""
 STARTUP="N"
+if test -z "$volclavaadmin"; then
+    VOLCADMIN="volclava"
+else
+    VOLCADMIN=${volclavaadmin}
+fi
+
+if test -z "$volclavacluster"; then
+    CLUSTERNAME="volclava"
+else
+    CLUSTERNAME=$volclavacluster
+fi
 
 while [ $# -gt 0 ]; do
     case $1 in
@@ -165,12 +176,11 @@ fi
 
 function pre_setup() {
     #add user
-    if ! id -u "volclava" > /dev/null 2>&1; then
-        if [ -z "$USRID"  ]; then
-            useradd "volclava"
-        else
-            useradd -u $USRID  "volclava" 
-        fi
+    groupadd -f ${VOLCADMIN} > /dev/null 2>&1 || true
+    if [ -z "$USRID"  ]; then
+        useradd -c "volclava Administrator" -g ${VOLCADMIN} -m -d /home/${VOLCADMIN} ${VOLCADMIN} > /dev/null 2>&1 || true
+    else
+        useradd -c "volclava Administrator" -u $USRID  -g ${VOLCADMIN} -m -d /home/${VOLCADMIN} ${VOLCADMIN} > /dev/null 2>&1 || true
     fi
 
     #install compile library
@@ -303,12 +313,12 @@ function install() {
             exit 1
         fi
 
-        chown volclava:volclava -R $PREFIX
+        chown ${VOLCADMIN}:${VOLCADMIN} -R $PREFIX
         chmod 755 -R $PREFIX
 
         #append hosts into lsf.cluster file
         if [ ! -z "$HOSTS" ]; then
-            addHosts2Cluster "$HOSTS" ${PREFIX}/etc/lsf.cluster.volclava
+            addHosts2Cluster "$HOSTS" ${PREFIX}/etc/lsf.cluster.${CLUSTERNAME}
         fi
     elif [ "$TYPE" = "deb" ]; then
         #deb way to install volclava
@@ -321,7 +331,7 @@ function install() {
             exit 1
         fi
 
-        #install volclava from deb package
+        #Remove old volclava from deb package
         if dpkg -l | grep volclava > /dev/null 2>&1; then
             dpkg -P volclava
         fi
@@ -331,17 +341,17 @@ function install() {
             dpkg -x ../volclava_2.1*.deb $PREFIX
             #append hosts into lsf.cluster file
             if [ ! -z "$HOSTS" ]; then
-                 addHosts2Cluster  "$HOSTS" ${PREFIX}/opt/${PACKAGE_NAME}/etc/lsf.cluster.volclava
+                 addHosts2Cluster  "$HOSTS" ${PREFIX}/opt/${PACKAGE_NAME}/etc/lsf.cluster.${CLUSTERNAME}
             fi
             sed -i "s|/opt/${PACKAGE_NAME}|${PREFIX}/opt/${PACKAGE_NAME}|g" $(grep -rl /opt/${PACKAGE_NAME} ${PREFIX}/)
 
-            chown volclava:volclava -R $PREFIX
+            chown ${VOLCADMIN}:${VOLCADMIN}  -R $PREFIX
             chmod 755 -R $PREFIX
         else
             dpkg -i ../volclava_2.1*.deb
             #append hosts into lsf.cluster file
             if [ ! -z "$HOSTS" ]; then
-                 addHosts2Cluster  "$HOSTS" /opt/${PACKAGE_NAME}/etc/lsf.cluster.volclava
+                 addHosts2Cluster  "$HOSTS" /opt/${PACKAGE_NAME}/etc/lsf.cluster.${CLUSTERNAME}
             fi
         fi
     else
@@ -378,7 +388,7 @@ function install() {
 
         #append hosts into lsf.cluster file
         if [ ! -z "$HOSTS" ]; then
-             addHosts2Cluster  "$HOSTS" ${PREFIX}/${PACKAGE_NAME}/etc/lsf.cluster.volclava
+             addHosts2Cluster  "$HOSTS" ${PREFIX}/${PACKAGE_NAME}/etc/lsf.cluster.${CLUSTERNAME}
         fi
     fi
 }

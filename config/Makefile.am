@@ -10,7 +10,7 @@
 # script in the etc directory.
 etcdir = $(prefix)/etc
 etc_DATA = volclava volclava.sh volclava.csh volclava.setup \
-	lsf.conf lsf.cluster.volclava lsf.shared lsf.task \
+	lsf.conf lsf.cluster.@volclavacluster@ lsf.shared lsf.task \
 	lsb.hosts lsb.params lsb.queues lsb.users 
 
 # Create the working directory where the working files are
