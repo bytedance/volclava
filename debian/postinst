@@ -15,8 +15,14 @@ source /etc/profile.d/volclava.sh || true
 chmod 755 /etc/init.d/volclava || true
 chmod 755 /opt/volclava-${VERSION}/etc/volclava || true
 
-groupadd -f volclava || true
-useradd -c "volclava Administrator" -g volclava -m -d /home/volclava volclava || true
+if [ -n "$volclavaadmin" ]; then
+    VOLCADMIN="$volclavaadmin"
+else
+    VOLCADMIN="volclava"
+fi
 
-chown -R volclava:volclava /opt/volclava-${VERSION}/*
-chgrp -R volclava /opt/volclava-${VERSION}/*
+groupadd -f ${VOLCADMIN} > /dev/null 2>&1 || true
+useradd -c "volclava Administrator" -g ${VOLCADMIN} -m -d /home/${VOLCADMIN} ${VOLCADMIN} > /dev/null 2>&1 || true
+
+chown -R ${VOLCADMIN}:${VOLCADMIN} /opt/volclava-${VERSION}/*
+chgrp -R ${VOLCADMIN} /opt/volclava-${VERSION}/*

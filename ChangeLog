@@ -6,6 +6,8 @@
 	* Summary of changes:
 	1. support adding comments to badmin operations
 	2. JOB_SPOOL_DIR supports the %U dynamic pattern format
+        3. support the customization of the admin and cluster name using the environment variables
+	   "volclavaadmin" and "volclavacluster" during the installation process.
 
 2025-06-16  Mingze Li <limingze.jiayou@bytedance.com>
             Nan Qi <qinan.cn@bytedance.com>

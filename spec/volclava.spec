@@ -25,7 +25,6 @@
 
 %define version %{major}.%{minor}
 %define _volclavatop /opt/volclava-%{version}
-%define _clustername volclava
 %define _libdir %{_volclavatop}/lib
 %define _bindir %{_volclavatop}/bin
 %define _sbindir %{_volclavatop}/sbin
@@ -64,6 +63,20 @@ rm -rf $RPM_BUILD_ROOT
 mkdir -p $RPM_BUILD_ROOT
 
 %setup -q -n %{name}-%{version}
+%define VOLCADMIN %( \
+        if [ -n "$volclavaadmin" ]; then \
+            echo "$volclavaadmin"; \
+        else \
+            echo "volclava"; \
+        fi \
+)
+%define CLUSTERNAME %( \
+        if [ -n "$volclavacluster" ]; then \
+            echo "$volclavacluster"; \
+        else \
+            echo "volclava"; \
+        fi \
+)
 
 #
 # BUILD
@@ -140,7 +153,7 @@ install -m 755 $RPM_BUILD_DIR/%{name}-%{version}/scripts/mpich-mpirun   $RPM_BUI
 install -m 755 $RPM_BUILD_DIR/%{name}-%{version}/scripts/openmpi-mpirun $RPM_BUILD_ROOT%{_volclavatop}/bin
 
 # etc
-install -m 644 $RPM_BUILD_DIR/%{name}-%{version}/config/lsf.cluster.volclava $RPM_BUILD_ROOT%{_volclavatop}/etc
+install -m 644 $RPM_BUILD_DIR/%{name}-%{version}/config/lsf.cluster.%{CLUSTERNAME} $RPM_BUILD_ROOT%{_volclavatop}/etc
 install -m 644 $RPM_BUILD_DIR/%{name}-%{version}/config/lsf.conf $RPM_BUILD_ROOT%{_volclavatop}/etc
 install -m 644 $RPM_BUILD_DIR/%{name}-%{version}/config/lsf.task $RPM_BUILD_ROOT%{_volclavatop}/etc
 install -m 644 $RPM_BUILD_DIR/%{name}-%{version}/config/lsf.shared $RPM_BUILD_ROOT%{_volclavatop}/etc
@@ -238,10 +251,11 @@ install -m 644 $RPM_BUILD_DIR/%{name}-%{version}/lsbatch/man8/sbatchd.8  $RPM_BU
 %pre
 
 #
-# Add "volclava" user
+# Add admin user
 #
-/usr/sbin/groupadd -f volclava
-/usr/sbin/useradd -c "volclava Administrator" -g volclava -m -d /home/volclava volclava 2> /dev/null || :
+/usr/sbin/groupadd -f %{VOLCADMIN} > /dev/null 2>&1 || true
+/usr/sbin/useradd -c "volclava Administrator" -g %{VOLCADMIN} -m -d /home/%{VOLCADMIN} %{VOLCADMIN} > /dev/null 2>&1 || true
+
 #
 # POST
 #
@@ -264,13 +278,13 @@ chown -h volclava:volclava ${_volclavatop}/bin/bstop
 chown -h volclava:volclava ${_volclavatop}/bin/bresume
 chown -h volclava:volclava ${_volclavatop}/bin/bchkpnt
 chown -h volclava:volclava ${_volclavatop}/bin/bugroup
-sed -i "s:/opt/volclava-2.0:${_volclavatop}:g" ${_volclavatop}/etc/volclava.sh
-sed -i "s:/opt/volclava-2.0:${_volclavatop}:g" ${_volclavatop}/etc/volclava.csh
-sed -i "s:/opt/volclava-2.0:${_volclavatop}:g" ${_volclavatop}/etc/volclava
+sed -i "s:/opt/volclava-%{version}:${_volclavatop}:g" ${_volclavatop}/etc/volclava.sh
+sed -i "s:/opt/volclava-%{version}:${_volclavatop}:g" ${_volclavatop}/etc/volclava.csh
+sed -i "s:/opt/volclava-%{version}:${_volclavatop}:g" ${_volclavatop}/etc/volclava
 /usr/bin/cp --backup=numbered ${_volclavatop}/etc/volclava.sh %{_sysconfdir}/profile.d
 /usr/bin/cp --backup=numbered ${_volclavatop}/etc/volclava.csh %{_sysconfdir}/profile.d
 /usr/bin/cp --backup=numbered  ${_volclavatop}/etc/volclava %{_sysconfdir}/init.d
-sed -i "s:/opt/volclava-2.0:${_volclavatop}:g" ${_volclavatop}/etc/lsf.conf
+sed -i "s:/opt/volclava-%{version}:${_volclavatop}:g" ${_volclavatop}/etc/lsf.conf
 
 
 # Register lava daemons
@@ -293,8 +307,8 @@ rm -rf ${_volclavatop}
 # FILES
 #
 %files
-%defattr(-,volclava,volclava)
-%attr(0755,volclava,volclava) %{_volclavatop}/etc/volclava
+%defattr(-,%{VOLCADMIN},%{VOLCADMIN})
+%attr(0755,%{VOLCADMIN},%{VOLCADMIN}) %{_volclavatop}/etc/volclava
 %{_volclavatop}/etc/volclava.sh
 %{_volclavatop}/etc/volclava.csh
 %{_volclavatop}/etc/volclava.setup
@@ -414,28 +428,33 @@ rm -rf ${_volclavatop}
 # docs
 %doc COPYING
 
-%defattr(0644,volclava,volclava)
+%defattr(0644,%{VOLCADMIN},%{VOLCADMIN})
 %config(noreplace) %{_volclavatop}/etc/lsb.params
 %config(noreplace) %{_volclavatop}/etc/lsb.queues
 %config(noreplace) %{_volclavatop}/etc/lsb.hosts
 %config(noreplace) %{_volclavatop}/etc/lsb.users
 %config(noreplace) %{_volclavatop}/etc/lsf.shared
 %config(noreplace) %{_volclavatop}/etc/lsf.conf
-%config(noreplace) %{_volclavatop}/etc/lsf.cluster.%{_clustername}
+%config(noreplace) %{_volclavatop}/etc/lsf.cluster.%{CLUSTERNAME}
 %config(noreplace) %{_volclavatop}/etc/lsf.task
 %config(noreplace) %{_volclavatop}/README.md
 %config(noreplace) %{_volclavatop}/COPYING
-%attr(0755,volclava,volclava) %{_volclavatop}/bin
-%attr(0755,volclava,volclava) %{_volclavatop}/etc
-%attr(0755,volclava,volclava) %{_volclavatop}/include
-%attr(0755,volclava,volclava) %{_volclavatop}/lib
-%attr(0755,volclava,volclava) %{_volclavatop}/log
-%attr(0755,volclava,volclava) %{_volclavatop}/sbin
-%attr(0755,volclava,volclava) %{_volclavatop}/share
-%attr(0755,volclava,volclava) %{_volclavatop}/work
-%attr(0755,volclava,volclava) %{_volclavatop}/work/logdir
+%attr(0755,%{VOLCADMIN},%{VOLCADMIN}) %{_volclavatop}/bin
+%attr(0755,%{VOLCADMIN},%{VOLCADMIN}) %{_volclavatop}/etc
+%attr(0755,%{VOLCADMIN},%{VOLCADMIN}) %{_volclavatop}/include
+%attr(0755,%{VOLCADMIN},%{VOLCADMIN}) %{_volclavatop}/lib
+%attr(0755,%{VOLCADMIN},%{VOLCADMIN}) %{_volclavatop}/log
+%attr(0755,%{VOLCADMIN},%{VOLCADMIN}) %{_volclavatop}/sbin
+%attr(0755,%{VOLCADMIN},%{VOLCADMIN}) %{_volclavatop}/share
+%attr(0755,%{VOLCADMIN},%{VOLCADMIN}) %{_volclavatop}/work
+%attr(0755,%{VOLCADMIN},%{VOLCADMIN}) %{_volclavatop}/work/logdir
 
 %changelog
+* Mon Aug 11 2025 Releasing volclava 2.1.0 by Bytedance Ltd. and/or its affiliates
+- support adding comments to badmin operations
+- JOB_SPOOL_DIR supports the %U dynamic pattern format
+- support the customization of the admin and cluster name using the environment variables
+  "volclavaadmin" and "volclavacluster" during the installation process.
 * Mon Jun 16 2025 Releasing volclava 2.0.0 by Bytedance Ltd. and/or its affiliates
 - support fairshare scheduling policy for users at queue level;
 - support customize unit by configure LSF_UNIT_FOR_LIMITS in lsf.conf;

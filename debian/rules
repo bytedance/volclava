@@ -1,6 +1,11 @@
 #!/usr/bin/make -f
 # Copyright (C) 2021-2025 Bytedance Ltd. and/or its affiliates
 
+clustername ?= $(shell echo $$volclavacluster)
+ifeq ($(clustername),)
+	clustername = volclava
+endif
+
 %:
 	dh $@
 
@@ -137,7 +142,7 @@ override_dh_auto_install:
 	install	-m	644	lsbatch/man8/sbatchd.8			debian/volclava/opt/volclava-2.1/share/man/man8
 
 	# etc
-	install	-m	644	config/lsf.cluster.volclava		debian/volclava/opt/volclava-2.1/etc
+	install	-m	644	config/lsf.cluster.$(clustername)		debian/volclava/opt/volclava-2.1/etc
 	install	-m	644	config/lsf.conf					debian/volclava/opt/volclava-2.1/etc
 	install	-m	644	config/lsf.task					debian/volclava/opt/volclava-2.1/etc
 	install	-m	644	config/lsf.shared				debian/volclava/opt/volclava-2.1/etc

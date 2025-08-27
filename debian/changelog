@@ -2,6 +2,8 @@ volclava (2.1-0.b.20250815) UNRELEASED; urgency=medium
   
   * support adding comments to badmin operations
   * JOB_SPOOL_DIR supports the %U dynamic pattern format
+  * support the customization of the admin and cluster name using the environment variables
+    "volclavaadmin" and "volclavacluster" during the installation process.
 
  -- Nan Qi <qinan.cn@bytedance.com>  Mon, 15 Aug 2025 18:00:00 +0800
 
