@@ -19,11 +19,17 @@ fi
 . $LSF_ENVDIR/lsf.conf
 
 # install the volclava startup file
-cp $LSF_ENVDIR/volclava /etc/init.d
+cp --backup=numbered $LSF_ENVDIR/volclava /etc/init.d
 
-cp $LSF_ENVDIR/volclava.sh /etc/profile.d
-cp $LSF_ENVDIR/volclava.csh /etc/profile.d
+ln -sf $LSF_ENVDIR/volclava.sh /etc/profile.d/volclava.sh
+ln -sf $LSF_ENVDIR/volclava.csh /etc/profile.d/volclava.csh 
 
 # configure the lava service to start at boot
-/sbin/chkconfig --add volclava
-/sbin/chkconfig volclava on
+osType=$(sed -n '/^NAME=/ {s/^NAME="//;s/"$//;p}' /etc/os-release)
+
+if [ "$osType" = "Ubuntu" ]; then
+    /lib/systemd/systemd-sysv-install enable volclava
+else
+    /sbin/chkconfig --add volclava
+    /sbin/chkconfig volclava on
+fi

@@ -30,9 +30,9 @@
 function usage() {
     echo "Usage: volcinstall.sh [--help]"
     echo "                      [--setup=pre [--uid=number]]"
-    echo "                      [--setup=install [--type=code|rpm|deb] [--prefix=/opt/volclava] [--hosts=\"master server1 ...\"|/path/file]]"
+    echo "                      [--setup=install [--type=code|rpm|deb] [--prefix=/opt/volclava] [--hosts=\"master server1 ...\"|/path/file] [--interactive=Y|y|N|n]]"
     echo "                      [--setup=post [--env=/volclava_top] [--startup=Y|y|N|n]]"
-    echo "                      [--type=code|rpm|deb|server] [--prefix=/opt/volclava] [--hosts=\"master server1 ...\"|/path/file] [--uid=number] [--startup=Y|y|N|n]"
+    echo "                      [--type=code|rpm|deb|server] [--prefix=/opt/volclava] [--hosts=\"master server1 ...\"|/path/file] [--uid=number] [--startup=Y|y|N|n] [--interactive=Y|y|N|n]"
 }
 
 
@@ -46,6 +46,8 @@ PHASE="all"
 USRID=""
 HOSTS=""
 STARTUP="N"
+INTERACTIVE="Y"
+
 if test -z "$volclavaadmin"; then
     VOLCADMIN="volclava"
 else
@@ -57,6 +59,9 @@ if test -z "$volclavacluster"; then
 else
     CLUSTERNAME=$volclavacluster
 fi
+
+SCRIPT_PATH="$(realpath "$0")"
+CWD="$(dirname "$(realpath "$0")")"
 
 while [ $# -gt 0 ]; do
     case $1 in
@@ -127,6 +132,17 @@ while [ $# -gt 0 ]; do
                 exit 1
             fi
             if [[ "$STARTUP" != "Y" ]] && [[ "$STARTUP" != "y" ]] && [[ "$STARTUP" != "N" ]] && [[ "$STARTUP" != "n" ]]; then
+                usage
+                exit 1
+            fi
+            ;;
+        --interactive=*)
+            INTERACTIVE=$(echo $1 | awk -F "=" '{print $2}')
+            if [ -z "$INTERACTIVE" ]; then
+                usage
+                exit 1
+            fi
+            if [[ "$INTERACTIVE" != "Y" ]] && [[ "$INTERACTIVE" != "y" ]] && [[ "$INTERACTIVE" != "N" ]] && [[ "$INTERACTIVE" != "n" ]]; then
                 usage
                 exit 1
             fi
@@ -210,20 +226,19 @@ function post_setup() {
 
     #set up volclava service and shell environment
     if [ "$TYPE" = "deb" ] && [ $setPrefix -ne 0 ]; then
-        cp $PREFIX/lib/systemd/system/volclava.service /lib/systemd/system/volclava.service
+        cp --backup=numbered $PREFIX/lib/systemd/system/volclava.service /lib/systemd/system/volclava.service
         chmod 644 /lib/systemd/system/volclava.service
-        cp $PREFIX/etc/init.d/volclava /etc/init.d/volclava
+        cp --backup=numbered $PREFIX/etc/init.d/volclava /etc/init.d/volclava
         chmod 755 /etc/init.d/volclava
 
         systemctl daemon-reload
 
-        cp -f $PREFIX/etc/profile.d/volclava.csh /etc/profile.d/
-        cp -f $PREFIX/etc/profile.d/volclava.sh /etc/profile.d/
-
+	ln -sf $PREFIX/etc/profile.d/volclava.csh /etc/profile.d/volclava.csh
+	ln -sf $PREFIX/etc/profile.d/volclava.sh /etc/profile.d/volclava.sh
     else
-        cp -f $PREFIX/etc/volclava /etc/init.d/
-        cp -f $PREFIX/etc/volclava.csh /etc/profile.d/
-        cp -f $PREFIX/etc/volclava.sh /etc/profile.d/
+        cp --backup=numbered $PREFIX/etc/volclava /etc/init.d/
+	ln -sf $PREFIX/etc/volclava.csh /etc/profile.d/volclava.csh
+	ln -sf $PREFIX/etc/volclava.sh /etc/profile.d/volclava.sh
     fi
 
 
@@ -296,8 +311,13 @@ function install() {
 
     if [ "$TYPE" = "code" ]; then
         # install volclava from source code
+	cd ${CWD}
         #setup automake
-        ./bootstrap.sh --prefix=$PREFIX
+        if [[ "$INTERACTIVE" == "Y" ]] || [[ "$INTERACTIVE" == "y" ]]; then
+            ./bootstrap.sh --prefix=$PREFIX --enable-interactive-install
+        else
+            ./bootstrap.sh --prefix=$PREFIX --disable-interactive-install
+        fi
 
         #make and install
         if [ $? -eq 0 ]; then
@@ -401,7 +421,7 @@ elif [ "$PHASE" == "install" ]; then
     if [ "$TYPE" == "code" ]; then
         echo -e "The volclava is installed under ${PREFIX}\nYou can use the following command to enable services to startup and add environment variables automatically on master and computing nodes: \n$0 --setup=post --env=${PREFIX}"
     else
-        echo -e "The volclava is installed under ${PREFIX}/${PACKAGE_NAME}\nYou can use the following command to enable services to startup and add environment variables automatically other computing nodes:\n$0 --setup=post --env=${PREFIX}/${PACKAGE_NAME}"
+        echo -e "The volclava is installed under ${PREFIX}/${PACKAGE_NAME}\nYou can use the following command to enable services to startup and add environment variables automatically on other computing nodes:\n$0 --setup=post --env=${PREFIX}/${PACKAGE_NAME}"
     fi
 elif [ "$PHASE" == "post" ]; then
     post_setup
