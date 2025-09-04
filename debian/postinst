@@ -1,19 +1,16 @@
 #!/usr/bin/env bash
 # Copyright (C) 2021-2025 Bytedance Ltd. and/or its affiliates
 
-VERSION="2.1"
-chmod 755 /opt/volclava-${VERSION}/lib/liblsf.a || true
-chmod 755 /opt/volclava-${VERSION}/lib/liblsbatch.a || true
-
-chmod 755 /etc/profile.d/volclava.sh || true
-chmod 755 /etc/profile.d/volclava.csh || true
-chmod 755 /opt/volclava-${VERSION}/etc/volclava.sh || true
-chmod 755 /opt/volclava-${VERSION}/etc/volclava.csh || true
+VOLCVERSION="2.1"
+ln -sf /opt/volclava-${VOLCVERSION}/etc/volclava.sh  /etc/profile.d/volclava.sh || true
+ln -sf /opt/volclava-${VOLCVERSION}/etc/volclava.csh /etc/profile.d/volclava.csh || true
+chmod 755 /opt/volclava-${VOLCVERSION}/etc/volclava.sh || true
+chmod 755 /opt/volclava-${VOLCVERSION}/etc/volclava.csh || true
 
 source /etc/profile.d/volclava.sh || true
 
 chmod 755 /etc/init.d/volclava || true
-chmod 755 /opt/volclava-${VERSION}/etc/volclava || true
+chmod 755 /opt/volclava-${VOLCVERSION}/etc/volclava || true
 
 if [ -n "$volclavaadmin" ]; then
     VOLCADMIN="$volclavaadmin"
@@ -24,5 +21,5 @@ fi
 groupadd -f ${VOLCADMIN} > /dev/null 2>&1 || true
 useradd -c "volclava Administrator" -g ${VOLCADMIN} -m -d /home/${VOLCADMIN} ${VOLCADMIN} > /dev/null 2>&1 || true
 
-chown -R ${VOLCADMIN}:${VOLCADMIN} /opt/volclava-${VERSION}/*
-chgrp -R ${VOLCADMIN} /opt/volclava-${VERSION}/*
+chown -R ${VOLCADMIN}:${VOLCADMIN} /opt/volclava-${VOLCVERSION}/*
+chgrp -R ${VOLCADMIN} /opt/volclava-${VOLCVERSION}/*
