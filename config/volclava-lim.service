@@ -1,0 +1,20 @@
+[Unit]
+Description=Volclava LIM (Load Information Manager)
+Wants=network-online.target
+After=network-online.target
+Before=volclava-res.service volclava-sbatchd.service
+
+[Service]
+Type=forking
+# Point LIM to the directory that contains lsf.conf and the daemons
+Environment=LSF_ENVDIR=/opt/volclava/etc
+ExecStart=/opt/volclava/sbin/lim
+KillMode=control-group
+GuessMainPID=no
+Restart=on-failure
+RestartSec=3
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target
+
