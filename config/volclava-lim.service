@@ -7,8 +7,8 @@ Before=volclava-res.service volclava-sbatchd.service
 [Service]
 Type=forking
 # Point LIM to the directory that contains lsf.conf and the daemons
-Environment=LSF_ENVDIR=/opt/volclava/etc
-ExecStart=/opt/volclava/sbin/lim
+Environment=LSF_ENVDIR=/opt/volclava-2.0/etc
+ExecStart=/opt/volclava-2.0/sbin/lim
 KillMode=control-group
 GuessMainPID=no
 Restart=on-failure

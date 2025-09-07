@@ -5,9 +5,8 @@ After=network-online.target volclava-lim.service volclava-res.service
 
 [Service]
 Type=forking
-Environment=LSF_ENVDIR=/opt/volclava/etc
-Environment=LSF_SERVERDIR=/opt/volclava/sbin
-ExecStart=/opt/volclava/sbin/sbatchd
+Environment=LSF_ENVDIR=/opt/volclava-2.0/etc
+ExecStart=/opt/volclava-2.0/sbin/sbatchd
 KillMode=control-group
 GuessMainPID=no
 Restart=on-failure
