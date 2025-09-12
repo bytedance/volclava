@@ -139,29 +139,31 @@ observerDestroy(LS_BITSET_OBSERVER_T *observer)
  * Duplicate a given set.
  */
 LS_BITSET_T *
-setDup(LS_BITSET_T *set)
+setDup(const LS_BITSET_T *set)
 {
-    static char   *fname = "setCreate";
-    LS_BITSET_T   *set2;
+    LS_BITSET_T *set2;
 
     set2 = calloc(1, sizeof(LS_BITSET_T));
     if (! set2) {
         bitseterrno = LS_BITSET_ERR_NOMEM;
-        ls_syslog(LOG_ERR,"%s %s", fname, setPerror(bitseterrno));
-        return (NULL);
+        ls_syslog(LOG_ERR, "%s %s", __func__, setPerror(bitseterrno));
+        return NULL;
     }
 
-    memcpy((void *)set2, (void *)set, sizeof(LS_BITSET_T));
+    set2->setWidth = set->setWidth;
     set2->setDescription = putstr_(set->setDescription);
-    set2->bitmask = calloc(set->setWidth,
-                           sizeof(unsigned int));
 
-    memcpy((void *)set2->bitmask,
-           set2->bitmask,
-           set2->setWidth*sizeof(unsigned int));
+    set2->bitmask = calloc(set->setWidth, sizeof(unsigned int));
+    if (!set2->bitmask) {
+        bitseterrno = LS_BITSET_ERR_NOMEM;
+        ls_syslog(LOG_ERR, "%s %s", __func__, setPerror(bitseterrno));
+        free(set2);
+        return NULL;
+    }
 
-    return (set2);
+    memcpy(set2->bitmask, set->bitmask, set->setWidth * sizeof(unsigned int));
 
+    return set2;
 }
 
 /* setTestValue()
@@ -615,39 +617,42 @@ setIteratorBegin(LS_BITSET_ITERATOR_T *iter)
     return (object);
 }
 
+#include <stdint.h>  // Required for uintptr_t
+
 void *
 setIteratorGetNextElement(LS_BITSET_ITERATOR_T *iter)
 {
-    static char   fname[] = "setIteratorGetNextElement";
-    void          *object;
+    static char fname[] = "setIteratorGetNextElement";
+    void *object;
 
     if (!SET_IS_VALID(iter->set)) {
-        ls_syslog(LOG_ERR, _i18n_msg_get(ls_catd,NL_SETN,5300, "%s: expected a non-NULL set pointer but got a NULL one"), fname);
+        ls_syslog(LOG_ERR,
+                  _i18n_msg_get(ls_catd, NL_SETN, 5300,
+                                "%s: expected a non-NULL set pointer but got a NULL one"),
+                  fname);
         bitseterrno = LS_BITSET_ERR_BADARG;
-        return(NULL);
+        return NULL;
     }
 
     if (SET_IS_EMPTY(iter->set)) {
         bitseterrno = LS_BITSET_ERR_SETEMPTY;
-        return (NULL);
+        return NULL;
     }
 
     while (iter->setCurrentBit < iter->set->setSize) {
-
-        if (setTestValue(iter->set, iter->setCurrentBit ) == TRUE) {
-
-            if (iter->set->getObjectByIndex == NULL)
-                object = (void *)iter->setCurrentBit;
-            else {
-                object = (*iter->set->getObjectByIndex)(iter->setCurrentBit);
+        if (setTestValue(iter->set, iter->setCurrentBit) == TRUE) {
+            if (iter->set->getObjectByIndex == NULL) {
+                object = (void *)(uintptr_t)iter->setCurrentBit;
+            } else {
+                object = iter->set->getObjectByIndex(iter->setCurrentBit);
                 if (!object) {
                     bitseterrno = LS_BITSET_ERR_FUNC;
-                    return(NULL);
+                    return NULL;
                 }
             }
 
             ++iter->setCurrentBit;
-            return(object);
+            return object;
         }
         ++iter->setCurrentBit;
     }
@@ -944,14 +949,3 @@ word <%d> decimal <%d> bits: ", i, set->bitmask[i]);
 
     return (0);
 }
-
-
-
-
-
-
-
-
-
-
-

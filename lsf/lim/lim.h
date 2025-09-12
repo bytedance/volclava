@@ -199,8 +199,8 @@ struct liStruct {
     float satvalue;
     float value;
 };
-int li_len;
-struct liStruct *li;
+extern int li_len;
+extern struct liStruct *li;
 
 #define  SEND_NO_INFO       0x00
 #define  SEND_CONF_INFO     0x01

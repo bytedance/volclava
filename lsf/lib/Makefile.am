@@ -1,7 +1,7 @@
 #
 # Copyright (C) 2011 David Bigagli
 #
-INCLUDES = -I../
+AM_CPPFLAGS = -I../
 
 lib_LIBRARIES = liblsf.a
 

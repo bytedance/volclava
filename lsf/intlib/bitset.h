@@ -122,7 +122,7 @@ extern LS_BITSET_T *setCreate(const int, int (*getIndexByObject)(void *),
 		 void *(*getObjectByIndex)(int), char *);
 extern LS_BITSET_T *simpleSetCreate(const int, char *);
 extern int setDestroy(LS_BITSET_T *);
-extern LS_BITSET_T *setDup(LS_BITSET_T *);
+extern LS_BITSET_T *setDup(const LS_BITSET_T *);
 extern bool_t setTestValue(LS_BITSET_T *, const int);
 extern int setGetSize(LS_BITSET_T *);
 extern bool_t setIsMember(LS_BITSET_T *, void *);

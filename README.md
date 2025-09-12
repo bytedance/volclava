@@ -10,7 +10,7 @@ Everyone is welcomed to feed back via git issue.
 
 
 ## Support OS
-- CentOS 6/CentOS 7/CentOS 8  
+- CentOS 6/CentOS 7/CentOS 8
 - Redhat/Rocky 8
 - Ubuntu 20.04
 
@@ -100,7 +100,7 @@ cmp1-test           ok   0.0   0.0   0.0   0%   0.0   1     6   20G   10G   29G
 cmp2-test           ok   0.0   0.0   0.0   0%   0.0   1    24   45G   10G   30G
 
 [root@cmp2-test etc]# bhosts  ##check workload on hosts
-HOST_NAME          STATUS       JL/U    MAX  NJOBS    RUN  SSUSP  USUSP    RSV 
+HOST_NAME          STATUS       JL/U    MAX  NJOBS    RUN  SSUSP  USUSP    RSV
 cmp1-test          ok              -      4      0      0      0      0      0
 cmp2-test          ok              -      4      0      0      0      0      0
 master-test        ok              -      4      0      0      0      0      0
@@ -111,7 +111,7 @@ master-test        ok              -      4      0      0      0      0      0
 [root@master-test ~]# su - volclava
 [volclava@master-test ~]$ bsub sleep 100
 Job <1> is submitted to default queue <normal>.
-[volclava@master-test ~]$ bjobs 
+[volclava@master-test ~]$ bjobs
 JOBID   USER    STAT  QUEUE      FROM_HOST   EXEC_HOST   JOB_NAME   SUBMIT_TIME
 1       volclav PEND  normal     master-test             sleep 100  Nov 27 15:03
 ```

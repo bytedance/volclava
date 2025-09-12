@@ -1,7 +1,7 @@
 #
 # Copyright (C) openlava foundation
 #
-INCLUDES = -I../lsf
+AM_CPPFLAGS = -I../lsf
 
 sbin_PROGRAMS = echkpnt erestart
 
