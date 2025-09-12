@@ -1,13 +1,15 @@
-2025-08-11  Mingze Li <limingze.jiayou@bytedance.com>
+2025-09-12  Mingze Li <limingze.jiayou@bytedance.com>
             Nan Qi <qinan.cn@bytedance.com>
 	
 	* release volclava 2.1.0.
 
 	* Summary of changes:
-	1. support adding comments to badmin operations
-	2. JOB_SPOOL_DIR supports the %U dynamic pattern format
-        3. support the customization of the admin and cluster name using the environment variables
-	   "volclavaadmin" and "volclavacluster" during the installation process.
+	1. support adding comments to badmin operations;
+	2. JOB_SPOOL_DIR supports the %U dynamic pattern format;
+	3. support the customization of the admin and cluster name using the environment variables
+	   "volclavaadmin" and "volclavacluster" during the installation process;
+	4. support mixed OS deployment in clusters installed via source code;
+	5. modernize code for LIM compilation;
 
 2025-06-16  Mingze Li <limingze.jiayou@bytedance.com>
             Nan Qi <qinan.cn@bytedance.com>

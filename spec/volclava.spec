@@ -494,11 +494,13 @@ rm -rf ${_volclavatop}
 %dir %attr(0755,%{VOLCADMIN},%{VOLCADMIN}) %{_volclavatop}/work/logdir
 
 %changelog
-* Mon Aug 11 2025 Releasing volclava 2.1.0 by Bytedance Ltd. and/or its affiliates
-- support adding comments to badmin operations
-- JOB_SPOOL_DIR supports the %U dynamic pattern format
+* Mon Sep 12 2025 Releasing volclava 2.1.0 by Bytedance Ltd. and/or its affiliates
+- support adding comments to badmin operations;
+- JOB_SPOOL_DIR supports the %U dynamic pattern format;
 - support the customization of the admin and cluster name using the environment variables
-  "volclavaadmin" and "volclavacluster" during the installation process.
+  "volclavaadmin" and "volclavacluster" during the installation process;
+- support mixed OS deployment in clusters installed via source code;
+- modernize code for LIM compilation;
 * Mon Jun 16 2025 Releasing volclava 2.0.0 by Bytedance Ltd. and/or its affiliates
 - support fairshare scheduling policy for users at queue level;
 - support customize unit by configure LSF_UNIT_FOR_LIMITS in lsf.conf;
