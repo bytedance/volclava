@@ -12,7 +12,6 @@ configure
 depcomp
 install-sh
 missing
-openlava-*
 config.h
 config.log
 config.status
