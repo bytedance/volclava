@@ -31,3 +31,6 @@ LSF_PIM_SLEEPTIME_UPDATE=y
 
 LSB_MAX_PACK_JOBS=300
 LSB_PACK_SKIP_ERROR=N
+
+# default esub method list
+# LSB_ESUB_METHOD="example"

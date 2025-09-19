@@ -54,8 +54,8 @@ runEsub_(struct lenData *ed, char *path)
 	if (*path == '\0')
 	    strcpy(esub, ESUBNAME);
 	else
-	    sprintf (esub, "%s/%s", path,ESUBNAME);
-	myargv[1] = "-r";
+	    sprintf(esub, "%s", path);
+    myargv[1] = "-r";
  	myargv[2] = NULL;
     }
 
