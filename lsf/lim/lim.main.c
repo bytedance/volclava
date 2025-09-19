@@ -125,12 +125,10 @@ struct liStruct *li = NULL;
 int
 main(int argc, char **argv)
 {
-    fd_set allMask;
-    struct Masks sockmask;
-    struct Masks chanmask;
     struct timeval timer;
     struct timeval t0;
     struct timeval t1;
+    int *readyChans;
     int    maxfd;
     char   *sp;
     int    showTypeModel;
@@ -201,6 +199,7 @@ Reading configuration from %s/lsf.conf\n", env_dir);
         /* Print my type, model, architecture
          * and CPU factor, even if some are hardcoded.
          */
+        chanEpollStart();
         cc = initAndConfig(lim_CheckMode, &kernelPerm);
         if (cc < 0) {
             ls_syslog(LOG_ERR, "\
@@ -244,6 +243,7 @@ Reading configuration from %s/lsf.conf\n", env_dir);
         daemonize_();
         nice(NICE_LEAST);
     }
+    chanEpollStart();
 
     if (lim_debug < 2)
         chdir("/tmp");
@@ -313,7 +313,6 @@ Reading configuration from %s/lsf.conf\n", env_dir);
     if (lim_debug < 2)
         chdir("/tmp");
 
-    FD_ZERO(&allMask);
     /* We use seconds based precision timer
      * which is good enough, just make sure
      * that every 5 seconds we read the load
@@ -326,20 +325,19 @@ Reading configuration from %s/lsf.conf\n", env_dir);
     for (;;) {
         sigset_t oldMask;
         sigset_t newMask;
-        int nReady;
+        int nReady = 0;
 
-        sockmask.rmask = allMask;
         if (pimPid == -1)
             startPIM(argc, argv);
 
         ls_syslog(LOG_DEBUG2, "\
 %s: Before select: timer %dsec", __func__, timer.tv_sec);
 
-        nReady = chanSelect_(&sockmask, &chanmask, &timer);
+        nReady = chanEpoll_(&readyChans, &timer);
         if (nReady < 0) {
             if (errno != EINTR)
                 ls_syslog(LOG_ERR, "\
-%s: chanSelect() failed %M", __func__);
+%s: chanEpoll() failed %M", __func__);
             continue;
         }
 
@@ -380,15 +378,15 @@ Reading configuration from %s/lsf.conf\n", env_dir);
             continue;
         }
 
-        if (FD_ISSET(limSock, &chanmask.rmask)) {
+        if (chanEventsReady(limSock, EPOLLIN)) {
             processUDPMsg();
         }
 
-        if (FD_ISSET(limTcpSock, &chanmask.rmask)) {
+        if (chanEventsReady(limTcpSock, EPOLLIN)) {
             doAcceptConn();
         }
 
-        clientIO(&chanmask);
+        clientIO(readyChans, nReady);
 
         sigprocmask(SIG_SETMASK, &oldMask, NULL);
 
