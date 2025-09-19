@@ -75,6 +75,11 @@ struct chanData {
 
 };
 
+struct chanEpollData {
+    struct epoll_event *events;
+    int epollfd;
+};
+
 #define  CHANE_NOERR      0
 #define  CHANE_CONNECTED  1
 #define  CHANE_NOTCONN    2
@@ -123,6 +128,7 @@ int chanRpc_(int , struct Buffer *, struct Buffer *, struct LSFHeader *, int tim
 int chanRead_(int, char *, int);
 int chanReadNonBlock_(int, char *, int, int);
 int chanWrite_(int, char *, int);
+int chanWriteTimeout_(int, char *, int, int);
 
 int chanAllocBuf_(struct Buffer **buf, int size);
 int chanFreeBuf_(struct Buffer *buf);
@@ -137,7 +143,7 @@ extern int chanIndex;
 extern int cherrno;
 
 /*需要在负责listen的socket创建之前调用这个函数*/
-int chanEpollStart();
+int chanEpollInit();
 
 #endif
 

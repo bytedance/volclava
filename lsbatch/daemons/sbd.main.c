@@ -63,6 +63,7 @@ char need_checkfinish = FALSE;
 int  failcnt = 0;
 ushort sbd_port;
 ushort mbd_port;
+ushort qmbd_port;
 int    sbdSleepTime  = DEF_SSLEEPTIME;
 int    msleeptime  = DEF_MSLEEPTIME;
 int    retryIntvl  = DEF_RETRY_INTVL;
@@ -863,7 +864,7 @@ sinit (void)
     struct hostInfo *myinfo;
     char *myhostname;
 
-    chanEpollStart();
+    chanEpollInit();
     
     if (logclass & (LC_TRACE | LC_HANG))
         ls_syslog(LOG_DEBUG, "sbatchd/%s: Entering this routine...", fname);

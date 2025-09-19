@@ -35,7 +35,6 @@ extern bool_t xdr_resourceInfoReq(XDR *, struct resourceInfoReq *,
 
 extern char *jgrpNodeParentPath(struct jgTreeNode *);
 static int packJgrpInfo(struct jgTreeNode *, int, char **, int, int);
-static int packJobInfo(struct jData *, int, char **, int, int, int);
 static void initSubmit(int *, struct submitReq *, struct submitMbdReply *);
 static int sendBack(int, struct submitReq *, struct submitMbdReply *, int);
 static void addPendSigEvent(struct sbdNode *sbdPtr);
@@ -147,7 +146,7 @@ do_jobInfoReq(XDR *xdrs,
               int chfd,
               struct sockaddr_in *from,
                struct LSFHeader *reqHdr,
-              int schedule)
+              int schedule, int byMbd)
 {
     static char             fname[] = "do_jobInfoReq";
     char                    *reply_buf = NULL;
@@ -156,7 +155,7 @@ do_jobInfoReq(XDR *xdrs,
     struct jobInfoReq       jobInfoReq;
     struct jobInfoHead      jobInfoHead;
     int                     reply = 0;
-    int                     i, len, listSize = 0;
+    int                     i, len, listSize = 0, newJobCount = 0, shmStartPos = 0;
     struct LSFHeader        replyHdr;
     struct nodeList        *jgrplist = NULL;
     struct jData          **joblist = NULL;
@@ -184,9 +183,12 @@ do_jobInfoReq(XDR *xdrs,
             reply = selectJgrps(&jobInfoReq, (void **)&jgrplist, &listSize);
         }
         else {
-            reply = selectJobs(&jobInfoReq, &joblist, &listSize);
-
-
+            reply = selectJobs(&jobInfoReq, &joblist, &listSize,byMbd);
+            shmStartPos = shm->startPos;
+            newJobCount = shm->count;
+            if(!byMbd && reply == LSBE_NO_JOB && newJobCount){
+                reply = LSBE_NO_ERROR;
+            }
             jgrplist = (struct nodeList *) calloc(listSize,
                                                   sizeof(struct nodeList));
             for (i = 0; i < listSize; i++){
@@ -199,7 +201,7 @@ do_jobInfoReq(XDR *xdrs,
 
     xdr_lsffree(xdr_jobInfoReq, (char *) &jobInfoReq, reqHdr);
 
-    jobInfoHead.numJobs = listSize;
+    jobInfoHead.numJobs = listSize + newJobCount;
 
     if (jobInfoHead.numJobs > 0)
         jobInfoHead.jobIds = my_calloc(listSize,
@@ -247,7 +249,7 @@ do_jobInfoReq(XDR *xdrs,
     len = XDR_GETPOS(&xdrs2);
 
     {
-        if (chanWrite_(chfd, reply_buf, len) != len) {
+        if (chanWriteTimeout_(chfd, reply_buf, len, DEF_WRITE_TIMEOUT) != len) {
             ls_syslog(LOG_ERR, I18N_FUNC_FAIL_M, fname, "chanWrite_");
             FREEUP (reply_buf);
             freeJobHead (&jobInfoHead);
@@ -284,7 +286,7 @@ do_jobInfoReq(XDR *xdrs,
         }
 
         {
-            if (chanWrite_(chfd, buf, len) != len) {
+            if (chanWriteTimeout_(chfd, buf, len, DEF_WRITE_TIMEOUT) != len) {
                 ls_syslog(LOG_ERR, I18N_FUNC_FAIL_M, fname, "chanWrite_");
                 FREEUP(buf);
                 FREEUP (jgrplist);
@@ -295,7 +297,44 @@ do_jobInfoReq(XDR *xdrs,
     }
     FREEUP (jgrplist);
 
-    chanClose_(chfd);
+    if(!byMbd){/*从共享内存里面读取jobinfo发送*/
+            if (shm != NULL && newJobCount > 0) {
+            int currentReadPos;  
+            int totalShmBufSize = sizeof(shm->newJobReplyAndHeader);
+
+            currentReadPos = shm->startPos;
+
+            for (i = 0; i < newJobCount; i++) {
+                if (currentReadPos + sizeof(int) > totalShmBufSize) {
+                    ls_syslog(LOG_ERR, "%s: read shm data length out of bounds; currentReadPos=%d, required=%d, totalSize=%d",
+                            fname, currentReadPos, sizeof(int), totalShmBufSize);
+                    return -1;
+                }
+                memcpy(&len, shm->newJobReplyAndHeader + currentReadPos, sizeof(int));
+                currentReadPos += sizeof(int);
+
+                if (len <= 0 || currentReadPos + len > totalShmBufSize) {
+                    ls_syslog(LOG_ERR, "%s: invalid shm data length; index=%d, len=%d, currentReadPos=%d, totalSize=%d",
+                            fname, i, len, currentReadPos, totalShmBufSize);
+                    return -1;
+                }
+
+                {
+                    char *shmDataPtr = shm->newJobReplyAndHeader + currentReadPos;
+                    if (chanWriteTimeout_(chfd, shmDataPtr, len, DEF_WRITE_TIMEOUT) != len) {
+                        ls_syslog(LOG_ERR, I18N_FUNC_FAIL_M, fname, "chanWrite_ (shm data)");
+                        return -1;
+                    }
+                }
+
+                currentReadPos += len;
+            }
+        }
+    }
+
+
+
+    //chanClose_(chfd);
     return(0);
 }
 
@@ -416,7 +455,7 @@ jobInfoReplyXdrBufLen(struct jobInfoReply *jobInfoReplyPtr)
     return(len);
 }
 
-static int
+int
 packJobInfo(struct jData * jobData,
             int remain,
             char **replyBuf,

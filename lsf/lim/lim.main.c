@@ -196,7 +196,7 @@ Reading configuration from %s/lsf.conf\n", env_dir);
         /* Print my type, model, architecture
          * and CPU factor, even if some are hardcoded.
          */
-        chanEpollStart();
+        chanEpollInit();
         cc = initAndConfig(lim_CheckMode, &kernelPerm);
         if (cc < 0) {
             ls_syslog(LOG_ERR, "\
@@ -240,7 +240,7 @@ Reading configuration from %s/lsf.conf\n", env_dir);
         daemonize_();
         nice(NICE_LEAST);
     }
-    chanEpollStart();
+    chanEpollInit();
 
     if (lim_debug < 2)
         chdir("/tmp");

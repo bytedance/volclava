@@ -1331,6 +1331,7 @@ mbdDie (int sig)
     sigaddset(&newmask, SIGINT);
     sigprocmask(SIG_BLOCK, &newmask, NULL);
 
+    shmctl(shmId, IPC_RMID, NULL);
 
 
 

@@ -31,7 +31,7 @@
 #define NL_SETN   23
 
 #define CLOSEIT(i) {                                \
-        chanUnbindSock(channels[i].handle);      \                                               
+        chanUnbindSock(channels[i].handle);         \                                               
         CLOSESOCKET(channels[i].handle);            \
         channels[i].state = CH_DISC;                \   
         channels[i].readyEvents = 0;                \
@@ -39,10 +39,11 @@
         channels[i].handle = INVALID_HANDLE; }
 
 static struct chanData *channels;
+static struct chanEpollData *epollData;
+static int epollReady = 0;
 static struct handleData *handles;
-static struct epoll_event *events;
-static int *readyChans;
-static int nReady;
+static int *readyChans = NULL;
+static int readyChansNum = 0;
 int cherrno = 0;
 extern int errno;
 int chanIndex;
@@ -63,10 +64,8 @@ static void chanUnbindSock(int);
 static void chanUpdateListenEvents(int);
 static void upDateListenEvents(int);
 static void chanClearReadyEvents();
-static void doreadEpoll(int chfd);
-static void dowriteEpoll(int chfd);
-
-int epollfd=-1;
+static void doreadEpoll(int);
+static void dowriteEpoll(int);
 
 int
 chanInit_(void)
@@ -81,7 +80,9 @@ chanInit_(void)
     chanMaxSize = sysconf(_SC_OPEN_MAX);
 
     channels = calloc(chanMaxSize, sizeof(struct chanData));
-    if (channels == NULL)
+    handles = calloc(chanMaxSize, sizeof(struct handleData));
+    readyChans = calloc(chanMaxSize, sizeof(int));
+    if (channels == NULL || handles == NULL|| readyChans == NULL)
         return -1;
 
     chanIndex = 0;
@@ -117,6 +118,10 @@ chanServSocket_(int type, u_short port, int backlog, int options)
 
         setsockopt(s, SOL_SOCKET, SO_REUSEADDR, (char *) &one,
                    sizeof (int));
+    }
+
+    if (options & CHAN_OP_NONBLOCK) {
+        io_nonblock_(s);
     }
 
     if (bind(s, (struct sockaddr *)&sin, sizeof(sin)) < 0) {
@@ -668,13 +673,21 @@ chanEpoll_(int **readyfds, struct timeval *timeout)
     }
 
 
-    nReady = epoll_wait(epollfd, events, chanMaxSize, timeout_ms);
-    if (nReady <= 0) {
-        return nReady;
+    readyChansNum = epoll_wait(epollData->epollfd, epollData->events, chanMaxSize, timeout_ms);
+    if (readyChansNum <= 0) {
+        return readyChansNum;
     }
 
-    for (i = 0; i < nReady; i++) {
-        sockfd = events[i].data.fd;
+    if(logclass & (LC_COMM)) {
+        ls_syslog(LOG_DEBUG, "%s: %d channels are ready", fname,readyChansNum);
+        for(i = 0; i<readyChansNum; i++){
+            sockfd =epollData->events[i].data.fd;
+            ls_syslog(LOG_DEBUG, "\
+                    socket %d event is %d%d%d", sockfd, (epollData->events[i].events & EPOLLIN)?1:0,(epollData->events[i].events & EPOLLOUT)?1:0,(epollData->events[i].events & EPOLLERR)?1:0);
+        }
+   }
+    for (i = 0; i < readyChansNum; i++) {
+        sockfd = epollData->events[i].data.fd;
         chfd = sockChan_(sockfd);
         if (chfd < 0 || chfd >= chanMaxSize) {
             ls_syslog(LOG_ERR, "%s: Invalid channel for sockfd %d", fname, sockfd);
@@ -695,21 +708,21 @@ chanEpoll_(int **readyfds, struct timeval *timeout)
 
         if (logclass & LC_COMM) {
             ls_syslog(LOG_DEBUG3, "%s: processing channel %d handle %d events 0x%x",
-                    fname, chfd, sockfd, events[i].events);
+                    fname, chfd, sockfd, epollData->events[i].events);
         }
-        if (events[i].events & (EPOLLERR | EPOLLHUP)) {
+        if (epollData->events[i].events & (EPOLLERR | EPOLLHUP)) {
             channels[chfd].readyEvents |= EPOLLERR;
             continue;
         }
 
         if ( channels[chfd].state != CH_PRECONN &&
             !channels[chfd].recv && !channels[chfd].send) {
-            channels[chfd].readyEvents = events[i].events;
+            channels[chfd].readyEvents = epollData->events[i].events;
             continue;
         }
 
         if (channels[chfd].state == CH_PRECONN) {
-            if (events[i].events & EPOLLOUT) {
+            if (epollData->events[i].events & EPOLLOUT) {
                 channels[chfd].state = CH_CONN;
                 channels[chfd].send = newBuf();
                 channels[chfd].recv = newBuf();
@@ -723,12 +736,12 @@ chanEpoll_(int **readyfds, struct timeval *timeout)
                 channels[chfd].readyEvents |= EPOLLOUT;
             }
         } else {
-            if (events[i].events & EPOLLIN) {
+            if (epollData->events[i].events & EPOLLIN) {
                 doreadEpoll(chfd);
             }
 
             if (channels[chfd].send && channels[chfd].send->forw != channels[chfd].send &&
-                (events[i].events & EPOLLOUT)) {
+                (epollData->events[i].events & EPOLLOUT)) {
                 dowriteEpoll(chfd);
             }
 
@@ -736,16 +749,16 @@ chanEpoll_(int **readyfds, struct timeval *timeout)
         }
     }
 
-    ready = nReady;
-    nReady = 0;
+    ready = readyChansNum;
+    readyChansNum = 0;
     for(i = 0; i< ready ;i++){
-        chfd = sockChan_(events[i].data.fd);
+        chfd = sockChan_(epollData->events[i].data.fd);
         if(chanEventsReady(chfd, EPOLLIN)||chanEventsReady(chfd, EPOLLERR)){
-            readyChans[nReady++] = chfd;
+            readyChans[readyChansNum++] = chfd;
         }
     }
     *readyfds = readyChans;
-    return nReady;
+    return readyChansNum;
 }
 
 int
@@ -957,6 +970,14 @@ chanWrite_(int chfd, char *buf, int len)
 {
 
     return (b_write_fix(channels[chfd].handle, buf, len));
+
+}
+
+int
+chanWriteTimeout_(int chfd, char *buf, int len, int timeout)
+{
+
+    return (nb_write_timeout(channels[chfd].handle, buf, len, timeout));
 
 }
 
@@ -1221,7 +1242,6 @@ doreadEpoll(int chfd)
     if (channels[chfd].recv->forw == channels[chfd].recv) {
         rcvbuf = newBuf();
         if (!rcvbuf) {
-            //FD_SET(chfd, &(chanmask->emask));
             channels[chfd].readyEvents |= EPOLLERR;
             channels[chfd].chanerr = LSE_MALLOC;
             return;
@@ -1505,7 +1525,7 @@ upDateListenEvents(int chfd){
 static void
 chanBindSock(int sockfd, int chfd)
 {
-    if(epollfd == -1) 
+    if(!epollReady) 
         return;
     
     static char fname[] = "chanBindSock";
@@ -1526,9 +1546,9 @@ chanBindSock(int sockfd, int chfd)
 
     upDateListenEvents(chfd);
     ev.events = channels[chfd].listenEvents;
-    if (epoll_ctl(epollfd, EPOLL_CTL_ADD, sockfd, &ev) == -1) {
+    if (epoll_ctl(epollData->epollfd, EPOLL_CTL_ADD, sockfd, &ev) == -1) {
         lserrno = LSE_SOCK_SYS;
-        ls_syslog(LOG_ERR, "%s: epoll_ctl ADD failed for sockfd %d: %m",
+        ls_syslog(LOG_WARNING, "%s: epoll_ctl ADD failed for sockfd %d: %m",
                   fname, sockfd);
     }
 }
@@ -1536,7 +1556,7 @@ chanBindSock(int sockfd, int chfd)
 static void 
 chanUpdateListenEvents(int chfd)
 {
-    if (epollfd == -1) 
+    if (!epollReady) 
         return;
     
     static char fname[] = "chanUpdateListenEvents";
@@ -1569,7 +1589,7 @@ chanUpdateListenEvents(int chfd)
     }
 
     ev.events = channels[chfd].listenEvents;
-    if (epoll_ctl(epollfd, EPOLL_CTL_MOD, sockfd, &ev) == -1) {
+    if (epoll_ctl(epollData->epollfd, EPOLL_CTL_MOD, sockfd, &ev) == -1) {
         lserrno = LSE_SOCK_SYS;
         ls_syslog(LOG_ERR, "%s: epoll_ctl MOD failed for sock %d: %m", fname, sockfd);
     } 
@@ -1578,25 +1598,29 @@ chanUpdateListenEvents(int chfd)
 static void 
 chanUnbindSock(int sockfd)
 {
-    if(epollfd == -1 || handles[sockfd].chanIndex == -1 || handles[sockfd].channel == NULL) return ;
+    if(!epollReady || handles[sockfd].chanIndex == -1 || handles[sockfd].channel == NULL) {
+        return ;
+    }
     static char *fname = "chanUnbindSock";
-    int chfd = handles[sockfd].chanIndex;
+    int chfd = sockChan_(sockfd);
     handles[sockfd].chanIndex = -1;
     handles[sockfd].channel = NULL;
 
     if (logclass & LC_COMM) {
-        ls_syslog(LOG_DEBUG3, "%s: channel %d handle %d state %d type %d",
+        ls_syslog(LOG_DEBUG, "%s: channel %d handle %d state %d type %d",
                   fname, chfd, channels[chfd].handle, channels[chfd].state, channels[chfd].type);
     }
-    if(channels[chfd].state == CH_WAIT){//关闭正在listen的socket，说明是子进程，应该关闭epoll
-        close(epollfd);
-        epollfd = -1;
+    if(channels[chfd].state == CH_WAIT){//关闭正在listen的socket，说明是子进程，应该关闭epoll，在mbd fork出的qmbd中，不应该关闭epoll
+        close(epollData->epollfd);
+        epollData->epollfd = -1;
+        epollReady = 0;
         return ;
     }
-    if (epoll_ctl(epollfd, EPOLL_CTL_DEL, sockfd, NULL) == -1) {//只有子进程可能DEL失败，应该关闭epoll
-        if(epollfd >= 0) {
-            close(epollfd);
-            epollfd == -1;
+    if (epoll_ctl(epollData->epollfd, EPOLL_CTL_DEL, sockfd, NULL) == -1) {//只有子进程可能DEL失败，应该关闭epoll
+        if(epollData->epollfd >= 0) {
+            close(epollData->epollfd);
+            epollData->epollfd == -1;
+            epollReady = 0;
             return ;
         }
         lserrno = LSE_SOCK_SYS;
@@ -1610,11 +1634,11 @@ chanClearReadyEvents()
     static char *fname = "chanClearReadyEvents";
     int i;
 
-    if (nReady <= 0) {
+    if (readyChansNum <= 0) {
         return ;
     }
 
-    for (i = 0; i < nReady; i++) {
+    for (i = 0; i < readyChansNum; i++) {
         int chfd = readyChans[i];
 
         if (chfd < 0 || chfd >= chanMaxSize) {
@@ -1625,7 +1649,6 @@ chanClearReadyEvents()
                     fname, chfd, channels[chfd].handle, channels[chfd].state, channels[chfd].type, channels[chfd].readyEvents);
         }
         channels[chfd].readyEvents = 0;
-        
     }
 
     return ;
@@ -1658,20 +1681,24 @@ chanEventsReady(int chfd, int events)
     return (channels[chfd].readyEvents & events) ? 1 : 0;
 }
 
-int chanEpollStart(){
+int chanEpollInit(){
     int i; 
-
-    epollfd = epoll_create(5);
-    handles = calloc(chanMaxSize, sizeof(struct handleData));
-    events = calloc(chanMaxSize, sizeof(struct epoll_event));
-    readyChans = calloc(chanMaxSize, sizeof(int));
-    nReady = 0;
-    if(epollfd == -1 || handles == NULL || events == NULL){
+    epollData = calloc(1,sizeof(struct chanEpollData));
+    if(epollData == NULL){
         return -1;
     }
+    epollData->epollfd = epoll_create(5);
+    epollData->events = calloc(chanMaxSize, sizeof(struct epoll_event));
+    readyChansNum = 0;
+    if(epollData->epollfd < 0 || epollData->events == NULL){
+        return -1;
+    }
+    epollReady = 1;
     for(i = 0; i<chanMaxSize; i++){
         handles[i].chanIndex = -1;
         handles[i].channel = NULL;
+        channels[i].listenEvents = 0;
+        channels[i].readyEvents = 0;
     }
     return 0;
 }

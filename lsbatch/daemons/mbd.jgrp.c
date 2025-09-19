@@ -588,8 +588,8 @@ myName(char * group_spec)
 char *
 jgrpNodeParentPath(struct jgTreeNode * jgrpNode)
 {
-    static char fullPath[MAXPATHLEN];
-    static char oldPath[MAXPATHLEN];
+    static __thread char fullPath[MAXPATHLEN];
+    static __thread char oldPath[MAXPATHLEN];
     struct jgTreeNode * jgrpPtr;
     int    first = TRUE;
 

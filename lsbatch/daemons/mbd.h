@@ -21,6 +21,7 @@
 #define MBD_H
 
 #include "../lsbatch.h"
+#include "../lib/lsb.threadpool.h"
 #include "daemonout.h"
 #include "daemons.h"
 #include "../../lsf/intlib/bitset.h"
@@ -39,7 +40,7 @@
 #define  DEF_EXCLUSIVE        FALSE
 #define  DEF_EVENT_WATCH_TIME 60
 #define  DEF_COND_CHECK_TIME  600
-#define DEF_MAX_SBD_CONNS 32
+#define DEF_MAX_SBD_CONNS 128
 #define DEF_SCHED_STAY        3
 #define DEF_FRESH_PERIOD     15
 #define DEF_PEND_EXIT       512
@@ -51,6 +52,12 @@
 
 #define DEF_PRE_EXEC_DELAY    -1
 
+#define DEF_QMBD_ALIVE_TIME 10
+
+#define DEF_WRITE_TIMEOUT 5
+
+#define DEF_SHM_MAX_BUF_SIZE 11451423
+#define DEF_SHM_SIZE sizeof(struct SharedMemory)
 /* Global MBD job lists
  */
 typedef enum {
@@ -121,7 +128,7 @@ typedef enum {
 extern int mSchedStage;
 extern int freshPeriod;
 extern int maxSchedStay;
-
+extern int querySock;
 #define DEL_ACTION_KILL      0x01
 #define DEL_ACTION_REQUEUE   0x02
 
@@ -338,6 +345,12 @@ struct jData {
     int numSlotsReserve;
     int numAvailSlotsReserve;
     struct shareAcct * sa;  /*refer to shareAcct of fairshare tree in global policies*/
+};
+
+struct SharedMemory{
+    char newJobReplyAndHeader[DEF_SHM_MAX_BUF_SIZE];  //存储jobInfoReply和对应的hdr组成的xdr，格式是xdr xdrData,int len
+    int count;                                        //新job的数量 
+    int startPos;                                     //记录上面那个缓冲区的长度，发送的时候要从后往前
 };
 
 
@@ -813,11 +826,16 @@ struct clientNode {
     struct clientNode *forw;
     struct clientNode *back;
     int    chanfd;
+    int    state;               /*client的状态机*/
     struct sockaddr_in from;
     char *fromHost;
     mbdReqType reqType;
     time_t lastTime;
 };
+
+#define CLIENT_STATE_ACTIVATE   1
+#define CLIENT_STATE_PROCESSING 2
+#define CLIENT_STATE_CLOSEING   3
 
 struct condData {
     char *name;
@@ -1019,6 +1037,8 @@ extern int                     freedSomeReserveSlot;
 
 extern long                    schedSeqNo;
 
+extern struct SharedMemory*    shm;
+extern int                     shmId;
 
 extern void                 pollSbatchds(int);
 extern void                 hStatChange(struct hData *, int status);
@@ -1084,7 +1104,7 @@ extern int                  chkAskedHosts(int, char **, int, int *,
                                           struct askedHost **,
                                           int *, int *, int);
 extern int                  selectJobs(struct jobInfoReq *,
-                                      struct jData ***, int *);
+                                      struct jData ***, int *, int);
 extern int                  signalJob(struct signalReq *, struct lsfAuth *);
 extern int                  statusJob(struct statusReq *, struct hostent *,
                                       int *);
@@ -1225,7 +1245,7 @@ extern int                  do_jobPeekReq(XDR *, int, struct sockaddr_in *,
                                           char *, struct LSFHeader *,
                                           struct lsfAuth *);
 extern int                  do_jobInfoReq(XDR *, int, struct sockaddr_in *,
-                                          struct LSFHeader *, int);
+                                          struct LSFHeader *, int, int);
 extern int                  do_queueInfoReq(XDR *, int, struct sockaddr_in *,
                                             struct LSFHeader *);
 extern int                  do_debugReq(XDR * xdrs, int chfd,
@@ -1515,6 +1535,9 @@ extern struct jShared      *copyJShared(struct jData *);
 extern struct idxList      *getIdxListContext(void);
 extern void                 setIdxListContext(const char *);
 extern void                 freeIdxListContext(void);
+
+extern int                  startqmbd(int *);
+extern int                  packJobInfo(struct jData *, int, char **, int, int, int);
 
 #define FIRST_CHILD(x)   (x)->child
 #define PARENT(x)        (x)->parent

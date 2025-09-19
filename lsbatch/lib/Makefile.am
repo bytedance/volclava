@@ -12,8 +12,8 @@ lsb.signals.c lsb.users.c lsb.conf.c lsb.hc.c lsb.log.c lsb.move.c \
 lsb.qc.c lsb.resource.c lsb.spool.c lsb.xdr.c lsb.debug.c lsb.hosts.c \
 lsb.mig.c lsb.msg.c lsb.queues.c lsb.rexecv.c \
 lsb.sub.c lsb.err.c lsb.init.c lsb.misc.c lsb.params.c lsb.reason.c \
-lsb.sig.c lsb.switch.c \
-lsb.conf.h  lsb.h  lsb.log.h  lsb.sig.h  lsb.spool.h  lsb.xdr.h
+lsb.sig.c lsb.switch.c lsb.threadpool.c \
+lsb.conf.h  lsb.h  lsb.log.h  lsb.sig.h  lsb.spool.h  lsb.xdr.h lsb.threadpool.h
 
 etags :
 	etags *.[hc] ../*.h ../lib/*.[hc] ../../lsf/*.h ../../lsf/intlib/*.[hc]

@@ -28,6 +28,7 @@ int debug = 0;
 int lsb_CheckMode = 0;
 int lsb_CheckError = 0;
 int batchSock;
+int querySock;
 #define MAX_THRNUM     3000
 
 time_t      lastForkTime;
@@ -37,6 +38,7 @@ int nextJobId = 1;
 char masterme = TRUE;
 ushort sbd_port;
 ushort mbd_port;
+ushort qmbd_port;
 int connTimeout;
 int glMigToPendFlag = FALSE;
 
@@ -123,6 +125,8 @@ struct lsInfo *allLsInfo;
 struct hTab calDataList;
 struct hTab condDataList;
 
+struct SharedMemory* shm;
+
 char   *masterHost = NULL;
 char   *clusterName = NULL;
 char   *defaultQueues = NULL;
@@ -160,6 +164,9 @@ static int schedule1;
 static struct jData *jobData = NULL;
 static time_t lastSchedTime = 0;
 static time_t nextSchedTime = 0;
+static int forkqmbd = 1;
+static int qmbdOn = 0;
+static int qmbdPid = 0;
 
 void setJobPriUpdIntvl(void);
 static void updateJobPriorityInPJL(void);
@@ -176,6 +183,8 @@ static void shutdownSbdConnections(void);
 static void processSbdNode(struct sbdNode *, int);
 static void setNextSchedTimeWhenJobFinish(void);
 static void acceptConnection(int);
+static int initShm(int *, struct SharedMemory ** shm);
+static int writeJobInfoReplyToShm(struct jData* jobData, struct SharedMemory * shm);
 
 extern void chanInactivate_(int);
 extern void chanActivate_(int);
@@ -186,7 +195,8 @@ extern int do_setJobAttr(XDR *, int, struct sockaddr_in *, char *,
 extern void chanCloseAllBut_(int);
 extern int initLimSock_(void);
 
-int
+int shmId;
+
 main (int argc, char **argv)
 {
     struct timeval timeout;
@@ -402,7 +412,8 @@ main (int argc, char **argv)
 
     /* Go go go...
      */
-    chanEpollStart();
+    chanEpollInit();
+    initShm(&shmId,&shm);
     TIMEIT(0, minit(FIRST_START),"minit");
     log_mbdStart();
     ls_syslog(LOG_INFO, "%s: (re-)started", __func__);
@@ -412,8 +423,11 @@ main (int argc, char **argv)
     lastElockTouch = time(0) - msleeptime;
     schedulerInit();
     setJobPriUpdIntvl();
-
     for (;;) {
+        if(forkqmbd == 1 && qmbdOn == 0){
+            qmbdOn = 1;
+            startqmbd(&qmbdPid);
+        }
         int maxfd;
 
 
@@ -442,8 +456,6 @@ main (int argc, char **argv)
             hsKeeping = FALSE;
             timeout.tv_sec = 0;
         }
-
-
         nready = chanEpoll_(&readyChans, &timeout);
         if (nready < 0) {
             if (errno != EINTR)
@@ -709,7 +721,15 @@ processClient(struct clientNode *client, int *needFree)
 
         case BATCH_JOB_SUB:
             jobData = NULL;
-            TIMEIT(0, do_submitReq(&xdrs, s, &from, client->fromHost, &reqHdr, &laddr, &auth, &schedule1, dispatch, &jobData), "do_submitReq()");
+            TIMEIT(0, cc = do_submitReq(&xdrs, s, &from, client->fromHost, &reqHdr, &laddr, &auth, &schedule1, dispatch, &jobData), "do_submitReq()");
+            if(cc == 0){
+                //先写入数据，再更新计数器
+                cc = writeJobInfoReplyToShm(jobData,shm);
+                if(cc == -1)
+                    ls_syslog(LOG_ERR, "%s pack job error", fname);
+                else if(cc == -2)
+                    ls_syslog(LOG_ERR, "%s Shared memory is full", fname);
+            }
             setNextSchedTimeUponNewJob(jobData);
             statusChanged = 1;
             break;
@@ -800,7 +820,7 @@ processClient(struct clientNode *client, int *needFree)
             TIMEIT(3, do_queueInfoReq(&xdrs, s, &from, &reqHdr),"do_queueInfoReq()");
             break;
         case BATCH_JOB_INFO:
-            TIMEIT(3, do_jobInfoReq(&xdrs, s, &from, &reqHdr, schedule),"do_jobInfoReq()");
+            TIMEIT(3, do_jobInfoReq(&xdrs, s, &from, &reqHdr, schedule, 1),"do_jobInfoReq()");
             break;
         case BATCH_HOST_INFO:
             TIMEIT(3, do_hostInfoReq(&xdrs, s, &from, &reqHdr),"do_hostInfoReq()");
@@ -1025,6 +1045,7 @@ terminate_handler(int sig)
     sigaddset(&newmask, SIGCHLD);
     sigprocmask(SIG_BLOCK, &newmask, &oldmask);
 
+    shmctl(shmId, IPC_RMID, NULL);
     exit(sig);
 }
 
@@ -1042,8 +1063,11 @@ child_handler (int sig)
     sigaddset(&newmask, SIGCHLD);
     sigprocmask(SIG_BLOCK, &newmask, &oldmask);
 
-    while ((pid = waitpid(-1, &status, WNOHANG)) > 0)
-        ;
+    while ((pid = waitpid(-1, &status, WNOHANG)) > 0){
+        if(pid == qmbdPid && qmbdOn == 1){
+            qmbdOn = 0;
+        }
+    }
 
     sigprocmask(SIG_SETMASK, &oldmask, NULL);
     errno = saveErrno;
@@ -1315,4 +1339,56 @@ updateJobPriorityInPJL(void)
         unsigned int newVal = jp->jobPriority + priority;
         jp->jobPriority = MIN(newVal, (unsigned int)MAX_JOB_PRIORITY);
     }
+}
+
+static int writeJobInfoReplyToShm(struct jData* jobData, struct SharedMemory *shm) {
+    char *packBuf;       
+    int packLen;         
+    int totalSize;       
+    int writePos;        
+    
+    packLen = packJobInfo(jobData, shm->count, &packBuf, 0, 0, VOLCLAVA_VERSION);
+    if (packLen <= 0) {
+        return -1;
+    }
+
+    totalSize = sizeof(int) + packLen;
+    
+    if (shm->startPos < totalSize) {
+        free(packBuf);
+        return -2;  
+    }
+    
+    writePos = shm->startPos - totalSize;
+    memcpy(shm->newJobReplyAndHeader + writePos, &packLen, sizeof(int));
+    memcpy(shm->newJobReplyAndHeader + writePos + sizeof(int), packBuf, packLen);
+    shm->startPos = writePos;
+    shm->count++;
+
+    free(packBuf);
+    return 0; 
+}
+
+static int initShm(int *shmId, struct SharedMemory **shm) {
+    *shmId = shmget(IPC_PRIVATE, DEF_SHM_SIZE, IPC_CREAT | 0666);
+    if (*shmId == -1) {
+        ls_syslog(LOG_ERR, "%s: shmget failed! Error: %m", __func__);  
+        return -1;
+    }
+    ls_syslog(LOG_DEBUG, "%s: Create shared memory success. shmId=%d", 
+              __func__, *shmId);
+
+    
+    *shm = (struct SharedMemory*)shmat(*shmId, NULL, 0);
+    if (*shm == (void*)-1) {
+        ls_syslog(LOG_ERR, "%s: shmat failed! Error: %m. Cleanup shmId=%d", 
+                  __func__, *shmId);
+        shmctl(*shmId, IPC_RMID, NULL);  
+        return -1;
+    }
+    
+    memset(*shm, 0, DEF_SHM_SIZE);  
+    (*shm)->startPos = sizeof((*shm)->newJobReplyAndHeader);  
+
+    return 0;  
 }
