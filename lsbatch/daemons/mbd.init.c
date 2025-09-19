@@ -469,6 +469,7 @@ initHData(struct hData *hData)
     hData->pxySJL = NULL;
     hData->pxyRsvJL = NULL;
     hData->leftRusageMem = INFINIT_LOAD;
+    hData->actionComment = NULL;
 
     return hData;
 }
@@ -946,6 +947,7 @@ freeHData(struct hData *hPtr)
     FREEUP(hPtr->limStatus);
     FREEUP(hPtr->busySched);
     FREEUP(hPtr->busyStop);
+    FREEUP(hPtr->actionComment);
 
     h_rmEnt_(&hostTab, ent);
     FREEUP(hPtr);

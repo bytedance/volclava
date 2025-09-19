@@ -284,6 +284,7 @@ copyHostInfo(struct hData *hData, struct hostInfoEnt *hInfo)
         default:
             hInfo->attr = 0;
     }
+    hInfo->actionComment = (hData->actionComment != NULL)? hData->actionComment : "";
 
 }
 
@@ -866,6 +867,8 @@ ctrlHost(struct controlReq *hcReq,
 
             if (hData->hStatus & HOST_STAT_DISABLED) {
                 hData->hStatus &= ~HOST_STAT_DISABLED;
+                FREEUP(hData->actionComment);
+                hData->actionComment = safeSave(hcReq->msg);
                 log_hoststatus(hData, hcReq->opCode,
                                auth->uid, auth->lsfUserName);
                 return LSBE_NO_ERROR;
@@ -879,6 +882,8 @@ ctrlHost(struct controlReq *hcReq,
             }
             else {
                 hData->hStatus |= HOST_STAT_DISABLED;
+                FREEUP(hData->actionComment);
+                hData->actionComment = safeSave(hcReq->msg);
                 log_hoststatus(hData, hcReq->opCode,
                                auth->uid, auth->lsfUserName);
                 return LSBE_NO_ERROR;

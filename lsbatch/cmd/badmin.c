@@ -36,12 +36,11 @@ static int badminDebug (int nargc, char *nargv[], int opCode);
 int
 main (int argc, char **argv)
 {
-    int cc,  myIndex;
+    int myIndex;
     char *prompt = "badmin>";
     static char line[MAXLINELEN];
-    int rc;
 
-    rc = _i18n_init ( I18N_CAT_MIN );
+    _i18n_init ( I18N_CAT_MIN );
 
     if (lsb_init(argv[0]) < 0) {
 	lsb_perror("lsb_init");
@@ -171,8 +170,11 @@ breconfig(int argc, char **argv, int configFlag)
     char *linep;
     char tmpfile[256];
     char* tmpname = "tmpXXXXXX";
+    struct controlReq req;
 
-    while ((optName = myGetOpt(argc, argv, "f|v|")) != NULL) {
+    memset(&req, 0, sizeof(struct controlReq));
+
+    while ((optName = myGetOpt(argc, argv, "f|v|C:")) != NULL) {
 	switch(optName[0]) {
             case 'v':
                 vFlag = 1;
@@ -180,11 +182,28 @@ breconfig(int argc, char **argv, int configFlag)
             case 'f':
                 fFlag = 1;
                 break;
+            case 'C':
+                req.msg = (char *)calloc(MAXLINELEN, sizeof(char));
+                if(req.msg == NULL) {
+                    fprintf(stderr, "Failed to malloc for comments.");
+                    return(-1);
+                }
+                strncpy(req.msg, optarg, MAXLINELEN-1);
+                /*The input comments must not contain \n to avoid disrupting the event. */
+                if (strstr(req.msg, "\n")) {
+                    fprintf(stderr, "Error: The comment contains an illegal newline character (\\n). Please remove line breaks and submit again.");
+                    FREEUP(req.msg);
+                    return(-2);
+                }
+
+                break;
             default:
+                FREEUP(req.msg); 
                 return(-2);
 	}
     }
     if ( optind < argc ) {
+        FREEUP(req.msg);
 	return(-2);
     }
 
@@ -194,7 +213,8 @@ breconfig(int argc, char **argv, int configFlag)
 
         stdoutsave = dup(1);
         sprintf(tmpfile, "/tmp/%s", tmpname);
-        mktemp(tmpfile);
+        fd = mkstemp(tmpfile);
+        close(fd); /*close it for modifying mode*/
         fd = open(tmpfile, O_RDWR | O_CREAT | O_TRUNC, 0666);
         if (fd > 0 ) {
 
@@ -233,11 +253,13 @@ breconfig(int argc, char **argv, int configFlag)
         checkReply = checkConf(vFlag, 2);
 
     if (configFlag == MBD_CKCONFIG ) {
+        FREEUP(req.msg);
         return(0);
     }
 
     switch (checkReply)  {
         case EXIT_FATAL_ERROR :
+            FREEUP(req.msg);
             return -1;
         case EXIT_WARNING_ERROR :
             if (fFlag)
@@ -245,11 +267,13 @@ breconfig(int argc, char **argv, int configFlag)
             if ( configFlag == MBD_RECONFIG ) {
                 if (!getConfirm((_i18n_msg_get(ls_catd,NL_SETN,2564, "\nDo you want to reconfigure? [y/n] ")))) { /* catgets  2564  */
                     fprintf(stderr, (_i18n_msg_get(ls_catd,NL_SETN,2565, "Reconfiguration aborted.\n"))); /* catgets  2565  */
+                    FREEUP(req.msg);
                     return(-1);
                 }
             } else {
                 if (!getConfirm(I18N(2570, "\nDo you want to restart MBD? [y/n] "))) { /* catgets  2570  */
                     fprintf(stderr, (I18N(2571, "MBD restart aborted.\n"))); /* catgets  2571  */
+                    FREEUP(req.msg);
                     return(-1);
                 }
             }
@@ -257,8 +281,10 @@ breconfig(int argc, char **argv, int configFlag)
             ;
     }
 
-    if (lsb_reconfig(configFlag) < 0) {
+    req.opCode = configFlag;
+    if (lsb_reconfig(&req) < 0) {
     	lsb_perror((_i18n_msg_get(ls_catd,NL_SETN,2566, "Failed"))); /* catgets  2566  */
+        FREEUP(req.msg);
 	return(-1);
     }
 
@@ -269,6 +295,8 @@ breconfig(int argc, char **argv, int configFlag)
         printf("%s\n",
                I18N(2569, "MBD restart initiated")); /* catgets  2569  */
     }
+
+    FREEUP(req.msg);
     return(0);
 
 }

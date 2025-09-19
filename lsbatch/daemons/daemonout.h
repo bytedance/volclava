@@ -267,12 +267,6 @@ struct jobSwitchReq {
     char   queue[MAX_LSB_NAME_LEN];   
 };
 
-struct controlReq {
-    int         opCode;  
-    char        *name;
-};
-
-
 struct migReq {
     LS_LONG_INT jobId;
     int options;

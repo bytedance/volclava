@@ -55,7 +55,7 @@ case "$opcode" in
             kill_daemons
 
             # Get the location of the volclava daemons
-            . $LSF_CONF
+            source $VOLCLAVA_TOP/etc/volclava.sh
 
             # Export this env.variable to notify volclava daemons the loc. of
             # lsf.conf

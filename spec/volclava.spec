@@ -19,24 +19,80 @@
 #
 
 %define major 2
-%define minor 0
+%define minor 1
 %define release 0
 %define build_timestamp %(date +"%Y%m%d")
 
 %define version %{major}.%{minor}
 %define _volclavatop /opt/volclava-%{version}
-%define _clustername volclava
-%define _libdir %{_volclavatop}/lib
-%define _bindir %{_volclavatop}/bin
-%define _sbindir %{_volclavatop}/sbin
+
+%define _platform %( \
+    OS_NAME="unknown"; \
+    OS_VERSION="unknown"; \
+    CPU_ARCH="unknown"; \
+    if [ -f /etc/os-release ]; then \
+        . /etc/os-release; \
+        if [ "$ID" = "ubuntu" ] || [ "$ID_LIKE" = "debian" ]; then \
+            OS_NAME="ubuntu"; \
+            OS_VERSION=$VERSION_ID; \
+        elif [ "$ID" = "centos" ]; then \
+            OS_NAME="centos"; \
+            OS_VERSION=$VERSION_ID; \
+        elif [ "$ID" = "rocky" ]; then \
+            OS_NAME="rocky"; \
+            OS_VERSION=$VERSION_ID; \
+        elif [ "$ID" = "rhel" ] || [ "$ID_LIKE" = "rhel" ] || [ "$NAME" = "Red Hat Enterprise Linux" ]; then \
+            OS_NAME="redhat"; \
+            OS_VERSION=$VERSION_ID; \
+        fi; \
+    else \
+        if [ -f /etc/redhat-release ]; then \
+            RELEASE=$(cat /etc/redhat-release); \
+            if echo "$RELEASE" | grep -qi "centos"; then \
+                OS_NAME="centos"; \
+                OS_VERSION=$(echo "$RELEASE" | awk '{print $4}' | cut -d '.' -f 1); \
+            elif echo "$RELEASE" | grep -qi "red hat"; then \
+                OS_NAME="redhat"; \
+                OS_VERSION=$(echo "$RELEASE" | awk '{print $7}' | cut -d '.' -f 1); \
+            fi; \
+        elif [ -f /etc/lsb-release ]; then \
+            . /etc/lsb-release; \
+            if [ "$DISTRIB_ID" = "Ubuntu" ]; then \
+                OS_NAME="ubuntu"; \
+                OS_VERSION=$DISTRIB_RELEASE; \
+            fi; \
+        fi; \
+    fi; \
+    OS_VERSION=$(echo "$OS_VERSION" | sed -E 's/[^0-9.]//g' | cut -d '.' -f 1); \
+    CPU_ARCH=$(uname -m); \
+    echo "${OS_NAME}-${OS_VERSION}-${CPU_ARCH}" \
+)
+%define _libdir %{_volclavatop}/exec/%{_platform}/lib
+%define _bindir %{_volclavatop}/exec/%{_platform}/bin
+%define _sbindir %{_volclavatop}/exec/%{_platform}/sbin
 %define _mandir %{_volclavatop}/share/man
 %define _logdir %{_volclavatop}/log
 %define _includedir %{_volclavatop}/include
 %define _etcdir %{_volclavatop}/etc
 
+%define VOLCADMIN %( \
+        if [ -n "$volclavaadmin" ]; then \
+            echo "$volclavaadmin"; \
+        else \
+            echo "volclava"; \
+        fi \
+)
+%define CLUSTERNAME %( \
+        if [ -n "$volclavacluster" ]; then \
+            echo "$volclavacluster"; \
+        else \
+            echo "volclava"; \
+        fi \
+)
+
 Summary: volclava Distributed Batch Scheduler
 Name: volclava
-Version: 2.0
+Version: %{version}
 # Release: 0.b.%{build_timestamp}
 Release: 0.b.20250616
 License: GPLv2
@@ -60,9 +116,8 @@ volclava Distributed Batch Scheduler
 # PREP
 #
 %prep
-rm -rf $RPM_BUILD_ROOT
-mkdir -p $RPM_BUILD_ROOT
-
+rm -rf ${RPM_BUILD_ROOT}
+mkdir -p ${RPM_BUILD_ROOT}
 %setup -q -n %{name}-%{version}
 
 #
@@ -76,7 +131,7 @@ make
 # CLEAN
 #
 %clean
-/bin/rm -rf $RPM_BUILD_ROOT
+/bin/rm -rf ${RPM_BUILD_ROOT}
 
 #
 # INSTALL
@@ -84,164 +139,165 @@ make
 %install
 
 # Install binaries, daemons
-#make install prefix=$RPM_BUILD_ROOT%{_volclavatop}
+#make install prefix=${RPM_BUILD_ROOT}%{_volclavatop}
 
 # install directories and files
-install -d $RPM_BUILD_ROOT%{_volclavatop}/bin
-install -d $RPM_BUILD_ROOT%{_volclavatop}/etc
-install -d $RPM_BUILD_ROOT%{_volclavatop}/include
-install -d $RPM_BUILD_ROOT%{_volclavatop}/lib
-install -d $RPM_BUILD_ROOT%{_volclavatop}/log
-install -d $RPM_BUILD_ROOT%{_volclavatop}/sbin
-install -d $RPM_BUILD_ROOT%{_volclavatop}/share/man/man1
-install -d $RPM_BUILD_ROOT%{_volclavatop}/share/man/man3
-install -d $RPM_BUILD_ROOT%{_volclavatop}/share/man/man5
-install -d $RPM_BUILD_ROOT%{_volclavatop}/share/man/man8
-install -d $RPM_BUILD_ROOT%{_volclavatop}/work/logdir
+install -d ${RPM_BUILD_ROOT}%{_bindir}
+install -d ${RPM_BUILD_ROOT}%{_etcdir}
+install -d ${RPM_BUILD_ROOT}%{_includedir}
+install -d ${RPM_BUILD_ROOT}%{_libdir}
+install -d ${RPM_BUILD_ROOT}%{_logdir}
+install -d ${RPM_BUILD_ROOT}%{_sbindir}
+install -d ${RPM_BUILD_ROOT}%{_mandir}/man1
+install -d ${RPM_BUILD_ROOT}%{_mandir}/man3
+install -d ${RPM_BUILD_ROOT}%{_mandir}/man5
+install -d ${RPM_BUILD_ROOT}%{_mandir}/man8
+install -d ${RPM_BUILD_ROOT}%{_volclavatop}/work/logdir
 
 # in volclava root
-install -m 644 $RPM_BUILD_DIR/%{name}-%{version}/COPYING  $RPM_BUILD_ROOT%{_volclavatop}
-install -m 644 $RPM_BUILD_DIR/%{name}-%{version}/README.md  $RPM_BUILD_ROOT%{_volclavatop}
+install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/COPYING  ${RPM_BUILD_ROOT}%{_volclavatop}
+install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/README.md  ${RPM_BUILD_ROOT}%{_volclavatop}
 
 # bin
-install -m 755 $RPM_BUILD_DIR/%{name}-%{version}/lsbatch/cmd/badmin  $RPM_BUILD_ROOT%{_volclavatop}/bin
-install -m 755 $RPM_BUILD_DIR/%{name}-%{version}/lsbatch/cmd/bbot    $RPM_BUILD_ROOT%{_volclavatop}/bin
-install -m 755 $RPM_BUILD_DIR/%{name}-%{version}/lsbatch/bhist/bhist   $RPM_BUILD_ROOT%{_volclavatop}/bin
-install -m 755 $RPM_BUILD_DIR/%{name}-%{version}/lsbatch/cmd/bhosts  $RPM_BUILD_ROOT%{_volclavatop}/bin
-install -m 755 $RPM_BUILD_DIR/%{name}-%{version}/lsbatch/cmd/bjobs   $RPM_BUILD_ROOT%{_volclavatop}/bin
-install -m 755 $RPM_BUILD_DIR/%{name}-%{version}/lsbatch/cmd/bkill   $RPM_BUILD_ROOT%{_volclavatop}/bin
-install -m 755 $RPM_BUILD_DIR/%{name}-%{version}/lsbatch/cmd/bmgroup $RPM_BUILD_ROOT%{_volclavatop}/bin
-install -m 755 $RPM_BUILD_DIR/%{name}-%{version}/lsbatch/cmd/bmig    $RPM_BUILD_ROOT%{_volclavatop}/bin
-install -m 755 $RPM_BUILD_DIR/%{name}-%{version}/lsbatch/cmd/bmod    $RPM_BUILD_ROOT%{_volclavatop}/bin
-install -m 755 $RPM_BUILD_DIR/%{name}-%{version}/lsbatch/cmd/bparams $RPM_BUILD_ROOT%{_volclavatop}/bin
-install -m 755 $RPM_BUILD_DIR/%{name}-%{version}/lsbatch/cmd/bpeek   $RPM_BUILD_ROOT%{_volclavatop}/bin
-install -m 755 $RPM_BUILD_DIR/%{name}-%{version}/lsbatch/cmd/bqueues $RPM_BUILD_ROOT%{_volclavatop}/bin
-install -m 755 $RPM_BUILD_DIR/%{name}-%{version}/lsbatch/cmd/brequeue $RPM_BUILD_ROOT%{_volclavatop}/bin
-install -m 755 $RPM_BUILD_DIR/%{name}-%{version}/lsbatch/cmd/brestart $RPM_BUILD_ROOT%{_volclavatop}/bin
-install -m 755 $RPM_BUILD_DIR/%{name}-%{version}/lsbatch/cmd/brun     $RPM_BUILD_ROOT%{_volclavatop}/bin
-install -m 755 $RPM_BUILD_DIR/%{name}-%{version}/lsbatch/cmd/bsub     $RPM_BUILD_ROOT%{_volclavatop}/bin
-install -m 755 $RPM_BUILD_DIR/%{name}-%{version}/lsbatch/cmd/bswitch  $RPM_BUILD_ROOT%{_volclavatop}/bin
-install -m 755 $RPM_BUILD_DIR/%{name}-%{version}/lsbatch/cmd/btop     $RPM_BUILD_ROOT%{_volclavatop}/bin
-install -m 755 $RPM_BUILD_DIR/%{name}-%{version}/lsbatch/cmd/busers   $RPM_BUILD_ROOT%{_volclavatop}/bin
-install -m 755 $RPM_BUILD_DIR/%{name}-%{version}/scripts/lam-mpirun $RPM_BUILD_ROOT%{_volclavatop}/bin
-install -m 755 $RPM_BUILD_DIR/%{name}-%{version}/lsf/lstools/lsacct     $RPM_BUILD_ROOT%{_volclavatop}/bin
-install -m 755 $RPM_BUILD_DIR/%{name}-%{version}/lsf/lsadm/lsadmin    $RPM_BUILD_ROOT%{_volclavatop}/bin
-install -m 755 $RPM_BUILD_DIR/%{name}-%{version}/lsf/lstools/lseligible $RPM_BUILD_ROOT%{_volclavatop}/bin
-install -m 755 $RPM_BUILD_DIR/%{name}-%{version}/lsf/lstools/lshosts    $RPM_BUILD_ROOT%{_volclavatop}/bin
-install -m 755 $RPM_BUILD_DIR/%{name}-%{version}/lsf/lstools/lsid       $RPM_BUILD_ROOT%{_volclavatop}/bin
-install -m 755 $RPM_BUILD_DIR/%{name}-%{version}/lsf/lstools/lsinfo     $RPM_BUILD_ROOT%{_volclavatop}/bin
-install -m 755 $RPM_BUILD_DIR/%{name}-%{version}/lsf/lstools/lsload     $RPM_BUILD_ROOT%{_volclavatop}/bin
-install -m 755 $RPM_BUILD_DIR/%{name}-%{version}/lsf/lstools/lsloadadj  $RPM_BUILD_ROOT%{_volclavatop}/bin
-install -m 755 $RPM_BUILD_DIR/%{name}-%{version}/lsf/lstools/lsmon      $RPM_BUILD_ROOT%{_volclavatop}/bin
-install -m 755 $RPM_BUILD_DIR/%{name}-%{version}/lsf/lstools/lsplace    $RPM_BUILD_ROOT%{_volclavatop}/bin
-install -m 755 $RPM_BUILD_DIR/%{name}-%{version}/lsf/lstools/lsrcp      $RPM_BUILD_ROOT%{_volclavatop}/bin
-install -m 755 $RPM_BUILD_DIR/%{name}-%{version}/scripts/mpich2-mpiexec $RPM_BUILD_ROOT%{_volclavatop}/bin
-install -m 755 $RPM_BUILD_DIR/%{name}-%{version}/scripts/mpich-mpirun   $RPM_BUILD_ROOT%{_volclavatop}/bin
-install -m 755 $RPM_BUILD_DIR/%{name}-%{version}/scripts/openmpi-mpirun $RPM_BUILD_ROOT%{_volclavatop}/bin
+install -m 755 ${RPM_BUILD_DIR}/%{name}-%{version}/lsbatch/cmd/badmin  ${RPM_BUILD_ROOT}%{_bindir}
+install -m 755 ${RPM_BUILD_DIR}/%{name}-%{version}/lsbatch/cmd/bbot    ${RPM_BUILD_ROOT}%{_bindir}
+install -m 755 ${RPM_BUILD_DIR}/%{name}-%{version}/lsbatch/bhist/bhist   ${RPM_BUILD_ROOT}%{_bindir}
+install -m 755 ${RPM_BUILD_DIR}/%{name}-%{version}/lsbatch/cmd/bhosts  ${RPM_BUILD_ROOT}%{_bindir}
+install -m 755 ${RPM_BUILD_DIR}/%{name}-%{version}/lsbatch/cmd/bjobs   ${RPM_BUILD_ROOT}%{_bindir}
+install -m 755 ${RPM_BUILD_DIR}/%{name}-%{version}/lsbatch/cmd/bkill   ${RPM_BUILD_ROOT}%{_bindir}
+install -m 755 ${RPM_BUILD_DIR}/%{name}-%{version}/lsbatch/cmd/bmgroup ${RPM_BUILD_ROOT}%{_bindir}
+install -m 755 ${RPM_BUILD_DIR}/%{name}-%{version}/lsbatch/cmd/bmig    ${RPM_BUILD_ROOT}%{_bindir}
+install -m 755 ${RPM_BUILD_DIR}/%{name}-%{version}/lsbatch/cmd/bmod    ${RPM_BUILD_ROOT}%{_bindir}
+install -m 755 ${RPM_BUILD_DIR}/%{name}-%{version}/lsbatch/cmd/bparams ${RPM_BUILD_ROOT}%{_bindir}
+install -m 755 ${RPM_BUILD_DIR}/%{name}-%{version}/lsbatch/cmd/bpeek   ${RPM_BUILD_ROOT}%{_bindir}
+install -m 755 ${RPM_BUILD_DIR}/%{name}-%{version}/lsbatch/cmd/bqueues ${RPM_BUILD_ROOT}%{_bindir}
+install -m 755 ${RPM_BUILD_DIR}/%{name}-%{version}/lsbatch/cmd/brequeue ${RPM_BUILD_ROOT}%{_bindir}
+install -m 755 ${RPM_BUILD_DIR}/%{name}-%{version}/lsbatch/cmd/brestart ${RPM_BUILD_ROOT}%{_bindir}
+install -m 755 ${RPM_BUILD_DIR}/%{name}-%{version}/lsbatch/cmd/brun     ${RPM_BUILD_ROOT}%{_bindir}
+install -m 755 ${RPM_BUILD_DIR}/%{name}-%{version}/lsbatch/cmd/bsub     ${RPM_BUILD_ROOT}%{_bindir}
+install -m 755 ${RPM_BUILD_DIR}/%{name}-%{version}/lsbatch/cmd/bswitch  ${RPM_BUILD_ROOT}%{_bindir}
+install -m 755 ${RPM_BUILD_DIR}/%{name}-%{version}/lsbatch/cmd/btop     ${RPM_BUILD_ROOT}%{_bindir}
+install -m 755 ${RPM_BUILD_DIR}/%{name}-%{version}/lsbatch/cmd/busers   ${RPM_BUILD_ROOT}%{_bindir}
+install -m 755 ${RPM_BUILD_DIR}/%{name}-%{version}/scripts/lam-mpirun ${RPM_BUILD_ROOT}%{_bindir}
+install -m 755 ${RPM_BUILD_DIR}/%{name}-%{version}/lsf/lstools/lsacct     ${RPM_BUILD_ROOT}%{_bindir}
+install -m 755 ${RPM_BUILD_DIR}/%{name}-%{version}/lsf/lsadm/lsadmin    ${RPM_BUILD_ROOT}%{_bindir}
+install -m 755 ${RPM_BUILD_DIR}/%{name}-%{version}/lsf/lstools/lseligible ${RPM_BUILD_ROOT}%{_bindir}
+install -m 755 ${RPM_BUILD_DIR}/%{name}-%{version}/lsf/lstools/lshosts    ${RPM_BUILD_ROOT}%{_bindir}
+install -m 755 ${RPM_BUILD_DIR}/%{name}-%{version}/lsf/lstools/lsid       ${RPM_BUILD_ROOT}%{_bindir}
+install -m 755 ${RPM_BUILD_DIR}/%{name}-%{version}/lsf/lstools/lsinfo     ${RPM_BUILD_ROOT}%{_bindir}
+install -m 755 ${RPM_BUILD_DIR}/%{name}-%{version}/lsf/lstools/lsload     ${RPM_BUILD_ROOT}%{_bindir}
+install -m 755 ${RPM_BUILD_DIR}/%{name}-%{version}/lsf/lstools/lsloadadj  ${RPM_BUILD_ROOT}%{_bindir}
+install -m 755 ${RPM_BUILD_DIR}/%{name}-%{version}/lsf/lstools/lsmon      ${RPM_BUILD_ROOT}%{_bindir}
+install -m 755 ${RPM_BUILD_DIR}/%{name}-%{version}/lsf/lstools/lsplace    ${RPM_BUILD_ROOT}%{_bindir}
+install -m 755 ${RPM_BUILD_DIR}/%{name}-%{version}/lsf/lstools/lsrcp      ${RPM_BUILD_ROOT}%{_bindir}
+install -m 755 ${RPM_BUILD_DIR}/%{name}-%{version}/scripts/mpich2-mpiexec ${RPM_BUILD_ROOT}%{_bindir}
+install -m 755 ${RPM_BUILD_DIR}/%{name}-%{version}/scripts/mpich-mpirun   ${RPM_BUILD_ROOT}%{_bindir}
+install -m 755 ${RPM_BUILD_DIR}/%{name}-%{version}/scripts/openmpi-mpirun ${RPM_BUILD_ROOT}%{_bindir}
 
 # etc
-install -m 644 $RPM_BUILD_DIR/%{name}-%{version}/config/lsf.cluster.volclava $RPM_BUILD_ROOT%{_volclavatop}/etc
-install -m 644 $RPM_BUILD_DIR/%{name}-%{version}/config/lsf.conf $RPM_BUILD_ROOT%{_volclavatop}/etc
-install -m 644 $RPM_BUILD_DIR/%{name}-%{version}/config/lsf.task $RPM_BUILD_ROOT%{_volclavatop}/etc
-install -m 644 $RPM_BUILD_DIR/%{name}-%{version}/config/lsf.shared $RPM_BUILD_ROOT%{_volclavatop}/etc
-install -m 644 $RPM_BUILD_DIR/%{name}-%{version}/config/lsb.params $RPM_BUILD_ROOT%{_volclavatop}/etc
-install -m 644 $RPM_BUILD_DIR/%{name}-%{version}/config/lsb.queues $RPM_BUILD_ROOT%{_volclavatop}/etc
-install -m 644 $RPM_BUILD_DIR/%{name}-%{version}/config/lsb.hosts $RPM_BUILD_ROOT%{_volclavatop}/etc
-install -m 644 $RPM_BUILD_DIR/%{name}-%{version}/config/lsb.users $RPM_BUILD_ROOT%{_volclavatop}/etc
-install -m 644 $RPM_BUILD_DIR/%{name}-%{version}/config/volclava.setup $RPM_BUILD_ROOT%{_volclavatop}/etc
-install -m 755 $RPM_BUILD_DIR/%{name}-%{version}/config/volclava $RPM_BUILD_ROOT%{_volclavatop}/etc
-install -m 755 $RPM_BUILD_DIR/%{name}-%{version}/config/volclava.sh $RPM_BUILD_ROOT%{_volclavatop}/etc
-install -m 755 $RPM_BUILD_DIR/%{name}-%{version}/config/volclava.csh $RPM_BUILD_ROOT%{_volclavatop}/etc
+install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/config/lsf.cluster.%{CLUSTERNAME} ${RPM_BUILD_ROOT}%{_etcdir}
+install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/config/lsf.conf ${RPM_BUILD_ROOT}%{_etcdir}
+install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/config/lsf.task ${RPM_BUILD_ROOT}%{_etcdir}
+install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/config/lsf.shared ${RPM_BUILD_ROOT}%{_etcdir}
+install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/config/lsb.params ${RPM_BUILD_ROOT}%{_etcdir}
+install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/config/lsb.queues ${RPM_BUILD_ROOT}%{_etcdir}
+install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/config/lsb.hosts ${RPM_BUILD_ROOT}%{_etcdir}
+install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/config/lsb.users ${RPM_BUILD_ROOT}%{_etcdir}
+install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/config/volclava.setup ${RPM_BUILD_ROOT}%{_etcdir}
+install -m 755 ${RPM_BUILD_DIR}/%{name}-%{version}/config/volclava ${RPM_BUILD_ROOT}%{_etcdir}
+install -m 755 ${RPM_BUILD_DIR}/%{name}-%{version}/config/volclava.sh ${RPM_BUILD_ROOT}%{_etcdir}
+install -m 755 ${RPM_BUILD_DIR}/%{name}-%{version}/config/volclava.csh ${RPM_BUILD_ROOT}%{_etcdir}
 
 # include
-install -m 644 $RPM_BUILD_DIR/%{name}-%{version}/lsf/lsf.h $RPM_BUILD_ROOT%{_volclavatop}/include
-install -m 644 $RPM_BUILD_DIR/%{name}-%{version}/lsbatch/lsbatch.h $RPM_BUILD_ROOT%{_volclavatop}/include
+install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/lsf/lsf.h ${RPM_BUILD_ROOT}%{_includedir}
+install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/lsbatch/lsbatch.h ${RPM_BUILD_ROOT}%{_includedir}
 
 # lib
-install -m 755 $RPM_BUILD_DIR/%{name}-%{version}/lsf/lib/liblsf.a  $RPM_BUILD_ROOT%{_volclavatop}/lib
-install -m 755 $RPM_BUILD_DIR/%{name}-%{version}/lsbatch/lib/liblsbatch.a  $RPM_BUILD_ROOT%{_volclavatop}/lib
+install -m 755 ${RPM_BUILD_DIR}/%{name}-%{version}/lsf/lib/liblsf.a  ${RPM_BUILD_ROOT}%{_libdir}
+install -m 755 ${RPM_BUILD_DIR}/%{name}-%{version}/lsbatch/lib/liblsbatch.a  ${RPM_BUILD_ROOT}%{_libdir}
 
 # sbin
-install -m 755 $RPM_BUILD_DIR/%{name}-%{version}/eauth/eauth  $RPM_BUILD_ROOT%{_volclavatop}/sbin
-install -m 755 $RPM_BUILD_DIR/%{name}-%{version}/lsf/lim/lim  $RPM_BUILD_ROOT%{_volclavatop}/sbin
-install -m 755 $RPM_BUILD_DIR/%{name}-%{version}/lsbatch/daemons/mbatchd  $RPM_BUILD_ROOT%{_volclavatop}/sbin
-install -m 755 $RPM_BUILD_DIR/%{name}-%{version}/lsf/res/nios  $RPM_BUILD_ROOT%{_volclavatop}/sbin
-install -m 755 $RPM_BUILD_DIR/%{name}-%{version}/lsf/pim/pim  $RPM_BUILD_ROOT%{_volclavatop}/sbin
-install -m 755 $RPM_BUILD_DIR/%{name}-%{version}/lsf/res/res $RPM_BUILD_ROOT%{_volclavatop}/sbin
-install -m 755 $RPM_BUILD_DIR/%{name}-%{version}/lsbatch/daemons/sbatchd $RPM_BUILD_ROOT%{_volclavatop}/sbin
-install -m 755 $RPM_BUILD_DIR/%{name}-%{version}/chkpnt/echkpnt          $RPM_BUILD_ROOT%{_volclavatop}/sbin
-install -m 755 $RPM_BUILD_DIR/%{name}-%{version}/chkpnt/erestart         $RPM_BUILD_ROOT%{_volclavatop}/sbin
+install -m 755 ${RPM_BUILD_DIR}/%{name}-%{version}/eauth/eauth  ${RPM_BUILD_ROOT}%{_sbindir}
+install -m 755 ${RPM_BUILD_DIR}/%{name}-%{version}/lsf/lim/lim  ${RPM_BUILD_ROOT}%{_sbindir}
+install -m 755 ${RPM_BUILD_DIR}/%{name}-%{version}/lsbatch/daemons/mbatchd  ${RPM_BUILD_ROOT}%{_sbindir}
+install -m 755 ${RPM_BUILD_DIR}/%{name}-%{version}/lsf/res/nios  ${RPM_BUILD_ROOT}%{_sbindir}
+install -m 755 ${RPM_BUILD_DIR}/%{name}-%{version}/lsf/pim/pim  ${RPM_BUILD_ROOT}%{_sbindir}
+install -m 755 ${RPM_BUILD_DIR}/%{name}-%{version}/lsf/res/res ${RPM_BUILD_ROOT}%{_sbindir}
+install -m 755 ${RPM_BUILD_DIR}/%{name}-%{version}/lsbatch/daemons/sbatchd ${RPM_BUILD_ROOT}%{_sbindir}
+install -m 755 ${RPM_BUILD_DIR}/%{name}-%{version}/chkpnt/echkpnt          ${RPM_BUILD_ROOT}%{_sbindir}
+install -m 755 ${RPM_BUILD_DIR}/%{name}-%{version}/chkpnt/erestart         ${RPM_BUILD_ROOT}%{_sbindir}
 
 # share
-install -m 644 $RPM_BUILD_DIR/%{name}-%{version}/lsbatch/man1/bbot.1    $RPM_BUILD_ROOT%{_volclavatop}/share/man/man1
-install -m 644 $RPM_BUILD_DIR/%{name}-%{version}/lsbatch/man1/bchkpnt.1 $RPM_BUILD_ROOT%{_volclavatop}/share/man/man1
-install -m 644 $RPM_BUILD_DIR/%{name}-%{version}/lsbatch/man1/bhosts.1 $RPM_BUILD_ROOT%{_volclavatop}/share/man/man1
-install -m 644 $RPM_BUILD_DIR/%{name}-%{version}/lsbatch/man1/bjobs.1 $RPM_BUILD_ROOT%{_volclavatop}/share/man/man1
-install -m 644 $RPM_BUILD_DIR/%{name}-%{version}/lsbatch/man1/bkill.1 $RPM_BUILD_ROOT%{_volclavatop}/share/man/man1
-install -m 644 $RPM_BUILD_DIR/%{name}-%{version}/lsbatch/man1/bmgroup.1 $RPM_BUILD_ROOT%{_volclavatop}/share/man/man1
-install -m 644 $RPM_BUILD_DIR/%{name}-%{version}/lsbatch/man1/bmig.1 $RPM_BUILD_ROOT%{_volclavatop}/share/man/man1
-install -m 644 $RPM_BUILD_DIR/%{name}-%{version}/lsbatch/man1/bmod.1 $RPM_BUILD_ROOT%{_volclavatop}/share/man/man1
-install -m 644 $RPM_BUILD_DIR/%{name}-%{version}/lsbatch/man1/bparams.1 $RPM_BUILD_ROOT%{_volclavatop}/share/man/man1
-install -m 644 $RPM_BUILD_DIR/%{name}-%{version}/lsbatch/man1/bpeek.1 $RPM_BUILD_ROOT%{_volclavatop}/share/man/man1
-install -m 644 $RPM_BUILD_DIR/%{name}-%{version}/lsbatch/man1/bqueues.1 $RPM_BUILD_ROOT%{_volclavatop}/share/man/man1
-install -m 644 $RPM_BUILD_DIR/%{name}-%{version}/lsbatch/man1/brequeue.1 $RPM_BUILD_ROOT%{_volclavatop}/share/man/man1
-install -m 644 $RPM_BUILD_DIR/%{name}-%{version}/lsbatch/man1/brestart.1 $RPM_BUILD_ROOT%{_volclavatop}/share/man/man1
-install -m 644 $RPM_BUILD_DIR/%{name}-%{version}/lsbatch/man1/bresume.1 $RPM_BUILD_ROOT%{_volclavatop}/share/man/man1
-install -m 644 $RPM_BUILD_DIR/%{name}-%{version}/lsbatch/man1/bstop.1 $RPM_BUILD_ROOT%{_volclavatop}/share/man/man1
-install -m 644 $RPM_BUILD_DIR/%{name}-%{version}/lsbatch/man1/bsub.1 $RPM_BUILD_ROOT%{_volclavatop}/share/man/man1
-install -m 644 $RPM_BUILD_DIR/%{name}-%{version}/lsbatch/man1/btop.1 $RPM_BUILD_ROOT%{_volclavatop}/share/man/man1
-install -m 644 $RPM_BUILD_DIR/%{name}-%{version}/lsbatch/man1/bugroup.1 $RPM_BUILD_ROOT%{_volclavatop}/share/man/man1
-install -m 644 $RPM_BUILD_DIR/%{name}-%{version}/lsbatch/man1/busers.1 $RPM_BUILD_ROOT%{_volclavatop}/share/man/man1
-install -m 644 $RPM_BUILD_DIR/%{name}-%{version}/lsbatch/man1/bswitch.1 $RPM_BUILD_ROOT%{_volclavatop}/share/man/man1
-install -m 644 $RPM_BUILD_DIR/%{name}-%{version}/lsf/man/man1/lsacct.1 $RPM_BUILD_ROOT%{_volclavatop}/share/man/man1
-install -m 644 $RPM_BUILD_DIR/%{name}-%{version}/lsf/man/man1/lseligible.1 $RPM_BUILD_ROOT%{_volclavatop}/share/man/man1
-install -m 644 $RPM_BUILD_DIR/%{name}-%{version}/lsf/man/man1/lsfbase.1 $RPM_BUILD_ROOT%{_volclavatop}/share/man/man1
-install -m 644 $RPM_BUILD_DIR/%{name}-%{version}/lsbatch/man1/lsfbatch.1 $RPM_BUILD_ROOT%{_volclavatop}/share/man/man1
-install -m 644 $RPM_BUILD_DIR/%{name}-%{version}/lsf/man/man1/lsfintro.1 $RPM_BUILD_ROOT%{_volclavatop}/share/man/man1
-install -m 644 $RPM_BUILD_DIR/%{name}-%{version}/lsf/man/man1/lshosts.1 $RPM_BUILD_ROOT%{_volclavatop}/share/man/man1
-install -m 644 $RPM_BUILD_DIR/%{name}-%{version}/lsf/man/man1/lsid.1 $RPM_BUILD_ROOT%{_volclavatop}/share/man/man1
-install -m 644 $RPM_BUILD_DIR/%{name}-%{version}/lsf/man/man1/lsinfo.1 $RPM_BUILD_ROOT%{_volclavatop}/share/man/man1
-install -m 644 $RPM_BUILD_DIR/%{name}-%{version}/lsf/man/man1/lsload.1 $RPM_BUILD_ROOT%{_volclavatop}/share/man/man1
-install -m 644 $RPM_BUILD_DIR/%{name}-%{version}/lsf/man/man1/lsloadadj.1 $RPM_BUILD_ROOT%{_volclavatop}/share/man/man1
-install -m 644 $RPM_BUILD_DIR/%{name}-%{version}/lsf/man/man1/lsmon.1 $RPM_BUILD_ROOT%{_volclavatop}/share/man/man1
-install -m 644 $RPM_BUILD_DIR/%{name}-%{version}/lsf/man/man1/lsplace.1 $RPM_BUILD_ROOT%{_volclavatop}/share/man/man1
-install -m 644 $RPM_BUILD_DIR/%{name}-%{version}/lsf/man/man1/lsrcp.1 $RPM_BUILD_ROOT%{_volclavatop}/share/man/man1
-install -m 644 $RPM_BUILD_DIR/%{name}-%{version}/lsf/man/man1/lstools.1 $RPM_BUILD_ROOT%{_volclavatop}/share/man/man1
-install -m 644 $RPM_BUILD_DIR/%{name}-%{version}/lsbatch/man5/lsb.acct.5  $RPM_BUILD_ROOT%{_volclavatop}/share/man/man5
-install -m 644 $RPM_BUILD_DIR/%{name}-%{version}/lsbatch/man5/lsb.events.5 $RPM_BUILD_ROOT%{_volclavatop}/share/man/man5
-install -m 644 $RPM_BUILD_DIR/%{name}-%{version}/lsbatch/man5/lsb.hosts.5 $RPM_BUILD_ROOT%{_volclavatop}/share/man/man5
-install -m 644 $RPM_BUILD_DIR/%{name}-%{version}/lsbatch/man5/lsb.params.5 $RPM_BUILD_ROOT%{_volclavatop}/share/man/man5
-install -m 644 $RPM_BUILD_DIR/%{name}-%{version}/lsbatch/man5/lsb.queues.5 $RPM_BUILD_ROOT%{_volclavatop}/share/man/man5
-install -m 644 $RPM_BUILD_DIR/%{name}-%{version}/lsbatch/man5/lsb.users.5 $RPM_BUILD_ROOT%{_volclavatop}/share/man/man5
-install -m 644 $RPM_BUILD_DIR/%{name}-%{version}/lsf/man/man5/lim.acct.5 $RPM_BUILD_ROOT%{_volclavatop}/share/man/man5
-install -m 644 $RPM_BUILD_DIR/%{name}-%{version}/lsf/man/man5/lsf.acct.5 $RPM_BUILD_ROOT%{_volclavatop}/share/man/man5
-install -m 644 $RPM_BUILD_DIR/%{name}-%{version}/lsf/man/man5/lsf.cluster.5 $RPM_BUILD_ROOT%{_volclavatop}/share/man/man5
-install -m 644 $RPM_BUILD_DIR/%{name}-%{version}/lsf/man/man5/lsf.conf.5 $RPM_BUILD_ROOT%{_volclavatop}/share/man/man5
-install -m 644 $RPM_BUILD_DIR/%{name}-%{version}/lsf/man/man5/lsf.shared.5 $RPM_BUILD_ROOT%{_volclavatop}/share/man/man5
-install -m 644 $RPM_BUILD_DIR/%{name}-%{version}/lsf/man/man5/res.acct.5 $RPM_BUILD_ROOT%{_volclavatop}/share/man/man5
-install -m 644 $RPM_BUILD_DIR/%{name}-%{version}/lsbatch/man8/badmin.8  $RPM_BUILD_ROOT%{_volclavatop}/share/man/man8
-install -m 644 $RPM_BUILD_DIR/%{name}-%{version}/lsbatch/man8/brun.8  $RPM_BUILD_ROOT%{_volclavatop}/share/man/man8
-install -m 644 $RPM_BUILD_DIR/%{name}-%{version}/lsf/man/man8/eauth.8  $RPM_BUILD_ROOT%{_volclavatop}/share/man/man8
-install -m 644 $RPM_BUILD_DIR/%{name}-%{version}/lsf/man/man8/eexec.8  $RPM_BUILD_ROOT%{_volclavatop}/share/man/man8
-install -m 644 $RPM_BUILD_DIR/%{name}-%{version}/lsf/man/man8/esub.8  $RPM_BUILD_ROOT%{_volclavatop}/share/man/man8
-install -m 644 $RPM_BUILD_DIR/%{name}-%{version}/lsf/man/man8/lim.8  $RPM_BUILD_ROOT%{_volclavatop}/share/man/man8
-install -m 644 $RPM_BUILD_DIR/%{name}-%{version}/lsf/man/man8/lsadmin.8  $RPM_BUILD_ROOT%{_volclavatop}/share/man/man8
-install -m 644 $RPM_BUILD_DIR/%{name}-%{version}/lsf/man/man8/lsfinstall.8  $RPM_BUILD_ROOT%{_volclavatop}/share/man/man8
-install -m 644 $RPM_BUILD_DIR/%{name}-%{version}/lsbatch/man8/mbatchd.8  $RPM_BUILD_ROOT%{_volclavatop}/share/man/man8
-install -m 644 $RPM_BUILD_DIR/%{name}-%{version}/lsf/man/man8/nios.8  $RPM_BUILD_ROOT%{_volclavatop}/share/man/man8
-install -m 644 $RPM_BUILD_DIR/%{name}-%{version}/lsf/man/man8/pim.8  $RPM_BUILD_ROOT%{_volclavatop}/share/man/man8
-install -m 644 $RPM_BUILD_DIR/%{name}-%{version}/lsf/man/man8/res.8  $RPM_BUILD_ROOT%{_volclavatop}/share/man/man8
-install -m 644 $RPM_BUILD_DIR/%{name}-%{version}/lsbatch/man8/sbatchd.8  $RPM_BUILD_ROOT%{_volclavatop}/share/man/man8
+install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/lsbatch/man1/bbot.1    ${RPM_BUILD_ROOT}%{_mandir}/man1
+install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/lsbatch/man1/bchkpnt.1 ${RPM_BUILD_ROOT}%{_mandir}/man1
+install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/lsbatch/man1/bhosts.1 ${RPM_BUILD_ROOT}%{_mandir}/man1
+install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/lsbatch/man1/bjobs.1 ${RPM_BUILD_ROOT}%{_mandir}/man1
+install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/lsbatch/man1/bkill.1 ${RPM_BUILD_ROOT}%{_mandir}/man1
+install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/lsbatch/man1/bmgroup.1 ${RPM_BUILD_ROOT}%{_mandir}/man1
+install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/lsbatch/man1/bmig.1 ${RPM_BUILD_ROOT}%{_mandir}/man1
+install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/lsbatch/man1/bmod.1 ${RPM_BUILD_ROOT}%{_mandir}/man1
+install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/lsbatch/man1/bparams.1 ${RPM_BUILD_ROOT}%{_mandir}/man1
+install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/lsbatch/man1/bpeek.1 ${RPM_BUILD_ROOT}%{_mandir}/man1
+install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/lsbatch/man1/bqueues.1 ${RPM_BUILD_ROOT}%{_mandir}/man1
+install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/lsbatch/man1/brequeue.1 ${RPM_BUILD_ROOT}%{_mandir}/man1
+install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/lsbatch/man1/brestart.1 ${RPM_BUILD_ROOT}%{_mandir}/man1
+install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/lsbatch/man1/bresume.1 ${RPM_BUILD_ROOT}%{_mandir}/man1
+install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/lsbatch/man1/bstop.1 ${RPM_BUILD_ROOT}%{_mandir}/man1
+install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/lsbatch/man1/bsub.1 ${RPM_BUILD_ROOT}%{_mandir}/man1
+install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/lsbatch/man1/btop.1 ${RPM_BUILD_ROOT}%{_mandir}/man1
+install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/lsbatch/man1/bugroup.1 ${RPM_BUILD_ROOT}%{_mandir}/man1
+install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/lsbatch/man1/busers.1 ${RPM_BUILD_ROOT}%{_mandir}/man1
+install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/lsbatch/man1/bswitch.1 ${RPM_BUILD_ROOT}%{_mandir}/man1
+install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/lsf/man/man1/lsacct.1 ${RPM_BUILD_ROOT}%{_mandir}/man1
+install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/lsf/man/man1/lseligible.1 ${RPM_BUILD_ROOT}%{_mandir}/man1
+install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/lsf/man/man1/lsfbase.1 ${RPM_BUILD_ROOT}%{_mandir}/man1
+install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/lsbatch/man1/lsfbatch.1 ${RPM_BUILD_ROOT}%{_mandir}/man1
+install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/lsf/man/man1/lsfintro.1 ${RPM_BUILD_ROOT}%{_mandir}/man1
+install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/lsf/man/man1/lshosts.1 ${RPM_BUILD_ROOT}%{_mandir}/man1
+install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/lsf/man/man1/lsid.1 ${RPM_BUILD_ROOT}%{_mandir}/man1
+install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/lsf/man/man1/lsinfo.1 ${RPM_BUILD_ROOT}%{_mandir}/man1
+install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/lsf/man/man1/lsload.1 ${RPM_BUILD_ROOT}%{_mandir}/man1
+install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/lsf/man/man1/lsloadadj.1 ${RPM_BUILD_ROOT}%{_mandir}/man1
+install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/lsf/man/man1/lsmon.1 ${RPM_BUILD_ROOT}%{_mandir}/man1
+install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/lsf/man/man1/lsplace.1 ${RPM_BUILD_ROOT}%{_mandir}/man1
+install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/lsf/man/man1/lsrcp.1 ${RPM_BUILD_ROOT}%{_mandir}/man1
+install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/lsf/man/man1/lstools.1 ${RPM_BUILD_ROOT}%{_mandir}/man1
+install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/lsbatch/man5/lsb.acct.5  ${RPM_BUILD_ROOT}%{_mandir}/man5
+install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/lsbatch/man5/lsb.events.5 ${RPM_BUILD_ROOT}%{_mandir}/man5
+install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/lsbatch/man5/lsb.hosts.5 ${RPM_BUILD_ROOT}%{_mandir}/man5
+install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/lsbatch/man5/lsb.params.5 ${RPM_BUILD_ROOT}%{_mandir}/man5
+install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/lsbatch/man5/lsb.queues.5 ${RPM_BUILD_ROOT}%{_mandir}/man5
+install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/lsbatch/man5/lsb.users.5 ${RPM_BUILD_ROOT}%{_mandir}/man5
+install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/lsf/man/man5/lim.acct.5 ${RPM_BUILD_ROOT}%{_mandir}/man5
+install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/lsf/man/man5/lsf.acct.5 ${RPM_BUILD_ROOT}%{_mandir}/man5
+install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/lsf/man/man5/lsf.cluster.5 ${RPM_BUILD_ROOT}%{_mandir}/man5
+install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/lsf/man/man5/lsf.conf.5 ${RPM_BUILD_ROOT}%{_mandir}/man5
+install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/lsf/man/man5/lsf.shared.5 ${RPM_BUILD_ROOT}%{_mandir}/man5
+install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/lsf/man/man5/res.acct.5 ${RPM_BUILD_ROOT}%{_mandir}/man5
+install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/lsbatch/man8/badmin.8  ${RPM_BUILD_ROOT}%{_mandir}/man8
+install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/lsbatch/man8/brun.8  ${RPM_BUILD_ROOT}%{_mandir}/man8
+install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/lsf/man/man8/eauth.8  ${RPM_BUILD_ROOT}%{_mandir}/man8
+install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/lsf/man/man8/eexec.8  ${RPM_BUILD_ROOT}%{_mandir}/man8
+install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/lsf/man/man8/esub.8  ${RPM_BUILD_ROOT}%{_mandir}/man8
+install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/lsf/man/man8/lim.8  ${RPM_BUILD_ROOT}%{_mandir}/man8
+install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/lsf/man/man8/lsadmin.8  ${RPM_BUILD_ROOT}%{_mandir}/man8
+install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/lsf/man/man8/lsfinstall.8  ${RPM_BUILD_ROOT}%{_mandir}/man8
+install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/lsbatch/man8/mbatchd.8  ${RPM_BUILD_ROOT}%{_mandir}/man8
+install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/lsf/man/man8/nios.8  ${RPM_BUILD_ROOT}%{_mandir}/man8
+install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/lsf/man/man8/pim.8  ${RPM_BUILD_ROOT}%{_mandir}/man8
+install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/lsf/man/man8/res.8  ${RPM_BUILD_ROOT}%{_mandir}/man8
+install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/lsbatch/man8/sbatchd.8  ${RPM_BUILD_ROOT}%{_mandir}/man8
 #
 # PRE
 #
 %pre
 
 #
-# Add "volclava" user
+# Add admin user
 #
-/usr/sbin/groupadd -f volclava
-/usr/sbin/useradd -c "volclava Administrator" -g volclava -m -d /home/volclava volclava 2> /dev/null || :
+/usr/sbin/groupadd -f %{VOLCADMIN} > /dev/null 2>&1 || true
+/usr/sbin/useradd -c "volclava Administrator" -g %{VOLCADMIN} -m -d /home/%{VOLCADMIN} %{VOLCADMIN} > /dev/null 2>&1 || true
+
 #
 # POST
 #
@@ -256,21 +312,21 @@ _volclavatop=${RPM_INSTALL_PREFIX}/volclava-%{version}
 #echo ${_volclavatop_trans}
 
 # create the symbolic links
-ln -sf ${_volclavatop}/bin/bkill  ${_volclavatop}/bin/bstop
-ln -sf ${_volclavatop}/bin/bkill  ${_volclavatop}/bin/bresume
-ln -sf ${_volclavatop}/bin/bkill  ${_volclavatop}/bin/bchkpnt
-ln -sf ${_volclavatop}/bin/bmgroup  ${_volclavatop}/bin/bugroup
-chown -h volclava:volclava ${_volclavatop}/bin/bstop
-chown -h volclava:volclava ${_volclavatop}/bin/bresume
-chown -h volclava:volclava ${_volclavatop}/bin/bchkpnt
-chown -h volclava:volclava ${_volclavatop}/bin/bugroup
-sed -i "s:/opt/volclava-2.0:${_volclavatop}:g" ${_volclavatop}/etc/volclava.sh
-sed -i "s:/opt/volclava-2.0:${_volclavatop}:g" ${_volclavatop}/etc/volclava.csh
-sed -i "s:/opt/volclava-2.0:${_volclavatop}:g" ${_volclavatop}/etc/volclava
-/usr/bin/cp --backup=numbered ${_volclavatop}/etc/volclava.sh %{_sysconfdir}/profile.d
-/usr/bin/cp --backup=numbered ${_volclavatop}/etc/volclava.csh %{_sysconfdir}/profile.d
+ln -sf ${_volclavatop}/exec/%{_platform}/bin/bkill  ${_volclavatop}/exec/%{_platform}/bin/bstop
+ln -sf ${_volclavatop}/exec/%{_platform}/bin/bkill  ${_volclavatop}/exec/%{_platform}/bin/bresume
+ln -sf ${_volclavatop}/exec/%{_platform}/bin/bkill  ${_volclavatop}/exec/%{_platform}/bin/bchkpnt
+ln -sf ${_volclavatop}/exec/%{_platform}/bin/bmgroup  ${_volclavatop}/exec/%{_platform}/bin/bugroup
+chown -h volclava:volclava ${_volclavatop}/exec/%{_platform}/bin/bstop
+chown -h volclava:volclava ${_volclavatop}/exec/%{_platform}/bin/bresume
+chown -h volclava:volclava ${_volclavatop}/exec/%{_platform}/bin/bchkpnt
+chown -h volclava:volclava ${_volclavatop}/exec/%{_platform}/bin/bugroup
+sed -i "s:/opt/volclava-%{version}:${_volclavatop}:g" ${_volclavatop}/etc/volclava.sh
+sed -i "s:/opt/volclava-%{version}:${_volclavatop}:g" ${_volclavatop}/etc/volclava.csh
+sed -i "s:/opt/volclava-%{version}:${_volclavatop}:g" ${_volclavatop}/etc/volclava
+ln -sf ${_volclavatop}/etc/volclava.sh %{_sysconfdir}/profile.d/volclava.sh
+ln -sf ${_volclavatop}/etc/volclava.csh %{_sysconfdir}/profile.d/volclava.csh
 /usr/bin/cp --backup=numbered  ${_volclavatop}/etc/volclava %{_sysconfdir}/init.d
-sed -i "s:/opt/volclava-2.0:${_volclavatop}:g" ${_volclavatop}/etc/lsf.conf
+sed -i "s:/opt/volclava-%{version}:${_volclavatop}:g" ${_volclavatop}/etc/lsf.conf
 
 
 # Register lava daemons
@@ -293,11 +349,11 @@ rm -rf ${_volclavatop}
 # FILES
 #
 %files
-%defattr(-,volclava,volclava)
-%attr(0755,volclava,volclava) %{_volclavatop}/etc/volclava
-%{_volclavatop}/etc/volclava.sh
-%{_volclavatop}/etc/volclava.csh
-%{_volclavatop}/etc/volclava.setup
+%defattr(-,%{VOLCADMIN},%{VOLCADMIN})
+%attr(0755,%{VOLCADMIN},%{VOLCADMIN}) %{_etcdir}/volclava
+%{_etcdir}/volclava.sh
+%{_etcdir}/volclava.csh
+%{_etcdir}/volclava.setup
 %{_sbindir}/eauth
 %{_sbindir}/echkpnt
 %{_sbindir}/erestart
@@ -414,28 +470,37 @@ rm -rf ${_volclavatop}
 # docs
 %doc COPYING
 
-%defattr(0644,volclava,volclava)
-%config(noreplace) %{_volclavatop}/etc/lsb.params
-%config(noreplace) %{_volclavatop}/etc/lsb.queues
-%config(noreplace) %{_volclavatop}/etc/lsb.hosts
-%config(noreplace) %{_volclavatop}/etc/lsb.users
-%config(noreplace) %{_volclavatop}/etc/lsf.shared
-%config(noreplace) %{_volclavatop}/etc/lsf.conf
-%config(noreplace) %{_volclavatop}/etc/lsf.cluster.%{_clustername}
-%config(noreplace) %{_volclavatop}/etc/lsf.task
+%defattr(0644,%{VOLCADMIN},%{VOLCADMIN})
+%config(noreplace) %{_etcdir}/lsb.params
+%config(noreplace) %{_etcdir}/lsb.queues
+%config(noreplace) %{_etcdir}/lsb.hosts
+%config(noreplace) %{_etcdir}/lsb.users
+%config(noreplace) %{_etcdir}/lsf.shared
+%config(noreplace) %{_etcdir}/lsf.conf
+%config(noreplace) %{_etcdir}/lsf.cluster.%{CLUSTERNAME}
+%config(noreplace) %{_etcdir}/lsf.task
 %config(noreplace) %{_volclavatop}/README.md
 %config(noreplace) %{_volclavatop}/COPYING
-%attr(0755,volclava,volclava) %{_volclavatop}/bin
-%attr(0755,volclava,volclava) %{_volclavatop}/etc
-%attr(0755,volclava,volclava) %{_volclavatop}/include
-%attr(0755,volclava,volclava) %{_volclavatop}/lib
-%attr(0755,volclava,volclava) %{_volclavatop}/log
-%attr(0755,volclava,volclava) %{_volclavatop}/sbin
-%attr(0755,volclava,volclava) %{_volclavatop}/share
-%attr(0755,volclava,volclava) %{_volclavatop}/work
-%attr(0755,volclava,volclava) %{_volclavatop}/work/logdir
+%dir %attr(0755,%{VOLCADMIN},%{VOLCADMIN}) %{_volclavatop}/exec
+%dir %attr(0755,%{VOLCADMIN},%{VOLCADMIN}) %{_volclavatop}/exec/%{_platform}
+%dir %attr(0755,%{VOLCADMIN},%{VOLCADMIN}) %{_bindir}
+%dir %attr(0755,%{VOLCADMIN},%{VOLCADMIN}) %{_etcdir}
+%dir %attr(0755,%{VOLCADMIN},%{VOLCADMIN}) %{_includedir}
+%dir %attr(0755,%{VOLCADMIN},%{VOLCADMIN}) %{_libdir}
+%dir %attr(0755,%{VOLCADMIN},%{VOLCADMIN}) %{_logdir}
+%dir %attr(0755,%{VOLCADMIN},%{VOLCADMIN}) %{_sbindir}
+%dir %attr(0755,%{VOLCADMIN},%{VOLCADMIN}) %{_volclavatop}/share
+%dir %attr(0755,%{VOLCADMIN},%{VOLCADMIN}) %{_volclavatop}/work
+%dir %attr(0755,%{VOLCADMIN},%{VOLCADMIN}) %{_volclavatop}/work/logdir
 
 %changelog
+* Mon Sep 12 2025 Releasing volclava 2.1.0 by Bytedance Ltd. and/or its affiliates
+- support adding comments to badmin operations;
+- JOB_SPOOL_DIR supports the %U dynamic pattern format;
+- support the customization of the admin and cluster name using the environment variables
+  "volclavaadmin" and "volclavacluster" during the installation process;
+- support mixed OS deployment in clusters installed via source code;
+- modernize code for LIM compilation;
 * Mon Jun 16 2025 Releasing volclava 2.0.0 by Bytedance Ltd. and/or its affiliates
 - support fairshare scheduling policy for users at queue level;
 - support customize unit by configure LSF_UNIT_FOR_LIMITS in lsf.conf;

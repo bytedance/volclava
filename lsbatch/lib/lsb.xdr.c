@@ -912,6 +912,7 @@ xdr_queueInfoReply (XDR *xdrs, struct queueInfoReply *qInfoReply,
                 freeShareAcctInfoEnt(qInfo[i].shareAcctTree);
                 FREEUP(qInfo[i].shareAcctTree);
             }
+            FREEUP (qInfo[i].actionComment);
         }
 
 	qInfoReply->queues = qInfo;
@@ -1081,6 +1082,10 @@ xdr_queueInfoEnt (XDR *xdrs, struct queueInfoEnt *qInfo,
         }   
     }
 
+    if (!(xdr_var_string(xdrs, &qInfo->actionComment))) {
+        return FALSE;
+    }
+
     return(TRUE);
 }
 
@@ -1181,7 +1186,7 @@ xdr_hostDataReply(XDR *xdrs,
                 return(FALSE);
             }
             if (!(sp = malloc(hostCount
-                              * (MAXHOSTNAMELEN + MAXLINELEN)))) {
+                              * (MAXHOSTNAMELEN + MAXLINELEN + MAXLINELEN)))) {
                 FREEUP(hInfoTmp);
                 lsberrno = LSBE_NO_MEM;
                 return(FALSE);
@@ -1198,6 +1203,8 @@ xdr_hostDataReply(XDR *xdrs,
     	        sp += MAXHOSTNAMELEN;
     	        hInfo[i].windows = sp;
     	        sp += MAXLINELEN;
+                hInfo[i].actionComment = sp;
+                sp += MAXLINELEN;
             }
         }
         hostDataReply->hosts = hInfo;
@@ -1275,11 +1282,13 @@ xdr_hostInfoEnt (XDR *xdrs, struct hostInfoEnt *hostInfoEnt,
 {
     char *sp = hostInfoEnt->host;
     char *wp = hostInfoEnt->windows;
+    char *cmt = hostInfoEnt->actionComment;
     int i;
 
     if (xdrs->x_op == XDR_DECODE) {
 	sp[0] = '\0';
 	wp[0] = '\0';
+        cmt[0] = '\0';
     }
 
     if (!(xdr_string(xdrs, &sp, MAXHOSTNAMELEN) &&
@@ -1293,7 +1302,8 @@ xdr_hostInfoEnt (XDR *xdrs, struct hostInfoEnt *hostInfoEnt,
         xdr_int(xdrs, &hostInfoEnt->numUSUSP) &&
 	xdr_int(xdrs, &hostInfoEnt->hStatus) &&
 	xdr_int(xdrs, &hostInfoEnt->attr) &&
-        xdr_int(xdrs, &hostInfoEnt->mig)))
+        xdr_int(xdrs, &hostInfoEnt->mig) &&
+        xdr_string(xdrs, &cmt, MAXLINELEN)))
         return (FALSE);
 
     hostInfoEnt->nIdx = *nIdx;
@@ -1563,24 +1573,45 @@ xdr_controlReq (XDR *xdrs, struct controlReq *controlReq,
                   struct LSFHeader *hdr)
 {
     static char *sp = NULL;
+    static char *msg = NULL;
     static int first = TRUE;
-
-
 
     if (xdrs->x_op == XDR_DECODE) {
         if (first == TRUE) {
-             sp = (char *) malloc (MAXHOSTNAMELEN);
+             sp = (char *)malloc(MAXHOSTNAMELEN);
              if (sp == NULL)
                  return (FALSE);
+
+             msg = (char *)calloc(MAXLINELEN, sizeof(char));
+             if (msg == NULL)
+                 return (FALSE);
+
              first = FALSE;
         }
         controlReq->name = sp;
+        controlReq->msg = msg;
         sp[0] = '\0';
+        msg[0] = '\0';
     } else {
-        sp = controlReq->name;
+        if (!first) {
+            FREEUP(sp);
+            FREEUP(msg);
+            first = TRUE;
+        }
+        if (controlReq->name == NULL) {
+            sp = "";
+        } else {
+            sp = controlReq->name;
+        }
+        if (controlReq->msg == NULL) {
+            msg = "";
+        } else {
+            msg = controlReq->msg;
+        }
     }
     if (!(xdr_int(xdrs, &controlReq->opCode) &&
-	  xdr_string(xdrs, &sp, MAXHOSTNAMELEN)))
+	  xdr_string(xdrs, &sp, MAXHOSTNAMELEN) &&
+          xdr_string(xdrs, &msg, MAXLINELEN)))
 	return FALSE;
 
     return TRUE;
@@ -1996,7 +2027,8 @@ xdrsize_QueueInfoReply(struct queueInfoReply * qInfoReply)
             + getXdrStrlen(qInfoReply->queues[i].resumeActCmd)
             + getXdrStrlen(qInfoReply->queues[i].terminateActCmd)
             + getXdrStrlen(qInfoReply->queues[i].chkpntDir)
-            + getXdrStrlen(qInfoReply->queues[i].userShares);
+            + getXdrStrlen(qInfoReply->queues[i].userShares)
+            + getXdrStrlen(qInfoReply->queues[i].actionComment);
         if (qInfoReply->queues[i].shareAcctTree) {
             traverseSATree(qInfoReply->queues[i].shareAcctTree, TRAVERSE_FS_SIZE, xdrsize_shareAcctInfoEnt, &shareLen);
             len += shareLen;

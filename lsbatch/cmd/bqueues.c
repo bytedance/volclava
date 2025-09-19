@@ -76,11 +76,10 @@ main(int argc, char **argv)
     struct queueInfoEnt *queueInfo;
     int cc, defaultQ = FALSE;
     char *host = NULL, *user = NULL;
-    int rc;
 
     numQueues = 0;
 
-    rc = _i18n_init ( I18N_CAT_MIN );
+    _i18n_init ( I18N_CAT_MIN );
 
     if (lsb_init(argv[0]) < 0) {
         lsb_perror("lsb_init");
@@ -498,6 +497,10 @@ prtQueuesLong(int numQueues, struct queueInfoEnt *queueInfo)
 
         if (qp->qAttrib & Q_ATTRIB_ROUND_ROBIN)
             printf("ROUN_ROBIN_SCHEDULING:  yes\n");
+
+        if (qp->actionComment && qp->actionComment[0] != '\0') {
+            printf("%s: %s\n", _i18n_msg_get(ls_catd,NL_SETN,1260, "ADMIN ACTION COMMENT"), qp->actionComment);                                                                                
+        }
 
         printf("\n");
         printFlag = 0;

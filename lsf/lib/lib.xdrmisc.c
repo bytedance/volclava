@@ -195,7 +195,7 @@ xdr_var_string(XDR *xdrs, char **astring)
         *astring = NULL;
 
         if (!xdr_int(xdrs, &len)
-            || ((*astring = malloc(len + 1)) == NULL) )
+            || ((*astring = calloc(len + 1, sizeof(char))) == NULL) )
             return FALSE;
 
         XDR_SETPOS(xdrs, pos);

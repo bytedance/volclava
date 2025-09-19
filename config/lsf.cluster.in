@@ -8,7 +8,7 @@
 #
 
 Begin   ClusterAdmins
-Administrators = @volclavadmin@
+Administrators = @volclavaadmin@
 End    ClusterAdmins 
 
 Begin	Host

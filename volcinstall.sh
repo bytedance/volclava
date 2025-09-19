@@ -22,7 +22,7 @@
 #
 # Note:
 # --hosts=/path/file: It is a file which lists hosts' name in one column. Default is not to add hosts into
-#          lsf.cluster.volclava. If defined, installer will append hosts into lsf.cluster.volclava.
+#          lsf.cluster.${CLUSTERNAME}. If defined, installer will append hosts into lsf.cluster.${CLUSTERNAME}.
 # --startup: Default is N. When set as Y, you also need define "--hosts", then we will startup cluster after
 #          installation. Without "--hosts", volclava fails to startup cluster because of no hosts in cluster.
 # --uid: specify uniform uid for user "volclava". Default is undefined.
@@ -30,21 +30,38 @@
 function usage() {
     echo "Usage: volcinstall.sh [--help]"
     echo "                      [--setup=pre [--uid=number]]"
-    echo "                      [--setup=install [--type=code|rpm|deb] [--prefix=/opt/volclava] [--hosts=\"master server1 ...\"|/path/file]]"
+    echo "                      [--setup=install [--type=code|rpm|deb] [--prefix=/opt/volclava] [--hosts=\"master server1 ...\"|/path/file] [--interactive=Y|y|N|n]]"
     echo "                      [--setup=post [--env=/volclava_top] [--startup=Y|y|N|n]]"
-    echo "                      [--type=code|rpm|deb|server] [--prefix=/opt/volclava] [--hosts=\"master server1 ...\"|/path/file] [--uid=number] [--startup=Y|y|N|n]"
+    echo "                      [--type=code|rpm|deb|server] [--prefix=/opt/volclava] [--hosts=\"master server1 ...\"|/path/file] [--uid=number] [--startup=Y|y|N|n] [--interactive=Y|y|N|n]"
 }
 
 
 #Default values
 TYPE="code"
-PACKAGE_NAME="volclava-2.0"
+VERSION="2.1"
+PACKAGE_NAME="volclava-${VERSION}"
 PREFIX="/opt/${PACKAGE_NAME}"
 setPrefix=0
 PHASE="all"
 USRID=""
 HOSTS=""
 STARTUP="N"
+INTERACTIVE="Y"
+
+if test -z "$volclavaadmin"; then
+    VOLCADMIN="volclava"
+else
+    VOLCADMIN=${volclavaadmin}
+fi
+
+if test -z "$volclavacluster"; then
+    CLUSTERNAME="volclava"
+else
+    CLUSTERNAME=$volclavacluster
+fi
+
+SCRIPT_PATH="$(realpath "$0")"
+CWD="$(dirname "$(realpath "$0")")"
 
 while [ $# -gt 0 ]; do
     case $1 in
@@ -119,6 +136,17 @@ while [ $# -gt 0 ]; do
                 exit 1
             fi
             ;;
+        --interactive=*)
+            INTERACTIVE=$(echo $1 | awk -F "=" '{print $2}')
+            if [ -z "$INTERACTIVE" ]; then
+                usage
+                exit 1
+            fi
+            if [[ "$INTERACTIVE" != "Y" ]] && [[ "$INTERACTIVE" != "y" ]] && [[ "$INTERACTIVE" != "N" ]] && [[ "$INTERACTIVE" != "n" ]]; then
+                usage
+                exit 1
+            fi
+            ;;
         --help)
             usage
             exit 0
@@ -164,12 +192,11 @@ fi
 
 function pre_setup() {
     #add user
-    if ! id -u "volclava" > /dev/null 2>&1; then
-        if [ -z "$USRID"  ]; then
-            useradd "volclava"
-        else
-            useradd -u $USRID  "volclava" 
-        fi
+    groupadd -f ${VOLCADMIN} > /dev/null 2>&1 || true
+    if [ -z "$USRID"  ]; then
+        useradd -c "volclava Administrator" -g ${VOLCADMIN} -m -d /home/${VOLCADMIN} ${VOLCADMIN} > /dev/null 2>&1 || true
+    else
+        useradd -c "volclava Administrator" -u $USRID  -g ${VOLCADMIN} -m -d /home/${VOLCADMIN} ${VOLCADMIN} > /dev/null 2>&1 || true
     fi
 
     #install compile library
@@ -199,20 +226,19 @@ function post_setup() {
 
     #set up volclava service and shell environment
     if [ "$TYPE" = "deb" ] && [ $setPrefix -ne 0 ]; then
-        cp $PREFIX/lib/systemd/system/volclava.service /lib/systemd/system/volclava.service
+        cp --backup=numbered $PREFIX/lib/systemd/system/volclava.service /lib/systemd/system/volclava.service
         chmod 644 /lib/systemd/system/volclava.service
-        cp $PREFIX/etc/init.d/volclava /etc/init.d/volclava
+        cp --backup=numbered $PREFIX/etc/init.d/volclava /etc/init.d/volclava
         chmod 755 /etc/init.d/volclava
 
         systemctl daemon-reload
 
-        cp -f $PREFIX/etc/profile.d/volclava.csh /etc/profile.d/
-        cp -f $PREFIX/etc/profile.d/volclava.sh /etc/profile.d/
-
+	ln -sf $PREFIX/etc/profile.d/volclava.csh /etc/profile.d/volclava.csh
+	ln -sf $PREFIX/etc/profile.d/volclava.sh /etc/profile.d/volclava.sh
     else
-        cp -f $PREFIX/etc/volclava /etc/init.d/
-        cp -f $PREFIX/etc/volclava.csh /etc/profile.d/
-        cp -f $PREFIX/etc/volclava.sh /etc/profile.d/
+        cp --backup=numbered $PREFIX/etc/volclava /etc/init.d/
+	ln -sf $PREFIX/etc/volclava.csh /etc/profile.d/volclava.csh
+	ln -sf $PREFIX/etc/volclava.sh /etc/profile.d/volclava.sh
     fi
 
 
@@ -285,8 +311,13 @@ function install() {
 
     if [ "$TYPE" = "code" ]; then
         # install volclava from source code
+	cd ${CWD}
         #setup automake
-        ./bootstrap.sh --prefix=$PREFIX
+        if [[ "$INTERACTIVE" == "Y" ]] || [[ "$INTERACTIVE" == "y" ]]; then
+            ./bootstrap.sh --prefix=$PREFIX --enable-interactive-install
+        else
+            ./bootstrap.sh --prefix=$PREFIX --disable-interactive-install
+        fi
 
         #make and install
         if [ $? -eq 0 ]; then
@@ -302,12 +333,12 @@ function install() {
             exit 1
         fi
 
-        chown volclava:volclava -R $PREFIX
+        chown ${VOLCADMIN}:${VOLCADMIN} -R $PREFIX
         chmod 755 -R $PREFIX
 
         #append hosts into lsf.cluster file
         if [ ! -z "$HOSTS" ]; then
-            addHosts2Cluster "$HOSTS" ${PREFIX}/etc/lsf.cluster.volclava
+            addHosts2Cluster "$HOSTS" ${PREFIX}/etc/lsf.cluster.${CLUSTERNAME}
         fi
     elif [ "$TYPE" = "deb" ]; then
         #deb way to install volclava
@@ -320,27 +351,27 @@ function install() {
             exit 1
         fi
 
-        #install volclava from deb package
+        #Remove old volclava from deb package
         if dpkg -l | grep volclava > /dev/null 2>&1; then
             dpkg -P volclava
         fi
 
         if [ $setPrefix -ne 0 ]; then
             #install deb with prefix
-            dpkg -x ../volclava_2.0*.deb $PREFIX
+            dpkg -x ../volclava_2.1*.deb $PREFIX
             #append hosts into lsf.cluster file
             if [ ! -z "$HOSTS" ]; then
-                 addHosts2Cluster  "$HOSTS" ${PREFIX}/opt/${PACKAGE_NAME}/etc/lsf.cluster.volclava
+                 addHosts2Cluster  "$HOSTS" ${PREFIX}/opt/${PACKAGE_NAME}/etc/lsf.cluster.${CLUSTERNAME}
             fi
             sed -i "s|/opt/${PACKAGE_NAME}|${PREFIX}/opt/${PACKAGE_NAME}|g" $(grep -rl /opt/${PACKAGE_NAME} ${PREFIX}/)
 
-            chown volclava:volclava -R $PREFIX
+            chown ${VOLCADMIN}:${VOLCADMIN}  -R $PREFIX
             chmod 755 -R $PREFIX
         else
-            dpkg -i ../volclava_2.0*.deb
+            dpkg -i ../volclava_2.1*.deb
             #append hosts into lsf.cluster file
             if [ ! -z "$HOSTS" ]; then
-                 addHosts2Cluster  "$HOSTS" /opt/${PACKAGE_NAME}/etc/lsf.cluster.volclava
+                 addHosts2Cluster  "$HOSTS" /opt/${PACKAGE_NAME}/etc/lsf.cluster.${CLUSTERNAME}
             fi
         fi
     else
@@ -369,15 +400,15 @@ function install() {
 
         #install volclava from rpm package
         cd ~/rpmbuild/RPMS/x86_64/
-        chmod 755 volclava-2.0*
-        if rpm -qa | grep volclava-2.0* > /dev/null 2>&1; then
-            rpm -e volclava-2.0*
+        chmod 755 volclava-2.1*
+        if rpm -qa | grep volclava-2.1* > /dev/null 2>&1; then
+            rpm -e volclava-2.1*
         fi
-        rpm -ivh --prefix $PREFIX volclava-2.0*
+        rpm -ivh --prefix $PREFIX volclava-2.1*
 
         #append hosts into lsf.cluster file
         if [ ! -z "$HOSTS" ]; then
-             addHosts2Cluster  "$HOSTS" ${PREFIX}/${PACKAGE_NAME}/etc/lsf.cluster.volclava
+             addHosts2Cluster  "$HOSTS" ${PREFIX}/${PACKAGE_NAME}/etc/lsf.cluster.${CLUSTERNAME}
         fi
     fi
 }
@@ -390,7 +421,7 @@ elif [ "$PHASE" == "install" ]; then
     if [ "$TYPE" == "code" ]; then
         echo -e "The volclava is installed under ${PREFIX}\nYou can use the following command to enable services to startup and add environment variables automatically on master and computing nodes: \n$0 --setup=post --env=${PREFIX}"
     else
-        echo -e "The volclava is installed under ${PREFIX}/${PACKAGE_NAME}\nYou can use the following command to enable services to startup and add environment variables automatically other computing nodes:\n$0 --setup=post --env=${PREFIX}/${PACKAGE_NAME}"
+        echo -e "The volclava is installed under ${PREFIX}/${PACKAGE_NAME}\nYou can use the following command to enable services to startup and add environment variables automatically on other computing nodes:\n$0 --setup=post --env=${PREFIX}/${PACKAGE_NAME}"
     fi
 elif [ "$PHASE" == "post" ]; then
     post_setup

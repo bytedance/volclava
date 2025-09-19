@@ -593,6 +593,7 @@ struct qData {
                    */
     struct fairsharePolicy * policy;
     struct fsFactors fsFactors;
+    char   *actionComment;
 };
 
 
@@ -647,6 +648,7 @@ struct hData {
     LIST_T    *pxySJL;
     LIST_T    *pxyRsvJL;
     float     leftRusageMem;
+    char      *actionComment;
 };
 
 
@@ -1018,7 +1020,7 @@ extern float                   maxCpuFactor;
 extern int                     freedSomeReserveSlot;
 
 extern long                    schedSeqNo;
-
+extern struct controlReq       mbdCtrlReq;
 
 extern void                 pollSbatchds(int);
 extern void                 hStatChange(struct hData *, int status);

@@ -63,7 +63,7 @@ typedef long long int LS_LONG_INT;
 typedef unsigned long long LS_UNS_LONG_INT;
 
 #define LS_LONG_FORMAT ("%lld")
-#define _VOLCLAVA_PROJECT_ "volclava project 2.0.0"
+#define _VOLCLAVA_PROJECT_ "volclava project 2.1.0"
 
 /* This is our identifier printed out by all daemons
  * and commands.
@@ -76,7 +76,10 @@ typedef unsigned long long LS_UNS_LONG_INT;
 
 /* This is our current version.
  */
-#define VOLCLAVA_VERSION   20
+#define VOLCLAVA_VERSION        _VOLCLAVA_VERSION2_1_
+#define _VOLCLAVA_VERSION2_0_   20 /*volclava 2.0*/
+#define _VOLCLAVA_VERSION2_1_   21 /*volclava 2.1*/
+
 
 #define LSF_DEFAULT_SOCKS       15
 #define MAXLINELEN              PATH_MAX

@@ -7,7 +7,7 @@ set -x
 #
 
 major="2"
-minor="0"
+minor="1"
 
 GIT_LAST_COMMIT=$(git log -1  --pretty=format:%H)
 GIT_LAST_DATE=$(git log -1 --pretty=format:"%ad" --date=short)

@@ -2,7 +2,7 @@
 # Copyright (C) 2011 openlava foundation
 #
 
-INCLUDES = -I../
+AM_CPPFLAGS = -I../
 
 noinst_LIBRARIES = liblsfint.a
 
