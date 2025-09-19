@@ -72,6 +72,7 @@ extern int sig_encode(int);
 
 #define LSB_API_QUOTE_CMD     16
 #define LSB_UNIT_FOR_LIMITS   17
+#define LSB_QMBD_PORT   18
 
 
 typedef struct lsbSubSpoolFile {
@@ -101,6 +102,7 @@ extern char* getNTSpoolDir(char *);
 extern char *getMasterName(void);
 extern ushort get_mbd_port (void);
 extern ushort get_sbd_port (void);
+extern ushort get_qmbd_port (void);
 extern int getAuth(struct lsfAuth *);
 extern int getCommonParams (struct submit  *, struct submitReq *,
                                                  struct submitReply *);

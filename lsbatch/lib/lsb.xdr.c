@@ -522,9 +522,9 @@ bool_t
 xdr_jobInfoHead (XDR *xdrs, struct jobInfoHead *jobInfoHead,
                  struct LSFHeader *hdr)
 {
-    static char **hostNames = NULL;
-    static int numJobs = 0, numHosts = 0;
-    static LS_LONG_INT *jobIds = NULL;
+    static __thread char **hostNames = NULL;
+    static __thread int numJobs = 0, numHosts = 0;
+    static __thread LS_LONG_INT *jobIds = NULL;
     char *sp;
     int *jobArrIds = NULL, *jobArrElemIds = NULL;
     int i;
@@ -671,10 +671,10 @@ xdr_jobInfoReply (XDR *xdrs, struct jobInfoReply *jobInfoReply,
 {
     char *sp;
     int i, j;
-    static float *loadSched = NULL, *loadStop = NULL;
-    static int nIdx = 0;
-    static int *reasonTb = NULL;
-    static int nReasons = 0;
+    static __thread float *loadSched = NULL, *loadStop = NULL;
+    static __thread int nIdx = 0;
+    static __thread int *reasonTb = NULL;
+    static __thread int nReasons = 0;
     int jobArrId, jobArrElemId;
 
 
@@ -849,10 +849,10 @@ xdr_queueInfoReply (XDR *xdrs, struct queueInfoReply *qInfoReply,
 		    struct LSFHeader *hdr)
 {
     int i;
-    static int memSize = 0;
-    static struct queueInfoEnt *qInfo = NULL;
-    static int nIdx = 0;
-    static float *loadStop = NULL, *loadSched = NULL;
+    static __thread int memSize = 0;
+    static __thread struct queueInfoEnt *qInfo = NULL;
+    static __thread int nIdx = 0;
+    static __thread float *loadStop = NULL, *loadSched = NULL;
 
     if (!(xdr_int(xdrs, &(qInfoReply->numQueues))
 	  && xdr_int(xdrs, &(qInfoReply->badQueue))
@@ -1094,8 +1094,9 @@ xdr_infoReq (XDR *xdrs, struct infoReq *infoReq,
                  struct LSFHeader *hdr)
 {
     int i;
-    static int memSize = 0;
-    static char **names = NULL, *resReq = NULL;
+    static __thread int memSize = 0;      
+    static __thread char **names = NULL;   
+    static __thread char *resReq = NULL;   
 
 
     if (!(xdr_int(xdrs, &(infoReq->options))))

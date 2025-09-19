@@ -212,6 +212,18 @@ get_ports (void)
         sbd_port = sv->s_port;
     }
 
+    if (daemonParams[LSB_QMBD_PORT].paramValue != NULL)
+    {
+        if (!isint_(daemonParams[LSB_QMBD_PORT].paramValue)
+               || (qmbd_port = atoi(daemonParams[LSB_QMBD_PORT].paramValue)) <= 0)
+            ls_syslog(LOG_ERR, _i18n_msg_get(ls_catd , NL_SETN, 8233,
+                "%s: LSB_QMBD_PORT <%s> in lsf.conf must be a positive number"), /* catgets 8233 */
+                fname,
+                daemonParams[LSB_QMBD_PORT].paramValue);
+        else
+            qmbd_port = htons(qmbd_port);
+    }
+
     return (0);
 }
 

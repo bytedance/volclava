@@ -325,6 +325,7 @@ extern void defaultAllHandlers(void);
 extern int nb_read_fix(int, char *, int);
 extern int nb_write_fix(int, char *, int);
 extern int nb_read_timeout(int, char *, int, int);
+extern int nb_write_timeout(int, char *, int, int);
 extern int b_read_fix(int, char *, int);
 extern int b_write_fix(int, char *, int);
 extern int b_write_timeout(int, char *, int, int);

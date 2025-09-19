@@ -158,6 +158,10 @@
 #define MBD_DONT_FORK          54
 #define LIM_NO_MIGRANT_HOSTS   55
 #define LSF_UNIT_FOR_LIMITS    56
+#ifdef LSB_QMBD_PORT
+#undef LSB_QMBD_PORT
+#endif
+#define LSB_QMBD_PORT           57
 #define NOT_LOG  INFINIT_INT
 
 
@@ -486,6 +490,7 @@ extern int    debug;
 extern int    lsb_CheckMode;
 extern int    lsb_CheckError;
 extern ushort mbd_port;
+extern ushort qmbd_port;
 extern ushort sbd_port;
 extern int batchSock;
 extern char masterme;

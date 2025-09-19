@@ -190,7 +190,7 @@ contact:
                           0);
         if (cc < 0) {
             ls_syslog(LOG_DEBUG,"\
-%s: failed in connecting to limChans_[TCP]=<%d> <%s>",
+%s: failed in connecting to limChans_[TCP]=<%d> <%s>: %M",
                       fname, limchans_[TCP], sockAdd2Str_(&sockIds_[TCP]));
             if (errno == ECONNREFUSED || errno == ENETUNREACH) {
                 if (errno == ECONNREFUSED) {
