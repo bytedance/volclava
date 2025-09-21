@@ -39,11 +39,12 @@
         channels[i].handle = INVALID_HANDLE; }
 
 static struct chanData *channels;
-static struct chanEpollData *epollData;
-static int epollReady = 0;
-static struct handleData *handles;
-static int *readyChans = NULL;
-static int readyChansNum = 0;
+static struct chanEpollData *epollData;             /* Epoll core data structure: stores epoll file descriptor and event array */
+static struct handleData *handles;                  /* Mapping array from socket fd to channel: stores channel index and chanData pointer for each socket */
+
+static int epollReady = 0;                          /* Flag indicating if epoll is initialized and ready (1 = ready, 0 = not ready) */
+static int *readyChans = NULL;                      /* Array storing indices of ready channels */
+static int readyChansNum = 0;                       /* Number of valid elements in the readyChans array */
 int cherrno = 0;
 extern int errno;
 int chanIndex;
@@ -1484,6 +1485,10 @@ findAFreeChannel(void)
     return i;
 }
 
+/*
+ * Static helper: Calculate desired listen events for a channel based on its type and state
+ * @param[in] chfd: Target channel index to calculate events for
+ */
 static void
 upDateListenEvents(int chfd){
     static char fname[] = "upDateListenEvents";
@@ -1522,6 +1527,11 @@ upDateListenEvents(int chfd){
     }
 }
 
+/*
+ * Static helper: Bind socket to channel and register socket with epoll
+ * @param[in] sockfd: Socket file descriptor to bind
+ * @param[in] chfd: Target channel index to bind with the socket
+ */
 static void
 chanBindSock(int sockfd, int chfd)
 {
@@ -1553,6 +1563,11 @@ chanBindSock(int sockfd, int chfd)
     }
 }
 
+
+/*
+ * Static helper: Update channel's listen events and modify epoll registration 
+ * @param[in] chfd: Target channel index to update
+ */
 static void 
 chanUpdateListenEvents(int chfd)
 {
@@ -1595,6 +1610,11 @@ chanUpdateListenEvents(int chfd)
     } 
 }
 
+
+/*
+ * Static helper: Unbind socket from its channel and remove socket from epoll
+ * @param[in] sockfd: Socket file descriptor to unbind
+ */
 static void 
 chanUnbindSock(int sockfd)
 {
@@ -1628,6 +1648,10 @@ chanUnbindSock(int sockfd)
     }
 }
 
+/*
+ * Static helper: Clear ready events (readyEvents) for all previously ready channels
+ * (called before each chanEpoll_ to reset old event status)
+ */
 static void
 chanClearReadyEvents()
 {
@@ -1654,6 +1678,11 @@ chanClearReadyEvents()
     return ;
 }
 
+/*
+ * Clear specified ready events from a channel's event status
+ * @param[in] chfd: Index of the target channel to modify
+ * @param[in] events: Events to clear (e.g., EPOLLIN, EPOLLOUT)
+ */
 void
 chanQuitReadyEvents(int chfd, int events)
 {   
@@ -1665,6 +1694,12 @@ chanQuitReadyEvents(int chfd, int events)
     channels[chfd].readyEvents &= ~events;
 }
 
+/*
+ * Check if a specific channel has the specified events ready
+ * @param[in] chfd: Index of the target channel to check
+ * @param[in] events: Events to verify (e.g., EPOLLIN, EPOLLOUT, EPOLLERR)
+ * @return: 1 if the specified events are ready, 0 if not ready, -1 if the channel is invalid
+ */
 int
 chanEventsReady(int chfd, int events)
 {
@@ -1681,6 +1716,11 @@ chanEventsReady(int chfd, int events)
     return (channels[chfd].readyEvents & events) ? 1 : 0;
 }
 
+/*
+ * Initialize epoll resources for channel event monitoring
+ * Must be called before creating any listening sockets that use epoll
+ * @return: 0 on successful initialization, -1 if memory allocation or epoll creation fails
+ */
 int chanEpollInit(){
     int i; 
     epollData = calloc(1,sizeof(struct chanEpollData));

@@ -1,22 +1,28 @@
-
 #include "mbd.h"
-#define EPOLL_INTERVAL 1
-static int qmbdDie = 0;
+#define DEF_EPOLL_INTERVAL 1
+#define DEF_QMBD_ALIVE_TIME 10
+#define DEF_THREAD_NUM 8
+#define DEF_THREADPOLL_MAX_TASK 10000
 static struct threadPool_t*  pool = NULL;
+static int qmbdDie = 0;                             /*Flag to indicate qmbd should exit after processing remaining requests*/
 
-static int qmbdInit();
-static void closeClient();
-static void clientIOWithQueryReq();
-static void processClientWithQueryReq(void *arg);
-static void qmbdDie_alarm_handler (int sig);
-static void acceptConnection(int socket);
+static int qmbdInit();                              
+static void closeClient();                          
+static void addReadyClientsToTaskQueue();           
+static void processClientWithQueryReq(void *arg);   
+static void qmbdDieAlarmHandler (int sig);          
+static void acceptConnection(int socket);           
 
+/*
+ * Start the qmbd daemon process and handle client requests
+ * @param[out] qmbdPid: Pointer to store the PID of the qmbd process
+ * @return: 0 on successful startup of qmbd, -1 on fork failure
+ */
 int startqmbd(int *qmbdPid){
     static char* fname="startqmbd";
     int i, cc;
     int nready = 0;
     int **readyChans;
-    int jobCount = 0;
     struct timeval timeout;
 
     if (logclass & LC_TRACE)
@@ -61,7 +67,7 @@ int startqmbd(int *qmbdPid){
             continue;
         }
         if(nready == 0){
-            timeout.tv_sec = EPOLL_INTERVAL;
+            timeout.tv_sec = DEF_EPOLL_INTERVAL;
             timeout.tv_usec = 0;
             continue;
         }
@@ -72,7 +78,7 @@ int startqmbd(int *qmbdPid){
             acceptConnection(querySock);
         }
 
-        clientIOWithQueryReq();
+        addReadyClientsToTaskQueue();
 
     } /* for (;;) */
     destroyThreadPool(pool);
@@ -80,6 +86,10 @@ int startqmbd(int *qmbdPid){
     exit(0);
 }
 
+/*
+ * Close clients in CLIENT_STATE_CLOSEING state
+ * Delays closing to avoid thread safety issues with concurrent operations
+ */
 static 
 void closeClient(){
     struct clientNode *cliPtr;
@@ -94,6 +104,12 @@ void closeClient(){
     }
 }
 
+/*
+ * Thread function to process client query requests
+ * Parses XDR-encoded request data, dispatches to appropriate handlers based on request type,
+ * and manages client connection state after processing
+ * @param[in] arg: Pointer to struct clientNode representing the client connection
+ */
 static void 
 processClientWithQueryReq(void *arg) {
     static char          fname[]="processClientWithQueryReq()";
@@ -154,7 +170,7 @@ processClientWithQueryReq(void *arg) {
             break;
             
         case BATCH_JOB_INFO:
-            TIMEIT(3, do_jobInfoReq(&xdrs, s, &from, &reqHdr, 0, 0), "do_jobInfoReq()");
+            TIMEIT(3, do_jobInfoReq(&xdrs, s, &from, &reqHdr, 0, 1), "do_jobInfoReq()");
             break;
         // case BATCH_JOB_PEEK:
         //     TIMEIT(0, do_jobPeekReq(&xdrs, s, &from, client->fromHost, &reqHdr, &auth), "do_jobPeekReq()");
@@ -196,13 +212,17 @@ endLoop:
     return ;
 }
 
-
+/*
+ * Add clients with ready I/O events to the thread pool task queue
+ * Iterates through client list, checks for ready events (EPOLLIN/EPOLLERR),
+ * and dispatches processing tasks for active clients
+ */
 static void 
-clientIOWithQueryReq(){
+addReadyClientsToTaskQueue(){
     struct clientNode *cliPtr;
     struct clientNode *nextClient;
     if (logclass & LC_TRACE)
-        ls_syslog(LOG_DEBUG,"clientIOWithQueryReq: Entering...");
+        ls_syslog(LOG_DEBUG,"addReadyClientsToTaskQueue: Entering...");
 
     for (cliPtr = clientList->forw;
          cliPtr != clientList;
@@ -230,9 +250,13 @@ clientIOWithQueryReq(){
 }
 
 
-
+/*
+ * Signal handler for qmbd exit timer
+ * Sets qmbdDie flag to indicate qmbd should exit after processing remaining requests
+ * @param[in] sig: Signal number (SIGALRM)
+ */
 static
-void qmbdDie_alarm_handler (int sig){
+void qmbdDieAlarmHandler (int sig){
     int pid, saveErrno;
     LS_WAIT_T status;
     sigset_t newmask, oldmask;
@@ -250,6 +274,11 @@ void qmbdDie_alarm_handler (int sig){
     errno = saveErrno;
 }
 
+/*
+ * Initialize qmbd daemon resources
+ * Sets up timers, signal handlers, thread pool, epoll, and listening socket
+ * @return: 0 on successful initialization, -1 on failure to create listening socket
+ */
 static
 int qmbdInit(){
     int i;
@@ -277,13 +306,13 @@ int qmbdInit(){
     timer.it_interval.tv_sec = 0;
     timer.it_interval.tv_usec = 0;
     setitimer(ITIMER_REAL, &timer, NULL);
-    Signal_(SIGALRM, (SIGFUNCTYPE) qmbdDie_alarm_handler);
+    Signal_(SIGALRM, (SIGFUNCTYPE) qmbdDieAlarmHandler);
     Signal_(SIGCHLD, (SIGFUNCTYPE) child_handler);
     Signal_(SIGTERM, (SIGFUNCTYPE) terminate_handler);
     Signal_(SIGHUP,  SIG_IGN);
     Signal_(SIGPIPE, SIG_IGN);
 
-    pool = createThreadPool(8, 10000);
+    pool = createThreadPool(DEF_THREAD_NUM, DEF_THREADPOLL_MAX_TASK);
     chanEpollInit();
     querySock = init_ServSock(qmbd_port);
     if (querySock < 0) {
@@ -295,6 +324,11 @@ int qmbdInit(){
     
 }
 
+/*
+ * Accept and initialize a new client connection
+ * Creates a client node, stores connection details, and adds it to the client list
+ * @param[in] socket: Channel descriptor of the listening socket
+ */
 static void
 acceptConnection(int socket)
 {

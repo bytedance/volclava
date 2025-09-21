@@ -458,7 +458,6 @@ callmbd(char *clusterName,
 
     mbdReqtype = reqHdr.opCode;
 
-    /*先把bjobs跑通*/
     if (mbdReqtype == BATCH_JOB_INFO
         || mbdReqtype == BATCH_QUE_INFO) {
         isQuery = 1;

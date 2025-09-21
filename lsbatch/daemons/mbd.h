@@ -52,8 +52,6 @@
 
 #define DEF_PRE_EXEC_DELAY    -1
 
-#define DEF_QMBD_ALIVE_TIME 10
-
 #define DEF_WRITE_TIMEOUT 5
 
 #define DEF_SHM_MAX_BUF_SIZE 11451423
@@ -348,9 +346,9 @@ struct jData {
 };
 
 struct SharedMemory{
-    char newJobReplyAndHeader[DEF_SHM_MAX_BUF_SIZE];  //存储jobInfoReply和对应的hdr组成的xdr，格式是xdr xdrData,int len
-    int count;                                        //新job的数量 
-    int startPos;                                     //记录上面那个缓冲区的长度，发送的时候要从后往前
+    char newJobReplyAndHeader[DEF_SHM_MAX_BUF_SIZE];  /*Stores XDR data composed of jobInfoReply and corresponding header, along with the size of each XDR. The buffer format is: sizeof(xdr1), xdr1, sizeof(xdr2), xdr2.....sizeof(xdrn), xdrn*/
+    int startPos;                                     /*Records the starting position of valid data in newJobReplyAndHeader (data is stored from back to front)*/
+    int count;                                        /*The number of new jobs*/
 };
 
 
@@ -1040,8 +1038,9 @@ extern int                     freedSomeReserveSlot;
 extern long                    schedSeqNo;
 extern struct controlReq       mbdCtrlReq;
 
-extern struct SharedMemory*    shm;
-extern int                     shmId;
+extern struct SharedMemory*    shm;             /*Shared memory*/
+extern int                     shmId;           /*Shared memory id*/
+extern int                     syncNewJob;      /*Whether to sync newly submitted jobs from mbd in qmbd, 1 for enabled, 0 for disabled*/ 
 
 extern void                 pollSbatchds(int);
 extern void                 hStatChange(struct hData *, int status);

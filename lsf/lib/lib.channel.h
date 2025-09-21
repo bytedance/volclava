@@ -70,8 +70,8 @@ struct chanData {
     struct Buffer *send;
     struct Buffer *recv;
 
-    int listenEvents;
-    int readyEvents;
+    int listenEvents;               /*Events being listened to on the channel*/
+    int readyEvents;                /*Ready events reported by the channel to the upper layer*/
 
 };
 
@@ -142,7 +142,6 @@ void chanQuitReadyEvents(int chfd, int events);
 extern int chanIndex;
 extern int cherrno;
 
-/*需要在负责listen的socket创建之前调用这个函数*/
 int chanEpollInit();
 
 #endif

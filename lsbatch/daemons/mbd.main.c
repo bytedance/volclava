@@ -159,14 +159,16 @@ long   schedSeqNo;
 int    schedule;
 int    scheRawLoad;
 int lsbModifyAllJobs = FALSE;
+int syncNewJob = 1;   
+int shmId;
 
 static int schedule1;
 static struct jData *jobData = NULL;
 static time_t lastSchedTime = 0;
 static time_t nextSchedTime = 0;
-static int forkqmbd = 1;
-static int qmbdOn = 0;
-static int qmbdPid = 0;
+static int forkqmbd = 1;    /*Whether to start qmbd, 1 for enabled, 0 for disabled*/
+static int qmbdAlive = 0;   /*Current status of qmbd, 1 means started, 0 means not started*/
+static int qmbdPid = 0;     /*PID corresponding to qmbd*/
 
 void setJobPriUpdIntvl(void);
 static void updateJobPriorityInPJL(void);
@@ -183,8 +185,9 @@ static void shutdownSbdConnections(void);
 static void processSbdNode(struct sbdNode *, int);
 static void setNextSchedTimeWhenJobFinish(void);
 static void acceptConnection(int);
-static int initShm(int *, struct SharedMemory ** shm);
-static int writeJobInfoReplyToShm(struct jData* jobData, struct SharedMemory * shm);
+
+static int initShm(int *, struct SharedMemory ** shm);                                        /*Initialize shared memory*/
+static int writeJobInfoReplyToShm(struct jData* jobData, struct SharedMemory * shm);          /*pack jobData and write jobInfoReply to shared memory*/
 
 extern void chanInactivate_(int);
 extern void chanActivate_(int);
@@ -195,7 +198,6 @@ extern int do_setJobAttr(XDR *, int, struct sockaddr_in *, char *,
 extern void chanCloseAllBut_(int);
 extern int initLimSock_(void);
 
-int shmId;
 
 main (int argc, char **argv)
 {
@@ -413,7 +415,8 @@ main (int argc, char **argv)
     /* Go go go...
      */
     chanEpollInit();
-    initShm(&shmId,&shm);
+    if(syncNewJob)
+        initShm(&shmId,&shm);
     TIMEIT(0, minit(FIRST_START),"minit");
     log_mbdStart();
     ls_syslog(LOG_INFO, "%s: (re-)started", __func__);
@@ -424,8 +427,8 @@ main (int argc, char **argv)
     schedulerInit();
     setJobPriUpdIntvl();
     for (;;) {
-        if(forkqmbd == 1 && qmbdOn == 0){
-            qmbdOn = 1;
+        if(forkqmbd == 1 && qmbdAlive == 0){
+            qmbdAlive = 1;
             startqmbd(&qmbdPid);
         }
         int maxfd;
@@ -722,7 +725,7 @@ processClient(struct clientNode *client, int *needFree)
         case BATCH_JOB_SUB:
             jobData = NULL;
             TIMEIT(0, cc = do_submitReq(&xdrs, s, &from, client->fromHost, &reqHdr, &laddr, &auth, &schedule1, dispatch, &jobData), "do_submitReq()");
-            if(cc == 0){
+            if(cc == 0 && syncNewJob == 1){
                 //先写入数据，再更新计数器
                 cc = writeJobInfoReplyToShm(jobData,shm);
                 if(cc == -1)
@@ -820,7 +823,7 @@ processClient(struct clientNode *client, int *needFree)
             TIMEIT(3, do_queueInfoReq(&xdrs, s, &from, &reqHdr),"do_queueInfoReq()");
             break;
         case BATCH_JOB_INFO:
-            TIMEIT(3, do_jobInfoReq(&xdrs, s, &from, &reqHdr, schedule, 1),"do_jobInfoReq()");
+            TIMEIT(3, do_jobInfoReq(&xdrs, s, &from, &reqHdr, schedule, 0),"do_jobInfoReq()");
             break;
         case BATCH_HOST_INFO:
             TIMEIT(3, do_hostInfoReq(&xdrs, s, &from, &reqHdr),"do_hostInfoReq()");
@@ -1044,8 +1047,8 @@ terminate_handler(int sig)
     sigaddset(&newmask, SIGINT);
     sigaddset(&newmask, SIGCHLD);
     sigprocmask(SIG_BLOCK, &newmask, &oldmask);
-
-    shmctl(shmId, IPC_RMID, NULL);
+    if(syncNewJob)
+        shmctl(shmId, IPC_RMID, NULL);
     exit(sig);
 }
 
@@ -1064,8 +1067,8 @@ child_handler (int sig)
     sigprocmask(SIG_BLOCK, &newmask, &oldmask);
 
     while ((pid = waitpid(-1, &status, WNOHANG)) > 0){
-        if(pid == qmbdPid && qmbdOn == 1){
-            qmbdOn = 0;
+        if(pid == qmbdPid && qmbdAlive == 1){
+            qmbdAlive = 0;
         }
     }
 
