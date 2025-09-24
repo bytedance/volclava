@@ -18,6 +18,8 @@
  */
 
 #include "mbd.h"
+#include "mbd.fairshare.h"
+#include "mbd.batch.h"
 
 #define MBD_THREAD_MIN_STACKSIZE  512
 #define POLL_INTERVAL MAX(msleeptime/10, 1)
@@ -52,6 +54,10 @@ int    managerId    = 0;
 uid_t  batchId      = 0;
 int    jobTerminateInterval = DEF_JTERMINATE_INTERVAL;
 int    msleeptime   = DEF_MSLEEPTIME;
+int    subTryInterval   = DEF_SUB_TRY_INTERVAL;
+int    maxPendJobs   = INFINIT_INT;
+int    maxPendSlots   = INFINIT_INT;
+int    defaultLimitIgnoreUserGroup = FALSE;
 int    sbdSleepTime = DEF_SSLEEPTIME;
 int    preemPeriod  = DEF_PREEM_PERIOD;
 int    pgSuspIdleT  = DEF_PG_SUSP_IT;
@@ -74,6 +80,13 @@ int    slotResourceReserve = FALSE;
 int    maxAcctArchiveNum = -1;
 int    acctArchiveInDays = -1;
 int    acctArchiveInSize = -1;
+int    resourcePerTask = 0;
+float  cpuTimeFactor = DEF_CPU_TIME_FACTOR;
+float  runTimeFactor = DEF_RUN_TIME_FACTOR;
+float  runJobFactor = DEF_RUN_JOB_FACTOR;
+float  histHours = DEF_HIST_HOURS;
+float  clsDecay = 1.0; /* cluster-wide decay factor for history of CPU time */
+
 int    numofqueues  = 0;
 int    numofprocs   = 0;
 int    numofusers    = 0;
@@ -97,7 +110,10 @@ LIST_T *hostList = NULL;
 
 struct qData *qDataList = NULL;
 struct jData *jDataList[ALLJLIST];
+int    pendJobSlots = 0;
 struct jData *chkJList;
+
+unitTypes unitForLimits = Megabytes;
 
 struct hTab cpuFactors;
 struct gData *usergroups[MAX_GROUPS];
@@ -199,11 +215,11 @@ main (int argc, char **argv)
                 break;
             case 'C':
                 putEnv("RECONFIG_CHECK","YES");
-                fputs("\n", stderr);
+                fputs("\n", stdout);
                 lsb_CheckMode = 1;
                 break;
             case 'V':
-                fputs(_LS_VERSION_, stderr);
+                fputs(_LS_VERSION_, stdout);
                 return -1;
             case 'h':
             default:
@@ -307,6 +323,14 @@ main (int argc, char **argv)
         setLsbPtilePack(TRUE);
     }
 
+    if (daemonParams[LSF_UNIT_FOR_LIMITS].paramValue != NULL) {
+
+        strToUpper_(daemonParams[LSF_UNIT_FOR_LIMITS].paramValue);
+
+        unitForLimits = setUnitForLimits(daemonParams[LSF_UNIT_FOR_LIMITS].paramValue);
+
+    }
+
     daemon_doinit();
 
     if ((!debug) && (!lsb_CheckMode))  {
@@ -384,6 +408,8 @@ main (int argc, char **argv)
     TIMEIT(0, minit(FIRST_START),"minit");
     log_mbdStart();
     ls_syslog(LOG_INFO, "%s: (re-)started", __func__);
+    
+    
     pollSbatchds(FIRST_START);
     lastSchedTime  = 0;
     nextSchedTime  = time(0) + msleeptime;
@@ -603,13 +629,18 @@ processClient(struct clientNode *client, int *needFree)
     }
 
     xdrmem_create(&xdrs, buf->data, buf->len, XDR_DECODE);
+    
+    
     if (!xdr_LSFHeader(&xdrs, &reqHdr)) {
         ls_syslog(LOG_ERR, I18N_FUNC_FAIL, fname, "xdr_LSFHeader");
+        ls_syslog(LOG_ERR, "*** HEADER PARSE FAILED *** Buffer length: %d", buf->len);
+        fprintf(stderr, "*** MBD ERROR *** Header parse failed, buffer length: %d\n", buf->len);
         xdr_destroy(&xdrs);
         chanFreeBuf_(buf);
         shutDownClient(client);
         return(-1);
     }
+    
 
     len = reqHdr.length;
     mbdReqtype = reqHdr.opCode;
@@ -694,6 +725,32 @@ processClient(struct clientNode *client, int *needFree)
             setNextSchedTimeUponNewJob(jobData);
             statusChanged = 1;
             break;
+
+        case BATCH_SUBMIT_REQ:
+            /* 添加详细的路由调试信息 */
+            ls_syslog(LOG_ERR, "%s: *** ROUTING TO BATCH_SUBMIT_REQ *** from %s, socket=%d",
+                     fname, sockAdd2Str_(&from), chanSock_(s));
+            fprintf(stderr, "*** MBD MAIN *** Routing OpCode 200 to do_batchSubmitReq from %s\n",
+                    sockAdd2Str_(&from));
+            printf("*** MBD MAIN PRINTF *** About to call do_batchSubmitReq\n");
+            fflush(stdout);
+            fflush(stderr);
+            
+            /* 立即写入系统日志 */
+            openlog("mbatchd_main", LOG_PID | LOG_CONS, LOG_DAEMON);
+            syslog(LOG_ERR, "*** MAIN ROUTING *** Calling do_batchSubmitReq for OpCode 200");
+            closelog();
+            
+            /* 处理批量作业提交请求 - 使用正确的函数签名 */
+            TIMEIT(0, do_batchSubmitReq(&xdrs, s, &from, client->fromHost, &reqHdr, &laddr, &auth, &schedule1, dispatch), "do_batchSubmitReq()");
+            statusChanged = 1;
+            
+            ls_syslog(LOG_ERR, "%s: *** BATCH_SUBMIT_REQ COMPLETED *** from %s",
+                     fname, sockAdd2Str_(&from));
+            fprintf(stderr, "*** MBD MAIN *** do_batchSubmitReq completed\n");
+            fflush(stderr);
+            break;
+
         case BATCH_JOB_SIG:
             TIMEIT(0, do_signalReq(&xdrs, s, &from, client->fromHost, &reqHdr, &auth),"do_signalReq()");
             break;
@@ -913,6 +970,7 @@ periodicCheck(void)
     static time_t last_tryControlJobs = 0;
     static time_t last_jobPriUpdTime = 0;
     static time_t first_hostInfoRefreshTime = 0;
+    static int    histTime = 0;
 
     ls_syslog(LOG_DEBUG, "%s: Entering this routine...", __func__);
 
@@ -961,6 +1019,13 @@ periodicCheck(void)
 
         TIMEIT(0, checkJgrpDep(), "checkJgrpDep");
 
+        /* decay and calculate history CPU time every 15 mins */
+        histTime += now - last_chk_time;
+        if (histTime >= CALCULATE_INTERVAL) {
+            TIMEIT(0, updAllSAcctForDecay(now), "updAllSAcctForDecay");
+            histTime = 0;
+        }
+
         now = time(0);
         last_chk_time = now;
     }
@@ -998,6 +1063,7 @@ terminate_handler(int sig)
     sigaddset(&newmask, SIGCHLD);
     sigprocmask(SIG_BLOCK, &newmask, &oldmask);
 
+
     exit(sig);
 }
 
@@ -1034,6 +1100,7 @@ authRequest(struct lsfAuth *auth,
     char buf[MAXLSFNAMELEN];
 
     if (!(reqType == BATCH_JOB_SUB
+          || reqType == BATCH_SUBMIT_REQ
           || reqType == BATCH_JOB_PEEK
           || reqType == BATCH_JOB_SIG
           || reqType == BATCH_QUE_CTRL
@@ -1048,12 +1115,93 @@ authRequest(struct lsfAuth *auth,
           || reqType == BATCH_SET_JOB_ATTR))
         return LSBE_NO_ERROR;
 
+    /* 添加认证解码前的详细调试信息 - 最高级别 */
+    ls_syslog(LOG_ERR, "*** AUTH DECODE DEBUG *** Before xdr_lsfAuth: reqType=%d, from=%s",
+              reqType, sockAdd2Str_(from));
+    fprintf(stderr, "*** MBD AUTH *** Before xdr_lsfAuth decode, reqType=%d\n", reqType);
+    printf("*** MBD AUTH PRINTF *** About to decode auth for reqType=%d\n", reqType);
+    fflush(stdout);
+    fflush(stderr);
+    
+    /* 立即写入系统日志 */
+    openlog("mbatchd_auth_decode", LOG_PID | LOG_CONS, LOG_DAEMON);
+    syslog(LOG_ERR, "*** AUTH DECODE START *** reqType=%d from=%s", reqType, sockAdd2Str_(from));
+    closelog();
+    
     if (!xdr_lsfAuth(xdrs, auth, reqHdr)) {
         ls_syslog(LOG_ERR, "\
 %s: Ohmygosh failed to decode auth from %s", __func__,
                   sockAdd2Str_(from));
+        
+        /* 添加解码失败的详细调试信息 */
+        fprintf(stderr, "*** MBD AUTH ERROR *** xdr_lsfAuth decode FAILED for reqType=%d\n", reqType);
+        printf("*** MBD AUTH DECODE FAILED *** reqType=%d\n", reqType);
+        fflush(stdout);
+        fflush(stderr);
+        
+        openlog("mbatchd_auth_error", LOG_PID | LOG_CONS, LOG_DAEMON);
+        syslog(LOG_ERR, "*** AUTH DECODE FAILED *** reqType=%d from=%s", reqType, sockAdd2Str_(from));
+        closelog();
+        
         return LSBE_XDR;
     }
+    
+    /* 添加认证解码成功后的详细调试信息 - 最高级别 */
+    ls_syslog(LOG_ERR, "*** AUTH DECODE SUCCESS *** uid=%d, lsfUserName='%s', from=%s",
+              auth->uid, auth->lsfUserName ? auth->lsfUserName : "NULL", sockAdd2Str_(from));
+    fprintf(stderr, "*** MBD AUTH SUCCESS *** uid=%d, lsfUserName='%s'\n",
+            auth->uid, auth->lsfUserName ? auth->lsfUserName : "NULL");
+    printf("*** MBD AUTH DECODED *** uid=%d, lsfUserName='%s'\n",
+           auth->uid, auth->lsfUserName ? auth->lsfUserName : "NULL");
+    fflush(stdout);
+    fflush(stderr);
+    
+    /* 检查用户名是否包含乱码 */
+    if (auth->lsfUserName) {
+        int i;
+        int hasGarbage = 0;
+        int len = strlen(auth->lsfUserName);
+        
+        for (i = 0; i < len; i++) {
+            unsigned char c = (unsigned char)auth->lsfUserName[i];
+            if (c < 32 || c > 126) {  /* 非可打印ASCII字符 */
+                hasGarbage = 1;
+                break;
+            }
+        }
+        
+        if (hasGarbage) {
+            ls_syslog(LOG_ERR, "*** USERNAME CORRUPTION DETECTED *** lsfUserName contains garbage: len=%d", len);
+            fprintf(stderr, "*** USERNAME CORRUPTION *** lsfUserName='%s' len=%d contains non-printable chars\n",
+                    auth->lsfUserName, len);
+            
+            /* 输出每个字节的十六进制值 */
+            fprintf(stderr, "*** USERNAME HEX DUMP *** ");
+            for (i = 0; i < len && i < 32; i++) {
+                fprintf(stderr, "%02x ", (unsigned char)auth->lsfUserName[i]);
+            }
+            fprintf(stderr, "\n");
+            fflush(stderr);
+            
+            openlog("mbatchd_username_corrupt", LOG_PID | LOG_CONS, LOG_DAEMON);
+            syslog(LOG_ERR, "*** USERNAME CORRUPTION *** lsfUserName contains garbage, len=%d", len);
+            closelog();
+        } else {
+            ls_syslog(LOG_ERR, "*** USERNAME OK *** lsfUserName='%s' appears clean", auth->lsfUserName);
+            fprintf(stderr, "*** USERNAME CLEAN *** lsfUserName='%s' is clean\n", auth->lsfUserName);
+            fflush(stderr);
+        }
+    } else {
+        ls_syslog(LOG_ERR, "*** USERNAME NULL *** lsfUserName is NULL after decode");
+        fprintf(stderr, "*** USERNAME NULL *** lsfUserName is NULL\n");
+        fflush(stderr);
+    }
+    
+    /* 立即写入系统日志 */
+    openlog("mbatchd_auth_success", LOG_PID | LOG_CONS, LOG_DAEMON);
+    syslog(LOG_ERR, "*** AUTH DECODE COMPLETE *** uid=%d lsfUserName='%s'",
+           auth->uid, auth->lsfUserName ? auth->lsfUserName : "NULL");
+    closelog();
 
     putEauthClientEnvVar("user");
     sprintf(buf, "mbatchd@%s", clusterName);
@@ -1071,6 +1219,7 @@ authRequest(struct lsfAuth *auth,
 
     switch(reqType) {
         case BATCH_JOB_SUB:
+        case BATCH_SUBMIT_REQ:
             if (auth->uid == 0
                 && daemonParams[LSF_ROOT_REX].paramValue  == NULL) {
                 ls_syslog(LOG_CRIT, "\

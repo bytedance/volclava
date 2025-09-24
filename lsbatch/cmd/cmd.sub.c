@@ -79,21 +79,29 @@ do_sub (int argc, char **argv, int option)
     static char fname[] = "do_sub";
     struct submit  req;
     struct submitReply  reply;
+    static int nRetries = 6;
+    static int countTries = 1;
+    static int subTryInterval = DEF_SUB_TRY_INTERVAL;
+    static char *envLSBNTries;
     LS_LONG_INT jobId = -1;
 
+    if ((envLSBNTries = getenv("LSB_NTRIES")) != NULL) {
+        nRetries = atoi64_(envLSBNTries);
+    }
+
     if (lsb_init(argv[0]) < 0) {
-	sub_perror("lsb_init");
-	fprintf(stderr, ". %s.\n",
-	    (_i18n_msg_get(ls_catd,NL_SETN,1551, "Job not submitted"))); /* catgets  1551  */
-	return (-1);
+        sub_perror("lsb_init");
+        fprintf(stderr, ". %s.\n",
+                (_i18n_msg_get(ls_catd,NL_SETN,1551, "Job not submitted"))); /* catgets  1551  */
+        return (-1);
     }
 
     if (logclass & (LC_TRACE | LC_SCHED | LC_EXEC))
         ls_syslog(LOG_DEBUG, "%s: Entering this routine...", fname);
 
     if (fillReq (argc, argv, option, &req, FALSE) < 0){
-	fprintf(stderr,  ". %s.\n",
-	    (_i18n_msg_get(ls_catd,NL_SETN,1551, "Job not submitted")));
+        fprintf(stderr,  ". %s.\n",
+                (_i18n_msg_get(ls_catd,NL_SETN,1551, "Job not submitted")));
         return (-1);
     }
 
@@ -101,16 +109,42 @@ do_sub (int argc, char **argv, int option)
     memset(&reply, 0, sizeof(struct submitReply));
 
     if (req.options & SUB_PACK) {
-        do_pack_sub(option, argv, &req);
-    } else {
-        TIMEIT(0, (jobId = lsb_submit(&req, &reply)), "lsb_submit");
+        /* 使用增强的批量提交功能 */
+        jobId = do_batch_pack_sub(option, argv, &req);
         if (jobId < 0) {
-            prtErrMsg (&req, &reply);
-            fprintf(stderr,  ". %s.\n",
-                    (_i18n_msg_get(ls_catd,NL_SETN,1551, "Job not submitted")));
-            return(-1);
+            fprintf(stderr, ". %s.\n",
+                    (_i18n_msg_get(ls_catd,NL_SETN,1551, "Batch job not submitted")));
+            return (-1);
         }
+    } else {
+        do {
+            TIMEIT(0, (jobId = lsb_submit(&req, &reply)), "lsb_submit");
 
+            if (jobId > 0) {
+                break;
+            }
+
+            subTryInterval = reply.subTryInterval;
+
+            prtErrMsg (&req, &reply);
+
+            if (lsberrno != LSBE_JOB_MAX_PEND && lsberrno != LSBE_SLOTS_MAX_PEND) {
+                // currently only retry on LSBE_JOB_MAX_PEND or LSBE_SLOTS_MAX_PEND
+                countTries = nRetries;
+            }
+
+            if ( countTries >= nRetries) {
+                fprintf(stderr,  ". %s.\n",
+                        (_i18n_msg_get(ls_catd,NL_SETN,1561, "Job not submitted")));
+                return(-1);
+            }
+
+            fprintf(stderr,
+                    (_i18n_msg_get(ls_catd,NL_SETN,1562, ". Retrying in %d seconds...\n")), subTryInterval);
+
+            countTries++;
+            sleep(subTryInterval);
+        } while (jobId < 0 && countTries <= nRetries);
     }
 
     if (req.nxf)
@@ -170,7 +204,10 @@ do_pack_sub (int option, char **argv, struct submit *req)
     while ((line = getNextLineC_(fp, &lineNum, TRUE)) != NULL) {
         parseError = FALSE;
         packParsed ++;
-        fprintf(stderr, "Line#%d ", lineNum);
+        // current implementation have to print "Line#lineNum" at first, and could not
+        // check print as stdout or stderr due to it calls the function of lsb_submit,
+        // so we just print it at stdout and rewrite it along with the optimize project.
+        fprintf(stdout, "Line#%d ", lineNum);
 
         sprintf(tmpBuf, "%s %s", argv[0], line);
         packedArgv = split_commandline(tmpBuf, &packedArgc);
@@ -240,7 +277,7 @@ do_pack_sub (int option, char **argv, struct submit *req)
         }
     }
 
-    fprintf(stderr,  "%d lines parsed, %d jobs submitted, %d errors found.\n",
+    fprintf(stdout,  "%d lines parsed, %d jobs submitted, %d errors found.\n",
             packParsed, packSubmit, packError);
 
     fclose(fp);
@@ -318,12 +355,12 @@ prtBETime (struct submit req)
 
     if (req.beginTime) {
         strcpy( sp, _i18n_ctime( ls_catd, CTIME_FORMAT_a_b_d_T_Y, &req.beginTime ));
-        fprintf(stderr, "%s %s\n",
+        fprintf(stdout, "%s %s\n",
 	    (_i18n_msg_get(ls_catd,NL_SETN,1556, "Job will be scheduled after")), sp); /* catgets  1556  */
     }
     if (req.termTime) {
         strcpy( sp, _i18n_ctime( ls_catd, CTIME_FORMAT_a_b_d_T_Y, &req.termTime ));
-        fprintf(stderr, "%s %s\n",
+        fprintf(stdout, "%s %s\n",
 	    (_i18n_msg_get(ls_catd,NL_SETN,1557, "Job will be terminated by")), sp); /* catgets  1557  */
     }
 }
@@ -848,6 +885,7 @@ CopyCommand(char **from, int len)
 void
 prtErrMsg (struct submit *req, struct submitReply *reply)
 {
+    static char tmpBuf[MAX_CMD_DESC_LEN];
     static char rNames [10][12] = {
                               "CPULIMIT",
                               "FILELIMIT",
@@ -900,6 +938,15 @@ prtErrMsg (struct submit *req, struct submitReply *reply)
 
     case LSBE_BAD_HOST_SPEC:
         sub_perror (req->hostSpec);
+        break;
+    case LSBE_JOB_MAX_PEND:
+    case LSBE_SLOTS_MAX_PEND:
+        if (strlen(reply->pendLimitReason) == 0) {
+            sprintf(tmpBuf, "User <%s>", getenv("USER"));
+            sub_perror (tmpBuf);
+        } else {
+            sub_perror (reply->pendLimitReason);
+        }
         break;
     default:
 	sub_perror(NULL);
@@ -1123,4 +1170,110 @@ addLabel2RsrcReq(struct submit *subreq)
     free(req);
     return(0);
 }
+
+/**
+ * @brief 增强的批量作业提交函数
+ * 使用新的批量提交架构
+ */
+LS_LONG_INT do_batch_pack_sub(int option, char **argv, struct submit *req)
+{
+    static char fname[] = "do_batch_pack_sub";
+    batch_job_collection_t collection;
+    batch_transmitter_t *transmitter = NULL;
+    job_collector_config_t collector_config;
+    char *pack_file_path = NULL;
+    LS_LONG_INT result = -1;
+    int successful_jobs = 0;
+
+    if (logclass & (LC_TRACE | LC_SCHED | LC_EXEC)) {
+        ls_syslog(LOG_DEBUG, "%s: 开始批量作业提交", fname);
+    }
+
+    /* 获取pack文件路径 */
+    if (req->packFile) {
+        pack_file_path = req->packFile;
+    } else {
+        fprintf(stderr, "❌ 未指定pack文件路径\n");
+        return -1;
+    }
+
+    fprintf(stderr, "🚀 开始批量作业提交\n");
+    fprintf(stderr, "📁 Pack文件: %s\n", pack_file_path);
+
+    /* 创建默认收集器配置 */
+    if (job_collector_create_default_config(&collector_config) != 0) {
+        fprintf(stderr, "❌ 创建收集器配置失败\n");
+        return -1;
+    }
+
+    /* 根据环境变量调整配置 */
+    char *max_jobs_env = getenv("LSB_BATCH_MAX_JOBS");
+    if (max_jobs_env) {
+        collector_config.max_jobs_count = atoi(max_jobs_env);
+        if (collector_config.max_jobs_count <= 0) {
+            collector_config.max_jobs_count = 10000;
+        }
+    }
+
+    char *skip_error_env = getenv("LSB_PACK_SKIP_ERROR");
+    if (skip_error_env && (strcmp(skip_error_env, "Y") == 0 || strcmp(skip_error_env, "y") == 0)) {
+        collector_config.fail_on_first_error = 0;
+    } else {
+        collector_config.fail_on_first_error = 1;
+    }
+
+    /* 收集作业 */
+    fprintf(stderr, "📦 收集作业信息...\n");
+    if (job_collector_collect_from_pack_file(pack_file_path, &collection, &collector_config) != 0) {
+        fprintf(stderr, "❌ 作业收集失败\n");
+        goto cleanup;
+    }
+
+    if (collection.total_jobs_count <= 0) {
+        fprintf(stderr, "❌ 没有找到有效的作业\n");
+        goto cleanup;
+    }
+
+    fprintf(stderr, "✅ 成功收集 %d 个作业\n", collection.total_jobs_count);
+
+    /* 使用真正的批量传输器进行一次性连接提交 */
+    fprintf(stderr, "🚀 开始批量提交（一次连接）...\n");
+
+    /* 创建批量传输器 */
+    transmitter = batch_transmitter_create();
+    if (!transmitter) {
+        fprintf(stderr, "❌ 创建批量传输器失败\n");
+        goto cleanup;
+    }
+
+    /* 配置传输器 */
+    batch_transmitter_configure(transmitter, 1, 3, 30);  /* 启用流式响应 */
+
+    /* 执行批量提交 - 一次连接，流式响应 */
+    int submit_result = batch_transmitter_submit_jobs(transmitter, &collection);
+    if (submit_result < 0) {
+        fprintf(stderr, "❌ 批量提交失败\n");
+        goto cleanup;
+    }
+
+    successful_jobs = submit_result;
+    result = successful_jobs;
+
+cleanup:
+    /* 清理批量传输器 */
+    if (transmitter) {
+        batch_transmitter_destroy(transmitter);
+        transmitter = NULL;
+    }
+
+    /* 清理作业集合 */
+    batch_job_collection_cleanup(&collection);
+
+    if (logclass & (LC_TRACE | LC_SCHED | LC_EXEC)) {
+        ls_syslog(LOG_DEBUG, "%s: 批量作业提交完成，结果: %lld", fname, result);
+    }
+
+    return result;
+}
+
 

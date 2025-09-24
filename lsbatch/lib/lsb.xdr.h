@@ -1,4 +1,5 @@
-/* $Id: lsb.xdr.h 397 2007-11-26 19:04:00Z mblack $
+/* Copyright (C) 2021-2025 Bytedance Ltd. and/or its affiliates
+ * $Id: lsb.xdr.h 397 2007-11-26 19:04:00Z mblack $
  * Copyright (C) 2007 Platform Computing Inc
  *
  * This program is free software; you can redistribute it and/or modify
@@ -41,8 +42,41 @@ extern bool_t xdr_lsbMsg(XDR *,
 			 struct LSFHeader *);
 
 extern bool_t xdr_controlReq(XDR *,
-			     struct controlReq *, 
+			     struct controlReq *,
 			     struct LSFHeader *);
+
+
+extern bool_t xdr_streamHeader(XDR *,
+			       struct streamHeader *,
+			       struct LSFHeader *);
+
+extern bool_t xdr_batchJobResult(XDR *,
+				 struct batchJobResult *,
+				 struct LSFHeader *);
+
+extern bool_t xdr_streamJobResult(XDR *,
+				  struct streamJobResult *,
+				  struct LSFHeader *);
+
+extern bool_t xdr_batchCompleteSignal(XDR *,
+				      struct batchCompleteSignal *,
+				      struct LSFHeader *);
+
+extern bool_t xdr_batchSubmitReq(XDR *,
+				 struct batchSubmitReq *,
+				 struct LSFHeader *);
+
+extern bool_t xdr_batchSubmitReply(XDR *,
+				   struct batchSubmitReply *,
+				   struct LSFHeader *);
+
+extern bool_t xdr_batchStatusReq(XDR *,
+				 struct batchStatusReq *,
+				 struct LSFHeader *);
+
+extern bool_t xdr_batchStatusReply(XDR *,
+				   struct batchStatusReply *,
+				   struct LSFHeader *);
 
 extern bool_t xdr_debugReq (XDR *, 
 			    struct debugReq *,
@@ -153,3 +187,5 @@ extern bool_t xdr_runJobReq(XDR *,
 extern bool_t xdr_jobAttrReq(XDR *, 
 			    struct jobAttrInfoEnt *, 
 			    struct LSFHeader *);
+
+extern int  xdrsize_QueueInfoReply(struct queueInfoReply *);

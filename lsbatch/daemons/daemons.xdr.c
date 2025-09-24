@@ -172,9 +172,12 @@ xdr_jobSpecs (XDR *xdrs, struct jobSpecs *jobSpecs, struct LSFHeader *hdr)
     sp[10] = jobSpecs->fromHost;
     sp[11] = jobSpecs->resReq;
 
-    if (xdrs->x_op == XDR_DECODE)
+    if (xdrs->x_op == XDR_DECODE) {
         for (i = 0; i < 11; i++)
             sp[i][0] = '\0';
+        // *** 关键修复：也初始化sp[15]，确保所有使用的指针都被初始化 ***
+        sp[15][0] = '\0';
+    }
     if (!(xdr_string(xdrs, &sp[0], MAXFILENAMELEN) &&
           xdr_string(xdrs, &sp[1], MAXFILENAMELEN) &&
           xdr_string(xdrs, &sp[2], MAXFILENAMELEN) &&
@@ -205,9 +208,12 @@ xdr_jobSpecs (XDR *xdrs, struct jobSpecs *jobSpecs, struct LSFHeader *hdr)
     sp[13] = jobSpecs->windows;
     sp[14] = jobSpecs->userName;
 
-    if (xdrs->x_op == XDR_DECODE)
+    if (xdrs->x_op == XDR_DECODE) {
         for (i = 12; i < 15; i++)
             sp[i][0] = '\0';
+        // *** 关键修复：初始化sp[15] ***
+        sp[15][0] = '\0';
+    }
 
     if (!(xdr_string(xdrs, &sp[12], MAXFILENAMELEN) &&
           xdr_string(xdrs, &sp[13], MAXLINELEN) &&
