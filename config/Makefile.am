@@ -3,16 +3,20 @@
 # Copyright (C) David Bigagli
 #
 
-# Install configuration files for volclava base and batch 
+# Install configuration files for volclava base and batch
 # in the conf directory.
 
-# Install the shell profile scrips and the system startup 
+# Install the shell profile scrips and the system startup
 # script in the etc directory.
 
 etcdir = $(prefix)/etc
 config_files = volclava volclava.sh volclava.csh volclava.setup \
 	lsf.conf lsf.cluster.@volclavacluster@ lsf.shared lsf.task \
-	lsb.hosts lsb.params lsb.queues lsb.users 
+<<<<<<< HEAD
+	lsb.hosts lsb.params lsb.queues lsb.users
+=======
+	lsb.hosts lsb.params lsb.queues lsb.users
+>>>>>>> abf430c (epoll integration: Complete network I/O overhaul across Volclava components)
 
 INTERACTIVE=@INTERACTIVE@
 
@@ -60,7 +64,7 @@ install-data-local:
 		mkdir -p $(etcdir);\
                 for file in $(config_files); do \
 			install -m 644 "$(srcdir)/$$file" "$(etcdir)/"; \
-                done; \ 
+                done; \
 	fi
 
 clean-local:
