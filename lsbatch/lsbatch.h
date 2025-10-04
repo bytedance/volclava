@@ -872,6 +872,11 @@ struct parameterInfo {
     int  maxPendJobs;
     int  maxPendSlots;
     int  defaultLimitIgnoreUserGroup;
+    int  forkQmbd;
+    int  qmbdAliveTime;
+    int  syncNewJobs;
+    int  qmbdThreadNum;
+    int  qmbdMaxTaskNum;
     float cpuTimeFactor;
     float runTimeFactor;
     float runJobFactor;

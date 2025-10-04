@@ -3,6 +3,9 @@
 #define DEF_QMBD_ALIVE_TIME 10
 #define DEF_THREAD_NUM 8
 #define DEF_THREADPOLL_MAX_TASK 10000
+int qmbdAliveTime = DEF_QMBD_ALIVE_TIME;
+int qmbdThreadNum = DEF_THREAD_NUM;
+int qmbdMaxTaskNum = DEF_THREADPOLL_MAX_TASK;
 static struct threadPool_t*  pool = NULL;
 static int qmbdDie = 0;                             /*Flag to indicate qmbd should exit after processing remaining requests*/
 
@@ -30,8 +33,10 @@ int startqmbd(int *qmbdPid){
 
     timeout.tv_sec = 0;
     timeout.tv_usec = 0;
-    memset(shm, 0, DEF_SHM_SIZE);
-    shm->startPos = sizeof(shm->newJobReplyAndHeader);
+    if(syncNewJobs){
+        memset(shm, 0, DEF_SHM_SIZE);
+        shm->usedSize = 0;
+    }
     if(jDataList[SJL]->back != jDataList[SJL])
         reorderSJL ();
     if ((*qmbdPid = fork()) < 0) {
@@ -83,6 +88,7 @@ int startqmbd(int *qmbdPid){
     } /* for (;;) */
     destroyThreadPool(pool);
     shmdt(shm);
+    ls_syslog(LOG_DEBUG,"%s: qmbd finished",fname);
     exit(0);
 }
 
@@ -289,8 +295,8 @@ int qmbdInit(){
     if (logclass & LC_TRACE)
         ls_syslog(LOG_DEBUG,"qmbdInit: Entering...");
 
+    chanCloseEpoll();
     qmbdDie = 0;
-    chanClose_(batchSock);
 
     sigemptyset(&empty_set);
     sigprocmask(SIG_SETMASK, &empty_set, &old_mask);
@@ -298,10 +304,11 @@ int qmbdInit(){
         nextClient = cliPtr->forw;
         shutDownClient(cliPtr);
     }
+    
     for(i = 3; i<sysconf(_SC_OPEN_MAX); i++){
         close(i);
     }
-    timer.it_value.tv_sec = DEF_QMBD_ALIVE_TIME;
+    timer.it_value.tv_sec = qmbdAliveTime;
     timer.it_value.tv_usec = 0;
     timer.it_interval.tv_sec = 0;
     timer.it_interval.tv_usec = 0;
@@ -312,7 +319,7 @@ int qmbdInit(){
     Signal_(SIGHUP,  SIG_IGN);
     Signal_(SIGPIPE, SIG_IGN);
 
-    pool = createThreadPool(DEF_THREAD_NUM, DEF_THREADPOLL_MAX_TASK);
+    pool = createThreadPool(qmbdThreadNum, qmbdMaxTaskNum);
     chanEpollInit();
     querySock = init_ServSock(qmbd_port);
     if (querySock < 0) {

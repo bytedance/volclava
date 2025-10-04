@@ -640,8 +640,10 @@ ls_gethostinfo(char *resReq, int *numhosts, char **hostlist, int listsize,
     for (i=0; i < hostInfoReq.numPrefs; i++)
         free(hostInfoReq.preferredHosts[i]);
     free(hostInfoReq.preferredHosts);
-    if (cc < 0)
+    if (cc < 0){
+        *numhosts = 0;
         return NULL;
+    }
 
     if (numhosts != NULL)
         *numhosts = hostInfoReply.nHost;

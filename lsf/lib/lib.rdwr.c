@@ -234,26 +234,6 @@ rd_select_(int rd, struct timeval *timeout)
 
 } 
 
-int
-wr_select_(int wr, struct timeVal *timeout)
-{
-    int cc;
-    fd_set wmask;
-
-    for (;;) {
-	FD_ZERO(&wmask);
-	FD_SET(wr, &wmask);
-
-	cc = select(wr+1, (fd_set *)0, &wmask, (fd_set *)0, timeout);
-	if (cc >= 0)
-	    return cc;
-
-	if (errno == EINTR)
-	    continue;
-	return (-1);
-    }
-}
-
 /* b_accept_()
  */
 int
@@ -362,40 +342,50 @@ nb_read_timeout(int s, char *buf, int len, int timeout)
 
 } 
 
-int
-nb_write_timeout(int s, char *buf, int len, int timeout)
-{
-    int cc;
-    int nReady;
-    int length = len;
-    struct timeval timeval;
+int nb_write_timeout(int s, char* buf, int len, int timeout) {
+    int totalSent = 0;      
+    int remaining = len;  
+    int loop = 0;
 
-    timeval.tv_sec  = timeout;
-    timeval.tv_usec = 0; 
-    
-    for (;;) {
-        nReady = wr_select_(s, &timeval);
-        if (nReady < 0) {
-            lserrno = LSE_SELECT_SYS;
-            return(-1);
-        } else if (nReady == 0) {
-            
-            lserrno = LSE_TIME_OUT;
-            return(-1);
-        } else {
-            if ((cc = send(s, buf, len, 0)) > 0) {
-                len -= cc;
-                buf += cc;
-            } else if (cc == 0 || BAD_IO_ERR(errno)) {
-                if (cc == 0) 
-                    errno = ECONNRESET;
-                return (-1);
+    while (remaining > 0 && loop < 3) {
+        ssize_t cc = write(s, buf + totalSent, remaining);
+
+        if (cc > 0) {
+            totalSent += cc;
+            remaining -= cc;
+            loop = 0; 
+        } else if (cc == -1) {
+            if (errno == EINTR) {
+                continue;
+            } else if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                fd_set writeFds;
+                FD_ZERO(&writeFds);
+                FD_SET(s, &writeFds);
+
+                struct timeval timeVal = {timeout, 0};
+                int ret = select(s + 1, NULL, &writeFds, NULL, &timeVal);
+
+                if (ret == -1) {
+                    lserrno = LSE_SOCK_SYS;
+                    return -1;
+                } else if (ret == 0) {
+                    loop++;
+                    continue;
+                }
+            } else {
+                lserrno = LSE_SOCK_SYS;
+                return -1;
             }
-	    if (len == 0 )  
-		break;
-	}
+        } else {
+            lserrno = LSE_SOCK_SYS;
+            return -1;
+        }
     }
 
-    return (length);
+    if (remaining > 0) {
+        lserrno = LSE_SOCK_SYS;
+        return -1;
+    }
 
-} 
+    return totalSent;  
+}

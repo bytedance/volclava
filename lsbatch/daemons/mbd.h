@@ -54,7 +54,8 @@
 
 #define DEF_WRITE_TIMEOUT 5
 
-#define DEF_SHM_MAX_BUF_SIZE 11451423
+/*sizeof(xdr(jobInfoReply and LSFHeader))*10000*/
+#define DEF_SHM_MAX_BUF_SIZE 1024*10000
 #define DEF_SHM_SIZE sizeof(struct SharedMemory)
 /* Global MBD job lists
  */
@@ -345,10 +346,16 @@ struct jData {
     struct shareAcct * sa;  /*refer to shareAcct of fairshare tree in global policies*/
 };
 
+/**
+ * Shared memory structure for caching job info replies
+ */
 struct SharedMemory{
-    char newJobReplyAndHeader[DEF_SHM_MAX_BUF_SIZE];  /*Stores XDR data composed of jobInfoReply and corresponding header, along with the size of each XDR. The buffer format is: sizeof(xdr1), xdr1, sizeof(xdr2), xdr2.....sizeof(xdrn), xdrn*/
-    int startPos;                                     /*Records the starting position of valid data in newJobReplyAndHeader (data is stored from back to front)*/
-    int count;                                        /*The number of new jobs*/
+    // Buffer storing jobInfoReply and  in XDR format. 
+    // Storage format: [sizeof(xdr1, int)][xdr1_data][sizeof(xdr2, int)][xdr2_data]...
+    char newJobReplyAndHeader[DEF_SHM_MAX_BUF_SIZE];  
+    
+    size_t usedSize;  // Total bytes of valid data stored in the buffer
+    int count;        // Number of cached new jobs
 };
 
 
@@ -1040,7 +1047,11 @@ extern struct controlReq       mbdCtrlReq;
 
 extern struct SharedMemory*    shm;             /*Shared memory*/
 extern int                     shmId;           /*Shared memory id*/
-extern int                     syncNewJob;      /*Whether to sync newly submitted jobs from mbd in qmbd, 1 for enabled, 0 for disabled*/ 
+extern int                     syncNewJobs;      /*Whether to sync newly submitted jobs from mbd in qmbd, 1 for enabled, 0 for disabled*/ 
+extern int                     forkQmbd;        /*Whether to fork qmbd, 1 for enabled, 0 for disabled*/
+extern int                     qmbdAliveTime;
+extern int                     qmbdThreadNum;
+extern int                     qmbdMaxTaskNum;
 
 extern void                 pollSbatchds(int);
 extern void                 hStatChange(struct hData *, int status);
@@ -1539,7 +1550,7 @@ extern void                 setIdxListContext(const char *);
 extern void                 freeIdxListContext(void);
 
 extern int                  startqmbd(int *);
-extern int                  packJobInfo(struct jData *, int, char **, int, int, int);
+
 
 #define FIRST_CHILD(x)   (x)->child
 #define PARENT(x)        (x)->parent

@@ -159,14 +159,14 @@ long   schedSeqNo;
 int    schedule;
 int    scheRawLoad;
 int lsbModifyAllJobs = FALSE;
-int syncNewJob = 1;   
+int syncNewJobs = 0;   
 int shmId;
+int forkQmbd = 0;
 
 static int schedule1;
 static struct jData *jobData = NULL;
 static time_t lastSchedTime = 0;
 static time_t nextSchedTime = 0;
-static int forkqmbd = 1;    /*Whether to start qmbd, 1 for enabled, 0 for disabled*/
 static int qmbdAlive = 0;   /*Current status of qmbd, 1 means started, 0 means not started*/
 static int qmbdPid = 0;     /*PID corresponding to qmbd*/
 
@@ -197,7 +197,7 @@ extern int do_setJobAttr(XDR *, int, struct sockaddr_in *, char *,
                          struct LSFHeader *, struct lsfAuth *);
 extern void chanCloseAllBut_(int);
 extern int initLimSock_(void);
-
+extern int packJobInfo(struct jData *, int, char **, int, int, int);
 
 main (int argc, char **argv)
 {
@@ -415,9 +415,9 @@ main (int argc, char **argv)
     /* Go go go...
      */
     chanEpollInit();
-    if(syncNewJob)
-        initShm(&shmId,&shm);
     TIMEIT(0, minit(FIRST_START),"minit");
+    if(syncNewJobs)
+        initShm(&shmId,&shm);
     log_mbdStart();
     ls_syslog(LOG_INFO, "%s: (re-)started", __func__);
     pollSbatchds(FIRST_START);
@@ -427,7 +427,7 @@ main (int argc, char **argv)
     schedulerInit();
     setJobPriUpdIntvl();
     for (;;) {
-        if(forkqmbd == 1 && qmbdAlive == 0){
+        if(forkQmbd == 1 && qmbdAlive == 0){
             qmbdAlive = 1;
             startqmbd(&qmbdPid);
         }
@@ -707,6 +707,7 @@ processClient(struct clientNode *client, int *needFree)
             goto endLoop;
         }
 
+        chanCloseEpoll();
         if (debug < 2)
             closeExceptFD(chanSock_(s));
     }
@@ -725,8 +726,7 @@ processClient(struct clientNode *client, int *needFree)
         case BATCH_JOB_SUB:
             jobData = NULL;
             TIMEIT(0, cc = do_submitReq(&xdrs, s, &from, client->fromHost, &reqHdr, &laddr, &auth, &schedule1, dispatch, &jobData), "do_submitReq()");
-            if(cc == 0 && syncNewJob == 1){
-                //先写入数据，再更新计数器
+            if(cc == 0 && forkQmbd && syncNewJobs){
                 cc = writeJobInfoReplyToShm(jobData,shm);
                 if(cc == -1)
                     ls_syslog(LOG_ERR, "%s pack job error", fname);
@@ -1047,7 +1047,7 @@ terminate_handler(int sig)
     sigaddset(&newmask, SIGINT);
     sigaddset(&newmask, SIGCHLD);
     sigprocmask(SIG_BLOCK, &newmask, &oldmask);
-    if(syncNewJob)
+    if(syncNewJobs)
         shmctl(shmId, IPC_RMID, NULL);
     exit(sig);
 }
@@ -1344,32 +1344,48 @@ updateJobPriorityInPJL(void)
     }
 }
 
+/**
+ * Write job info to shared memory
+ * 
+ * @param jobData  Pointer to job data to be written
+ * @param shm      Pointer to shared memory structure
+ * @return 0 on success; -1 if packJobInfo fails; -2 if insufficient shared memory space
+ */
 static int writeJobInfoReplyToShm(struct jData* jobData, struct SharedMemory *shm) {
-    char *packBuf;       
-    int packLen;         
-    int totalSize;       
-    int writePos;        
-    
-    packLen = packJobInfo(jobData, shm->count, &packBuf, 0, 0, VOLCLAVA_VERSION);
+    char *packBuf = NULL;  
+    int packLen = 0; 
+    const size_t lenFieldSize = sizeof(int);
+    size_t totalBlockSize = 0;
+
+    packLen = packJobInfo(jobData, 0, &packBuf, 0, 0, VOLCLAVA_VERSION);
     if (packLen <= 0) {
-        return -1;
+        return -1; // Packing failed
     }
 
-    totalSize = sizeof(int) + packLen;
-    
-    if (shm->startPos < totalSize) {
+    totalBlockSize = lenFieldSize + packLen;
+
+    if (shm->usedSize + totalBlockSize > DEF_SHM_MAX_BUF_SIZE) {
         free(packBuf);
-        return -2;  
+        return -2; // Insufficient space
     }
-    
-    writePos = shm->startPos - totalSize;
-    memcpy(shm->newJobReplyAndHeader + writePos, &packLen, sizeof(int));
-    memcpy(shm->newJobReplyAndHeader + writePos + sizeof(int), packBuf, packLen);
-    shm->startPos = writePos;
-    shm->count++;
+
+    memcpy(
+        shm->newJobReplyAndHeader + shm->usedSize,
+        &packLen, 
+        lenFieldSize
+    );
+
+    memcpy(
+        shm->newJobReplyAndHeader + shm->usedSize + lenFieldSize,  
+        packBuf, 
+        packLen
+    );
+
+    shm->usedSize += totalBlockSize; 
+    shm->count++; 
 
     free(packBuf);
-    return 0; 
+    return 0;  // Write successful
 }
 
 static int initShm(int *shmId, struct SharedMemory **shm) {
@@ -1391,7 +1407,7 @@ static int initShm(int *shmId, struct SharedMemory **shm) {
     }
     
     memset(*shm, 0, DEF_SHM_SIZE);  
-    (*shm)->startPos = sizeof((*shm)->newJobReplyAndHeader);  
+    (*shm)->usedSize = 0;  
 
     return 0;  
 }

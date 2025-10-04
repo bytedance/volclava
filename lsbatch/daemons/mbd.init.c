@@ -1940,6 +1940,12 @@ setParams(struct paramConf *paramConf)
     setValue(runTimeFactor, params->runTimeFactor);
     setValue(runJobFactor, params->runJobFactor);
     setValue(histHours, params->histHours)
+    setValue(histHours, params->histHours)
+    setValue(forkQmbd, params->forkQmbd)
+    setValue(syncNewJobs, params->syncNewJobs)
+    setValue(qmbdAliveTime, params->qmbdAliveTime)
+    setValue(qmbdThreadNum, params->qmbdThreadNum)
+    setValue(qmbdMaxTaskNum, params->qmbdMaxTaskNum)
     if (histHours > 0.0) {
         clsDecay = (float) pow(10.0, -1.0/(histHours * 4));
     }

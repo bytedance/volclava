@@ -458,8 +458,7 @@ callmbd(char *clusterName,
 
     mbdReqtype = reqHdr.opCode;
 
-    if (mbdReqtype == BATCH_JOB_INFO
-        || mbdReqtype == BATCH_QUE_INFO) {
+    if (mbdReqtype == BATCH_JOB_INFO) {
         isQuery = 1;
         qmbd_port = get_qmbd_port();
         if(logclass & LC_TRACE)
@@ -508,9 +507,9 @@ callmbd(char *clusterName,
                 CALL_SERVER_NO_HANDSHAKE);
         if (logclass & (LC_TRACE|LC_COMM)){
             if(cc < 0){
-                    ls_syslog (LOG_DEBUG, "%s: call mbd faild :%M", fname);
+                ls_syslog (LOG_DEBUG, "%s: call mbd faild :%M", fname);
             }else{
-                    ls_syslog (LOG_DEBUG, "%s: call mbd success ,reply is %d byte", fname,cc);
+                ls_syslog (LOG_DEBUG, "%s: call mbd success ,reply is %d byte", fname,cc);
             }
         }
     }

@@ -157,7 +157,7 @@ do_jobInfoReq(XDR *xdrs,
     struct jobInfoReq       jobInfoReq;
     struct jobInfoHead      jobInfoHead;
     int                     reply = 0;
-    int                     i, len, listSize = 0, newJobCount = 0, shmStartPos = 0;
+    int                     i, len, listSize = 0, newJobCount = 0;
     struct LSFHeader        replyHdr;
     struct nodeList        *jgrplist = NULL;
     struct jData          **joblist = NULL;
@@ -186,8 +186,7 @@ do_jobInfoReq(XDR *xdrs,
         }
         else {
             reply = selectJobs(&jobInfoReq, &joblist, &listSize,byQmbd);
-            if(syncNewJob){
-                shmStartPos = shm->startPos;
+            if(byQmbd && syncNewJobs){
                 newJobCount = shm->count;
             }
             if(byQmbd && reply == LSBE_NO_JOB && newJobCount){
@@ -206,7 +205,7 @@ do_jobInfoReq(XDR *xdrs,
     xdr_lsffree(xdr_jobInfoReq, (char *) &jobInfoReq, reqHdr);
 
     jobInfoHead.numJobs = listSize ;
-    if(byQmbd && syncNewJob){
+    if(byQmbd && syncNewJobs){
         jobInfoHead.numJobs += newJobCount;
     }
     if (jobInfoHead.numJobs > 0)
@@ -294,6 +293,7 @@ do_jobInfoReq(XDR *xdrs,
         {
             if (chanWriteTimeout_(chfd, buf, len, DEF_WRITE_TIMEOUT) != len) {
                 ls_syslog(LOG_ERR, I18N_FUNC_FAIL_M, fname, "chanWrite_");
+                ls_syslog(LOG_ERR, "job %d",i);
                 FREEUP(buf);
                 FREEUP (jgrplist);
                 return(-1);
@@ -303,13 +303,13 @@ do_jobInfoReq(XDR *xdrs,
     }
     FREEUP (jgrplist);
 
-    /*If the request is handled by qmbd and syncNewJob is enabled, send the cached jobInfoReply in the shared memory*/
-    if(byQmbd && syncNewJob){
+    /*If the request is handled by qmbd and syncNewJobs is enabled, send the cached jobInfoReply in the shared memory*/
+    if(byQmbd && syncNewJobs){
             if (shm != NULL && newJobCount > 0) {
             int currentReadPos;  
             int totalShmBufSize = sizeof(shm->newJobReplyAndHeader);
 
-            currentReadPos = shm->startPos;
+            currentReadPos = 0;
 
             for (i = 0; i < newJobCount; i++) {
                 if (currentReadPos + sizeof(int) > totalShmBufSize) {

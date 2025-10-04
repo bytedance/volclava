@@ -3,7 +3,12 @@
 #include <string.h> 
 #include <errno.h> 
 
-/* 工作线程函数 */ 
+/*
+ * Worker thread function for the thread pool
+ * Loops to retrieve tasks from the task queue and execute them; exits when the pool shuts down
+ * @param[in] arg: Pointer to the target thread pool instance
+ * @return NULL (unreachable in normal execution, added to match function signature)
+ */
 static void *workerThread(void *arg) { 
     threadPool_t *pool = (threadPool_t *)arg; 
     threadPoolTask_t task; 
@@ -31,7 +36,13 @@ static void *workerThread(void *arg) {
     return NULL; 
 } 
 
-/* 创建线程池 */ 
+/*
+ * Create and initialize a thread pool
+ * Allocates memory for pool structure, worker threads, and task queue; initializes synchronization primitives
+ * @param[in] threadCount: Number of worker threads to spawn
+ * @param[in] queueSize: Maximum capacity of the task queue
+ * @return Pointer to the initialized threadPool_t structure on success; NULL on failure
+ */
 threadPool_t *createThreadPool(int threadCount, int queueSize) { 
     threadPool_t *pool; 
     int i; 
@@ -73,7 +84,14 @@ threadPool_t *createThreadPool(int threadCount, int queueSize) {
     return pool; 
 } 
 
-/* 添加任务到线程池 */ 
+/*
+ * Add a task to the thread pool's task queue
+ * Waits on the "notFull" condition variable if the queue is full
+ * @param[in] pool: Pointer to the target thread pool
+ * @param[in] function: Pointer to the task function to execute
+ * @param[in] arg: Argument to pass to the task function
+ * @return 0 on successful task addition; -1 on failure
+ */
 int addTaskToThreadPool(threadPool_t *pool, void (*function)(void *), void *arg) { 
     if (pool == NULL || function == NULL) { 
         return -1; 
@@ -99,7 +117,11 @@ int addTaskToThreadPool(threadPool_t *pool, void (*function)(void *), void *arg)
     return 0; 
 } 
 
-/* 销毁线程池 */ 
+/*
+ * Destroy the thread pool and release all associated resources
+ * Sets the shutdown flag, wakes all worker threads, waits for threads to exit, and frees memory/sync primitives
+ * @param[in] pool: Pointer to the thread pool to destroy
+ */
 void destroyThreadPool(threadPool_t *pool) { 
     int i; 
 

@@ -420,7 +420,7 @@ main (int argc, char **argv)
 	    if (errno == EINTR)
 		delay_check = FALSE;
 	    else
-                ls_syslog(LOG_ERR, I18N_FUNC_FAIL_M, fname, "select");
+                ls_syslog(LOG_ERR, I18N_FUNC_FAIL_M, fname, "epoll");
             continue;
         }
 
@@ -799,7 +799,7 @@ start_master(void)
 
 	sigemptyset(&newmask);
 	sigprocmask(SIG_SETMASK, &newmask, NULL);
-
+        chanCloseEpoll();
         closeBatchSocket();
 
 	execve(margv[0], margv, environ);

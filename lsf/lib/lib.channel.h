@@ -138,6 +138,7 @@ int chanSetMode_(int, int);
 
 int chanEventsReady(int chfd, int events);
 void chanQuitReadyEvents(int chfd, int events);
+void chanCloseEpoll();
 
 extern int chanIndex;
 extern int cherrno;

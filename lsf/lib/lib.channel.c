@@ -42,7 +42,7 @@ static struct chanData *channels;
 static struct chanEpollData *epollData;             /* Epoll core data structure: stores epoll file descriptor and event array */
 static struct handleData *handles;                  /* Mapping array from socket fd to channel: stores channel index and chanData pointer for each socket */
 
-static int epollReady = 0;                          /* Flag indicating if epoll is initialized and ready (1 = ready, 0 = not ready) */
+static int chanEpollListenEventUpdateOn = 0;                          /* Flag indicating if epoll is initialized and ready (1 = ready, 0 = not ready) */
 static int *readyChans = NULL;                      /* Array storing indices of ready channels */
 static int readyChansNum = 0;                       /* Number of valid elements in the readyChans array */
 int cherrno = 0;
@@ -1535,7 +1535,7 @@ upDateListenEvents(int chfd){
 static void
 chanBindSock(int sockfd, int chfd)
 {
-    if(!epollReady) 
+    if(!chanEpollListenEventUpdateOn) 
         return;
     
     static char fname[] = "chanBindSock";
@@ -1571,7 +1571,7 @@ chanBindSock(int sockfd, int chfd)
 static void 
 chanUpdateListenEvents(int chfd)
 {
-    if (!epollReady) 
+    if (!chanEpollListenEventUpdateOn) 
         return;
     
     static char fname[] = "chanUpdateListenEvents";
@@ -1618,33 +1618,20 @@ chanUpdateListenEvents(int chfd)
 static void 
 chanUnbindSock(int sockfd)
 {
-    if(!epollReady || handles[sockfd].chanIndex == -1 || handles[sockfd].channel == NULL) {
+    if(!chanEpollListenEventUpdateOn || handles[sockfd].chanIndex == -1 || handles[sockfd].channel == NULL) {
         return ;
     }
     static char *fname = "chanUnbindSock";
     int chfd = sockChan_(sockfd);
     handles[sockfd].chanIndex = -1;
     handles[sockfd].channel = NULL;
-
     if (logclass & LC_COMM) {
         ls_syslog(LOG_DEBUG, "%s: channel %d handle %d state %d type %d",
                   fname, chfd, channels[chfd].handle, channels[chfd].state, channels[chfd].type);
     }
-    if(channels[chfd].state == CH_WAIT){//关闭正在listen的socket，说明是子进程，应该关闭epoll，在mbd fork出的qmbd中，不应该关闭epoll
-        close(epollData->epollfd);
-        epollData->epollfd = -1;
-        epollReady = 0;
-        return ;
-    }
-    if (epoll_ctl(epollData->epollfd, EPOLL_CTL_DEL, sockfd, NULL) == -1) {//只有子进程可能DEL失败，应该关闭epoll
-        if(epollData->epollfd >= 0) {
-            close(epollData->epollfd);
-            epollData->epollfd == -1;
-            epollReady = 0;
-            return ;
-        }
+    if (epoll_ctl(epollData->epollfd, EPOLL_CTL_DEL, sockfd, NULL) == -1){
         lserrno = LSE_SOCK_SYS;
-        ls_syslog(LOG_ERR, "%s: epoll_ctl DEL failed for socket %d: %m", fname, sockfd);
+        ls_syslog(LOG_ERR, "%s: epoll_ctl DEL failed for chfd %d socket %d: %m", fname,chfd, sockfd);
     }
 }
 
@@ -1723,6 +1710,25 @@ chanEventsReady(int chfd, int events)
  */
 int chanEpollInit(){
     int i; 
+    static int first = TRUE;
+    if(!first){
+        epollData->epollfd = epoll_create1(EPOLL_CLOEXEC);
+        if(epollData->epollfd < 0){
+            return -1;
+        }
+        readyChansNum = 0;
+        chanEpollListenEventUpdateOn = 1;
+        chanIndex = 0;
+        for(i = 0; i<chanMaxSize; i++){
+            handles[i].chanIndex = -1;
+            handles[i].channel = NULL;
+            channels[i].listenEvents = 0;
+            channels[i].readyEvents = 0;
+        }
+        return 0;
+    }
+    
+    first = FALSE;
     epollData = calloc(1,sizeof(struct chanEpollData));
     if(epollData == NULL){
         return -1;
@@ -1733,7 +1739,8 @@ int chanEpollInit(){
     if(epollData->epollfd < 0 || epollData->events == NULL){
         return -1;
     }
-    epollReady = 1;
+    chanEpollListenEventUpdateOn = 1;
+    chanIndex = 0;
     for(i = 0; i<chanMaxSize; i++){
         handles[i].chanIndex = -1;
         handles[i].channel = NULL;
@@ -1741,4 +1748,10 @@ int chanEpollInit(){
         channels[i].readyEvents = 0;
     }
     return 0;
+}
+
+void chanCloseEpoll(){
+    close(epollData->epollfd);
+    epollData->epollfd = -1;
+    chanEpollListenEventUpdateOn = 0;
 }

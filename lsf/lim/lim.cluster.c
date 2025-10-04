@@ -234,7 +234,7 @@ Reply1:
         }
 
         if (pid == 0) {
-
+            chanCloseEpoll();
             if (! limParams[LIM_NO_FORK].paramValue)
                 chanClose_(limSock);
 
