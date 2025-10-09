@@ -34,8 +34,8 @@ int startqmbd(int *qmbdPid){
     timeout.tv_sec = 0;
     timeout.tv_usec = 0;
     if(syncNewJobs){
-        memset(shm, 0, DEF_SHM_SIZE);
-        shm->usedSize = 0;
+        memset(shm, 0, sizeof(struct sharedJobStore));
+        shm->writeIdx = 0;
     }
     if(jDataList[SJL]->back != jDataList[SJL])
         reorderSJL ();

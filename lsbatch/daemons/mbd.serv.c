@@ -142,7 +142,6 @@ checkUseSelectJgrps(struct LSFHeader *reqHdr, struct jobInfoReq *req)
     return(TRUE);
 }
 
-
 int
 do_jobInfoReq(XDR *xdrs,
               int chfd,
@@ -156,11 +155,12 @@ do_jobInfoReq(XDR *xdrs,
     XDR                     xdrs2;
     struct jobInfoReq       jobInfoReq;
     struct jobInfoHead      jobInfoHead;
-    int                     reply = 0;
+    int                     reply = 0, reply1 = 0;
     int                     i, len, listSize = 0, newJobCount = 0;
     struct LSFHeader        replyHdr;
     struct nodeList        *jgrplist = NULL;
     struct jData          **joblist = NULL;
+    struct jobDataUnit     **jobReplyXdrList = NULL;
     int                     selectJgrpsFlag = FALSE;
     struct hData *hPtr;
 
@@ -187,10 +187,10 @@ do_jobInfoReq(XDR *xdrs,
         else {
             reply = selectJobs(&jobInfoReq, &joblist, &listSize,byQmbd);
             if(byQmbd && syncNewJobs){
-                newJobCount = shm->count;
-            }
-            if(byQmbd && reply == LSBE_NO_JOB && newJobCount){
-                reply = LSBE_NO_ERROR;
+                reply1 = qmbdSelectJobs(&jobInfoReq, shm, &jobReplyXdrList, &newJobCount);
+                if(reply == LSBE_NO_JOB && reply1 == LSBE_NO_ERROR){
+                    reply = LSBE_NO_ERROR;
+                }
             }
             jgrplist = (struct nodeList *) calloc(listSize,
                                                   sizeof(struct nodeList));
@@ -305,39 +305,25 @@ do_jobInfoReq(XDR *xdrs,
 
     /*If the request is handled by qmbd and syncNewJobs is enabled, send the cached jobInfoReply in the shared memory*/
     if(byQmbd && syncNewJobs){
-            if (shm != NULL && newJobCount > 0) {
-            int currentReadPos;  
-            int totalShmBufSize = sizeof(shm->newJobReplyAndHeader);
+        for (i = 0; i < newJobCount; i++) {
+            char* xdrBuf = jobReplyXdrList[i]->xdrBuf;
+            int xdrLen = jobReplyXdrList[i]->xdrLen;
 
-            currentReadPos = 0;
+            if (!xdrBuf || xdrLen <= 0) {
+                ls_syslog(LOG_ERR, "%s: Invalid XDR data at index %d", fname, i);
+                FREEUP(jobReplyXdrList);
+                return -1;
+            }
 
-            for (i = 0; i < newJobCount; i++) {
-                if (currentReadPos + sizeof(int) > totalShmBufSize) {
-                    ls_syslog(LOG_ERR, "%s: read shm data length out of bounds; currentReadPos=%d, required=%d, totalSize=%d",
-                            fname, currentReadPos, sizeof(int), totalShmBufSize);
-                    return -1;
-                }
-                memcpy(&len, shm->newJobReplyAndHeader + currentReadPos, sizeof(int));
-                currentReadPos += sizeof(int);
-
-                if (len <= 0 || currentReadPos + len > totalShmBufSize) {
-                    ls_syslog(LOG_ERR, "%s: invalid shm data length; index=%d, len=%d, currentReadPos=%d, totalSize=%d",
-                            fname, i, len, currentReadPos, totalShmBufSize);
-                    return -1;
-                }
-
-                {
-                    char *shmDataPtr = shm->newJobReplyAndHeader + currentReadPos;
-                    if (chanWriteTimeout_(chfd, shmDataPtr, len, DEF_WRITE_TIMEOUT) != len) {
-                        ls_syslog(LOG_ERR, I18N_FUNC_FAIL_M, fname, "chanWrite_ (shm data)");
-                        return -1;
-                    }
-                }
-
-                currentReadPos += len;
+            if (chanWriteTimeout_(chfd, xdrBuf, xdrLen, DEF_WRITE_TIMEOUT) != xdrLen) {
+                ls_syslog(LOG_ERR, I18N_FUNC_FAIL_M, fname, "chanWriteTimeout_");
+                ls_syslog(LOG_ERR, "job XDR index %d", i);
+                FREEUP(jobReplyXdrList);
+                return -1;
             }
         }
     }
+    FREEUP(jobReplyXdrList);
 
 
 

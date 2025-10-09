@@ -54,9 +54,6 @@
 
 #define DEF_WRITE_TIMEOUT 5
 
-/*sizeof(xdr(jobInfoReply and LSFHeader))*10000*/
-#define DEF_SHM_MAX_BUF_SIZE 1024*10000
-#define DEF_SHM_SIZE sizeof(struct SharedMemory)
 /* Global MBD job lists
  */
 typedef enum {
@@ -345,19 +342,6 @@ struct jData {
     int numAvailSlotsReserve;
     struct shareAcct * sa;  /*refer to shareAcct of fairshare tree in global policies*/
 };
-
-/**
- * Shared memory structure for caching job info replies
- */
-struct SharedMemory{
-    // Buffer storing jobInfoReply and  in XDR format. 
-    // Storage format: [sizeof(xdr1, int)][xdr1_data][sizeof(xdr2, int)][xdr2_data]...
-    char newJobReplyAndHeader[DEF_SHM_MAX_BUF_SIZE];  
-    
-    size_t usedSize;  // Total bytes of valid data stored in the buffer
-    int count;        // Number of cached new jobs
-};
-
 
 #define JOB_HAS_CANDHOSTS(Job)  ((Job)->candPtr != NULL)
 
@@ -1045,14 +1029,6 @@ extern int                     freedSomeReserveSlot;
 extern long                    schedSeqNo;
 extern struct controlReq       mbdCtrlReq;
 
-extern struct SharedMemory*    shm;             /*Shared memory*/
-extern int                     shmId;           /*Shared memory id*/
-extern int                     syncNewJobs;      /*Whether to sync newly submitted jobs from mbd in qmbd, 1 for enabled, 0 for disabled*/ 
-extern int                     forkQmbd;        /*Whether to fork qmbd, 1 for enabled, 0 for disabled*/
-extern int                     qmbdAliveTime;
-extern int                     qmbdThreadNum;
-extern int                     qmbdMaxTaskNum;
-
 extern void                 pollSbatchds(int);
 extern void                 hStatChange(struct hData *, int status);
 extern int                  checkHosts(struct infoReq*,
@@ -1623,4 +1599,44 @@ extern struct timeWindow *newTimeWindow (void);
 extern void freeTimeWindow(struct timeWindow *);
 extern void updateTimeWindow(struct timeWindow *);
 extern inline int numofhosts(void);
+
+
+#define MAX_JOB_UNITS    8192    // Maximum number of job units in shared memory; set to the maximum number of jobs that can be submitted during qmbd's lifetime
+#define MAX_XDR_SIZE     1024    // Maximum length of XDR data for a single jobInfoReply and lsfheader; actual measured value is around 640, with extra margin reserved
+#define MAX_QUEUE_NAME   64      // Maximum length of queue name
+#define MAX_USER_NAME    64      // Maximum length of username
+#define MAX_HOST_NAME    64      // Maximum length of a single hostname
+#define MAX_HOST_COUNT   8       // Maximum number of associated hosts
+#define MAX_JOB_NAME     128     // Maximum length of job name
+
+struct cachedJobMeta {
+    LS_LONG_INT jobId;                                // Job ID
+    char queue[MAX_QUEUE_NAME];                       // Queue name
+    char userName[MAX_USER_NAME];                     // Username
+    char jobName[MAX_JOB_NAME];                       // Full job name
+    int jobStatus;                                    // Job status
+    int numHosts;                                     // Actual number of associated hosts
+    char hosts[MAX_HOST_COUNT][MAX_HOST_NAME];        // array for storing hostnames
+    time_t submitTime;                                // Job submission time
+};
+
+struct jobDataUnit {
+    struct cachedJobMeta meta;        // Stores cached job metadata, used for job filtering
+    int xdrLen;                       // Actual length of XDR-formatted data
+    char xdrBuf[MAX_XDR_SIZE];        // XDR-formatted data (contains jobInfoReply + lsfheader)
+};
+
+struct sharedJobStore {
+    int writeIdx;                       // Total number of cached job units
+    struct jobDataUnit units[MAX_JOB_UNITS]; // Sequentially stored array of job data units
+};
+
+extern int                  qmbdSelectJobs(struct jobInfoReq *,struct sharedJobStore *,struct jobDataUnit ***,int *);
+extern struct sharedJobStore*  shm;             /*Shared memory*/
+extern int                     shmId;           /*Shared memory id*/
+extern int                     syncNewJobs;      /*Whether to sync newly submitted jobs from mbd in qmbd, 1 for enabled, 0 for disabled*/ 
+extern int                     forkQmbd;        /*Whether to fork qmbd, 1 for enabled, 0 for disabled*/
+extern int                     qmbdAliveTime;
+extern int                     qmbdThreadNum;
+extern int                     qmbdMaxTaskNum;
 #endif

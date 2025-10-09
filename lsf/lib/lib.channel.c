@@ -1718,7 +1718,6 @@ int chanEpollInit(){
         }
         readyChansNum = 0;
         chanEpollListenEventUpdateOn = 1;
-        chanIndex = 0;
         for(i = 0; i<chanMaxSize; i++){
             handles[i].chanIndex = -1;
             handles[i].channel = NULL;
@@ -1740,7 +1739,6 @@ int chanEpollInit(){
         return -1;
     }
     chanEpollListenEventUpdateOn = 1;
-    chanIndex = 0;
     for(i = 0; i<chanMaxSize; i++){
         handles[i].chanIndex = -1;
         handles[i].channel = NULL;
@@ -1751,7 +1749,9 @@ int chanEpollInit(){
 }
 
 void chanCloseEpoll(){
-    close(epollData->epollfd);
-    epollData->epollfd = -1;
-    chanEpollListenEventUpdateOn = 0;
+    if(chanEpollListenEventUpdateOn){
+        close(epollData->epollfd);
+        epollData->epollfd = -1;
+        chanEpollListenEventUpdateOn = 0;
+    }
 }

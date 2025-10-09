@@ -157,8 +157,8 @@ job_exec(struct jobCard *jobCardPtr, int chfd)
     }
 
     if (pid == 0) {
-        closeBatchSocket();
         chanCloseEpoll();
+        closeBatchSocket();
         sbdChildCloseChan (chfd);
         execJob(jobCardPtr, chfd);
         exit(-1);

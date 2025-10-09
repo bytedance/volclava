@@ -125,7 +125,7 @@ struct lsInfo *allLsInfo;
 struct hTab calDataList;
 struct hTab condDataList;
 
-struct SharedMemory* shm;
+struct sharedJobStore* shm;
 
 char   *masterHost = NULL;
 char   *clusterName = NULL;
@@ -186,8 +186,8 @@ static void processSbdNode(struct sbdNode *, int);
 static void setNextSchedTimeWhenJobFinish(void);
 static void acceptConnection(int);
 
-static int initShm(int *, struct SharedMemory ** shm);                                        /*Initialize shared memory*/
-static int writeJobInfoReplyToShm(struct jData* jobData, struct SharedMemory * shm);          /*pack jobData and write jobInfoReply to shared memory*/
+static int initShm(int *, struct sharedJobStore ** shm);                                        /*Initialize shared memory*/
+static int WriteJobInfoToShm(struct jData* jobData, struct sharedJobStore* shm);         /*pack jobData and write jobInfoReply to shared memory*/
 
 extern void chanInactivate_(int);
 extern void chanActivate_(int);
@@ -727,7 +727,7 @@ processClient(struct clientNode *client, int *needFree)
             jobData = NULL;
             TIMEIT(0, cc = do_submitReq(&xdrs, s, &from, client->fromHost, &reqHdr, &laddr, &auth, &schedule1, dispatch, &jobData), "do_submitReq()");
             if(cc == 0 && forkQmbd && syncNewJobs){
-                cc = writeJobInfoReplyToShm(jobData,shm);
+                cc = WriteJobInfoToShm(jobData,shm);
                 if(cc == -1)
                     ls_syslog(LOG_ERR, "%s pack job error", fname);
                 else if(cc == -2)
@@ -1069,6 +1069,8 @@ child_handler (int sig)
     while ((pid = waitpid(-1, &status, WNOHANG)) > 0){
         if(pid == qmbdPid && qmbdAlive == 1){
             qmbdAlive = 0;
+            if(status != 0)
+                ls_syslog(LOG_ERR,"qmbd exit with %d",status);
         }
     }
 
@@ -1345,51 +1347,14 @@ updateJobPriorityInPJL(void)
 }
 
 /**
- * Write job info to shared memory
+ * Initialize shared memory for job data storage
  * 
- * @param jobData  Pointer to job data to be written
- * @param shm      Pointer to shared memory structure
- * @return 0 on success; -1 if packJobInfo fails; -2 if insufficient shared memory space
+ * @param shmId  Output parameter; pointer to store the ID of the created shared memory
+ * @param shm    Output parameter; pointer to store the attached address of the shared memory (struct sharedJobStore type)
+ * @return 0 on successful initialization; -1 on failure
  */
-static int writeJobInfoReplyToShm(struct jData* jobData, struct SharedMemory *shm) {
-    char *packBuf = NULL;  
-    int packLen = 0; 
-    const size_t lenFieldSize = sizeof(int);
-    size_t totalBlockSize = 0;
-
-    packLen = packJobInfo(jobData, 0, &packBuf, 0, 0, VOLCLAVA_VERSION);
-    if (packLen <= 0) {
-        return -1; // Packing failed
-    }
-
-    totalBlockSize = lenFieldSize + packLen;
-
-    if (shm->usedSize + totalBlockSize > DEF_SHM_MAX_BUF_SIZE) {
-        free(packBuf);
-        return -2; // Insufficient space
-    }
-
-    memcpy(
-        shm->newJobReplyAndHeader + shm->usedSize,
-        &packLen, 
-        lenFieldSize
-    );
-
-    memcpy(
-        shm->newJobReplyAndHeader + shm->usedSize + lenFieldSize,  
-        packBuf, 
-        packLen
-    );
-
-    shm->usedSize += totalBlockSize; 
-    shm->count++; 
-
-    free(packBuf);
-    return 0;  // Write successful
-}
-
-static int initShm(int *shmId, struct SharedMemory **shm) {
-    *shmId = shmget(IPC_PRIVATE, DEF_SHM_SIZE, IPC_CREAT | 0666);
+static int initShm(int *shmId, struct sharedJobStore **shm) {
+    *shmId = shmget(IPC_PRIVATE, sizeof(struct sharedJobStore), IPC_CREAT | 0666);
     if (*shmId == -1) {
         ls_syslog(LOG_ERR, "%s: shmget failed! Error: %m", __func__);  
         return -1;
@@ -1398,7 +1363,7 @@ static int initShm(int *shmId, struct SharedMemory **shm) {
               __func__, *shmId);
 
     
-    *shm = (struct SharedMemory*)shmat(*shmId, NULL, 0);
+    *shm = (struct sharedJobStore*)shmat(*shmId, NULL, 0);
     if (*shm == (void*)-1) {
         ls_syslog(LOG_ERR, "%s: shmat failed! Error: %m. Cleanup shmId=%d", 
                   __func__, *shmId);
@@ -1406,8 +1371,95 @@ static int initShm(int *shmId, struct SharedMemory **shm) {
         return -1;
     }
     
-    memset(*shm, 0, DEF_SHM_SIZE);  
-    (*shm)->usedSize = 0;  
-
+    memset(*shm, 0, sizeof(struct sharedJobStore));  
+    (*shm)->writeIdx = 0;  
     return 0;  
+}
+
+/**
+ * Convert and store job filtering-related data from struct jData into struct cachedJobMeta
+ * 
+ * @param jp    Input: Pointer to source job data (struct jData) containing filtering info
+ * @param meta  Output: Pointer to target structure (struct cachedJobMeta) for storing filtering data
+ */
+static void jdataToMeta(struct jData* jp, struct cachedJobMeta* meta) {
+    int i;
+    memset(meta, 0, sizeof(struct cachedJobMeta));
+    meta->jobId = jp->jobId;
+    meta->jobStatus = jp->jStatus;
+    strncpy(meta->userName, jp->userName, strlen(jp->userName));
+
+    if (jp->qPtr) strncpy(meta->queue, jp->qPtr->queue, strlen(jp->qPtr->queue));
+
+    if (jp->jgrpNode && jp->jgrpNode->name) {
+        size_t srcLen = strlen(jp->jgrpNode->name);
+        size_t copyLen = (srcLen < (MAX_JOB_NAME - 1)) ? srcLen : (MAX_JOB_NAME - 1);
+        strncpy(meta->jobName, jp->jgrpNode->name, copyLen);
+        meta->jobName[copyLen] = '\0';
+    } else {
+        meta->jobName[0] = '\0';
+    }
+
+    meta->numHosts = 0;
+    if (jp->hPtr && jp->numHostPtr > 0) {
+        for (i = 0; i < jp->numHostPtr && i < MAX_HOST_COUNT; i++) {
+            if (jp->hPtr[i] && jp->hPtr[i]->host) {
+                strncpy(meta->hosts[i], jp->hPtr[i]->host, strlen(jp->hPtr[i]->host));
+                meta->numHosts++;
+            }
+        }
+    }
+
+    meta->submitTime = jp->shared->jobBill.submitTime;
+}
+
+/**
+ * Write job info (meta + packed XDR) to shared memory
+ * 
+ * @param jobData  Pointer to job data (struct jData) to be written
+ * @param shm      Pointer to shared memory structure (struct sharedJobStore)
+ * @return 0 on success; -1 if packJobInfo fails; -2 if insufficient shared memory space
+ */
+static int WriteJobInfoToShm(struct jData* jobData, struct sharedJobStore* shm) {
+    if (!jobData || !shm) {
+        ls_syslog(LOG_ERR, "mbd: Invalid input (jobData/shm is NULL)");
+        return -1;
+    }
+
+    char* packBuf = NULL; 
+    int packLen = 0;
+    
+    packLen = packJobInfo(jobData, 0, &packBuf, 0, 0, VOLCLAVA_VERSION);
+    if (packLen <= 0) {
+        ls_syslog(LOG_ERR, "mbd: packJobInfo failed (packLen=%d)", packLen);
+        return -1; 
+    }
+
+    int currIdx = shm->writeIdx;
+    if (currIdx >= MAX_JOB_UNITS) {
+        ls_syslog(LOG_ERR, "mbd: Shared memory full (currIdx=%d, max=%d)", currIdx, MAX_JOB_UNITS);
+        free(packBuf);
+        return -2;
+    }
+    if (packLen > MAX_XDR_SIZE) {
+        ls_syslog(LOG_ERR, "mbd: XDR data too large (packLen=%d, max=%d)", packLen, MAX_XDR_SIZE);
+        free(packBuf);
+        return -2;
+    }
+
+    struct jobDataUnit* currUnit = &shm->units[currIdx];
+    struct cachedJobMeta meta;
+
+    jdataToMeta(jobData, &meta);
+    memset(currUnit, 0, sizeof(struct jobDataUnit));
+    memcpy(&currUnit->meta, &meta, sizeof(struct cachedJobMeta));
+    currUnit->xdrLen = packLen;
+    memcpy(currUnit->xdrBuf, packBuf, packLen);
+
+    shm->writeIdx++;
+    ls_syslog(LOG_DEBUG,"mbd: Job %lld written to shm unit %d (XDR len=%d), writeIdx=%d", 
+           (long long)jobData->jobId, currIdx, packLen, shm->writeIdx);
+
+    free(packBuf);
+    return 0;
 }
