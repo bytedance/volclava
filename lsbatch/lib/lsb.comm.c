@@ -181,7 +181,6 @@ call_server (char * host,
 	    ls_syslog(LOG_ERR, I18N_FUNC_FAIL_MM, "callserver",  "chanSetMode");            CLOSECD(serverSock);
 	    return (-2);
 	}
-
 	if (postSndFunc)
 	    tsize += ((struct lenData *)postSndFuncArg)->len + NET_INTSIZE_;
 
@@ -212,6 +211,16 @@ call_server (char * host,
 	    CLOSECD(serverSock);
 	    return (-2);
 	}
+        /* Add the server mask to the epoll object
+         */
+        cc = chanRegisterEpoll_(serverSock, EPOLLOUT|EPOLLIN|EPOLLERR|EPOLLRDHUP);
+        if (cc < 0) {
+            ls_syslog(LOG_ERR, "%s: chanRegisterEpoll_() failed %m", __func__);
+            chanFreeBuf_(sndBuf);
+	    CLOSECD(serverSock);
+	    return (-2);
+        }
+
     } else {
 	cc = chanRpc_(serverSock,
                       &reqbuf,
@@ -696,4 +705,3 @@ getCpuFactor (char *host, int name)
 
     return (tempPtr);
 }
-

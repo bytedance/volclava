@@ -525,8 +525,6 @@ msgSbd(LS_LONG_INT jobId, char *req, sbdReqType reqType, int (*xdrFunc)())
             myhostnm = "localhost";
         }
 
-
-
         cc = call_server(myhostnm, sbd_port, requestBuf, XDR_GETPOS(&xdrs),
                          &reply_buf, &hdr, 100000, 0, NULL, NULL, NULL, 0);
         if (cc < 0) {

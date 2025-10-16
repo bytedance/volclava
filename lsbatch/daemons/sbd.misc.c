@@ -24,17 +24,17 @@
 #include "sbd.h"
 
 #include "../../lsf/lib/lsi18n.h"
-#define NL_SETN		11	
+#define NL_SETN		11
 
 extern short mbdExitVal;
 extern int mbdExitCnt;
 
-#define NL_SETN         11  
+#define NL_SETN         11
 void
 milliSleep( int msec )
 {
     struct timeval dtime;
-    
+
     if (msec < 1)
 	return;
     dtime.tv_sec = msec/1000;
@@ -46,7 +46,7 @@ milliSleep( int msec )
 
 
 
-char 
+char
 window_ok (struct jobCard *jobPtr)
 {
     windows_t *wp;
@@ -56,62 +56,62 @@ window_ok (struct jobCard *jobPtr)
     time_t now;
 
     now = time(0);
-    active = jobPtr->active;                   
+    active = jobPtr->active;
 
     if (active && (jobPtr->jobSpecs.options & SUB_WINDOW_SIG))
-        ckTime = now + WARN_TIME;            
+        ckTime = now + WARN_TIME;
     else
         ckTime = now;
 
     if (jobPtr->windEdge > ckTime || jobPtr->windEdge == 0)
         return (jobPtr->active);
 
-    getDayHour (&dayhour, ckTime);          
-    if (jobPtr->week[dayhour.day] == NULL) {              
+    getDayHour (&dayhour, ckTime);
+    if (jobPtr->week[dayhour.day] == NULL) {
         jobPtr->active = TRUE;
         jobPtr->windEdge = now + (24.0 - dayhour.hour) * 3600.0;
         return (jobPtr->active);
     }
-   
+
     jobPtr->active = FALSE;
     jobPtr->windEdge = now + (24.0 - dayhour.hour) * 3600.0;
-    for (wp = jobPtr->week[dayhour.day]; wp; wp=wp->nextwind) 
+    for (wp = jobPtr->week[dayhour.day]; wp; wp=wp->nextwind)
         checkWindow(&dayhour, &jobPtr->active, &jobPtr->windEdge, wp, now);
 
     if (active && !jobPtr->active && now - jobPtr->windWarnTime >= WARN_TIME
         && (jobPtr->jobSpecs.options & SUB_WINDOW_SIG)) {
-        
-        if (!(jobPtr->jobSpecs.jStatus & JOB_STAT_RUN)) 
-	    job_resume(jobPtr);            
+
+        if (!(jobPtr->jobSpecs.jStatus & JOB_STAT_RUN))
+	    job_resume(jobPtr);
 	jobsig (jobPtr, sig_decode (jobPtr->jobSpecs.sigValue), TRUE);
 	jobPtr->windWarnTime = now;
     }
-    
+
     return (jobPtr->active);
 
-} 
+}
 void
 shout_err (struct jobCard *jobPtr, char *msg)
 {
      char buf[MSGSIZE];
 
-     sprintf(buf, _i18n_msg_get(ls_catd, NL_SETN, 600, 
+     sprintf(buf, _i18n_msg_get(ls_catd, NL_SETN, 600,
          "We are unable to run your job %s:<%s>. The error is:\n%s."), /* catgets 600 */
 	 lsb_jobid2str(jobPtr->jobSpecs.jobId),
 	 jobPtr->jobSpecs.command, msg);
 
-     
-     if (jobPtr->jobSpecs.options & SUB_MAIL_USER) 
+
+     if (jobPtr->jobSpecs.options & SUB_MAIL_USER)
          merr_user (jobPtr->jobSpecs.mailUser, jobPtr->jobSpecs.fromHost,
          	buf, I18N_error);
      else
          merr_user (jobPtr->jobSpecs.userName, jobPtr->jobSpecs.fromHost,
 		buf, I18N_error);
-     
-} 
+
+}
 
 
-void 
+void
 child_handler (int sig)
 {
     int             pid;
@@ -129,7 +129,7 @@ child_handler (int sig)
         if (pid == mbdPid) {
 	    int sig = WTERMSIG(status);
             if (mbdExitCnt > 150)
-                mbdExitCnt = 150;             
+                mbdExitCnt = 150;
 	    mbdExitVal = WIFSIGNALED(status);
 	    if (mbdExitVal) {
                 if (WCOREDUMP(status))
@@ -157,29 +157,29 @@ child_handler (int sig)
 	    }
         }
 
-        ls_ruunix2lsf (&rusage, &lsfRusage);             
+        ls_ruunix2lsf (&rusage, &lsfRusage);
 	cpuTime = lsfRusage.ru_utime + lsfRusage.ru_stime;
-	
-	for (jobCard = jobQueHead->forw; (jobCard != jobQueHead); 
+
+	for (jobCard = jobQueHead->forw; (jobCard != jobQueHead);
 	     jobCard = jobCard->forw) {
 
 	    if (jobCard->exitPid == pid) {
 		jobCard->w_status = LS_STATUS(status);
 		jobCard->exitPid = -1;
 	    }
-	    
+
 	    if (jobCard->jobSpecs.jobPid == pid) {
 		jobCard->collectedChild = TRUE;
 		jobCard->cpuTime = cpuTime;
 		jobCard->w_status = LS_STATUS(status);
-		jobCard->exitPid = -1;  
+		jobCard->exitPid = -1;
 		memcpy ((char *) &jobCard->lsfRusage, (char *) &lsfRusage,
-			sizeof (struct lsfRusage));	     
+			sizeof (struct lsfRusage));
                 jobCard->notReported++;
-		
-		
-		
-		if (sbd_finish_sleep < 0) {       
+
+
+
+		if (sbd_finish_sleep < 0) {
 		    if (daemonParams[LSB_SBD_FINISH_SLEEP].paramValue) {
 			errno = 0;
 			sbd_finish_sleep = atoi(daemonParams[LSB_SBD_FINISH_SLEEP].paramValue);
@@ -195,13 +195,13 @@ child_handler (int sig)
 
 		need_checkfinish = TRUE;
 
-		break;  
+		break;
 	    }
 	}
-    } 
+    }
 
 
-} 
+}
 
 #ifndef BSIZE
 #define BSIZE 1024
@@ -252,7 +252,7 @@ fcp(char *file1, char *file2, struct hostent *hp)
     close(fd1);
     close(fd2);
     return (0);
-} 
+}
 
 #include <sys/dir.h>
 
@@ -276,16 +276,18 @@ rmDir(char *dir)
 
     closedir (dirp);
     return (rmdir(dir));
-} 
+}
 
 
-void closeBatchSocket (void) 
+void closeBatchSocket (void)
 {
-    if (batchSock > 0) { 
-        chanClose_(batchSock);
-        batchSock = -1;
-    } 
-} 
+    /* close the epoll and back sockets but do not do any
+     * epoll_* operation as that will affect the epoll
+     * object we share with the parent process
+     */
+    close(epoll_fd);
+    close(channels[batchSock].handle);
+}
 
 void
 getManagerId(struct sbdPackage *sbdPackage)
@@ -317,4 +319,4 @@ getManagerId(struct sbdPackage *sbdPackage)
 	    fname);  /* catgets 5609 */
 	die(FATAL_ERR);
     }
-} 
+}

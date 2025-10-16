@@ -18,6 +18,7 @@
 #ifndef CHANNEL_H
 #define CHANNEL_H
 #include <sys/types.h>
+#include <sys/epoll.h>
 #include "lib.hdr.h"
 
 
@@ -26,7 +27,7 @@ enum chanState {CH_FREE,
                 CH_PRECONN,
                 CH_CONN,
                 CH_WAIT,
-                CH_INACTIVE    
+                CH_INACTIVE
                };
 
 enum chanType {CH_TYPE_UDP, CH_TYPE_TCP, CH_TYPE_LOCAL, CH_TYPE_PASSIVE,
@@ -43,7 +44,8 @@ enum chanType {CH_TYPE_UDP, CH_TYPE_TCP, CH_TYPE_LOCAL, CH_TYPE_PASSIVE,
 #define CHAN_MODE_BLOCK 	0x01
 #define CHAN_MODE_NONBLOCK 	0x02
 
-#define CLOSECD(c) { chanClose_((c)); (c) = -1; }
+#define INVALID_HANDLE  -1
+#define CLOSECD(c) { chanClose_((c)); (c) = -1;}
 
 #define CHAN_INIT_BUF(b)  memset((b), 0, sizeof(struct Buffer));
 
@@ -60,19 +62,30 @@ struct Masks {
     fd_set rmask;
     fd_set wmask;
     fd_set emask;
+
 };
 
+typedef enum {
+    EPOLL_EVENTS_NONE  = 0,
+    EPOLL_EVENTS_READ  = 1,
+    EPOLL_EVENTS_WRITE = 2,
+    EPOLL_EVENTS_ERROR = 4
+} epoll_events_t;
 
 struct chanData {
-    int  handle;		
+    int  handle;
     enum chanType type;
     enum chanState state;
-    enum chanState prestate;   
-    int chanerr; 
+    enum chanState prestate;
+    int chanerr;
     struct Buffer *send;
     struct Buffer *recv;
-    
+    epoll_events_t events;
 };
+
+extern int epoll_fd;
+extern struct epoll_event *epoll_events;
+extern struct chanData *channels;
 
 #define  CHANE_NOERR      0
 #define  CHANE_CONNECTED  1
@@ -93,36 +106,46 @@ int chanInit_(void);
 #define chanSend_  chanEnqueue_
 #define chanRecv_  chanDequeue_
 
-int chanOpen_(u_int, u_short, int);
-int chanEnqueue_(int chfd, struct Buffer *buf);
-int chanDequeue_(int chfd, struct Buffer **buf);
+extern int chanOpen_(u_int, u_short, int);
+extern int chanEnqueue_(int chfd, struct Buffer *buf);
+extern int chanDequeue_(int chfd, struct Buffer **buf);
 
-int chanSelect_(struct Masks *, struct Masks *, struct timeval *timeout);
-int chanClose_(int chfd);
-void chanCloseAll_(void);
-int chanSock_(int chfd);
+extern int chanSelect_(struct Masks *, struct Masks *, struct timeval *timeout);
+extern int chanClose_(int chfd);
+extern void chanCloseAll_(void);
+extern int chanSock_(int chfd);
 
-int chanServSocket_(int, u_short, int, int);
-int chanAccept_(int, struct sockaddr_in *);
+extern int chanServSocket_(int, u_short, int, int);
+extern int chanAccept_(int, struct sockaddr_in *);
 
-int chanClientSocket_(int, int, int);
-int chanConnect_(int, struct sockaddr_in *, int , int);
+extern int chanClientSocket_(int, int, int);
+extern int chanConnect_(int, struct sockaddr_in *, int , int);
 
-int chanSendDgram_(int, char *, int , struct sockaddr_in *);
-int chanRcvDgram_(int , char *, int, struct sockaddr_in *, int);
-int chanRpc_(int , struct Buffer *, struct Buffer *, struct LSFHeader *, int timeout); 
-int chanRead_(int, char *, int);
-int chanReadNonBlock_(int, char *, int, int);
-int chanWrite_(int, char *, int);
+extern int chanSendDgram_(int, char *, int , struct sockaddr_in *);
+extern int chanRcvDgram_(int , char *, int, struct sockaddr_in *, int);
+extern int chanRpc_(int , struct Buffer *, struct Buffer *,
+                    struct LSFHeader *, int timeout);
+extern int chanRead_(int, char *, int);
+extern int chanReadNonBlock_(int, char *, int, int);
+extern int chanWrite_(int, char *, int);
 
-int chanAllocBuf_(struct Buffer **buf, int size);
-int chanFreeBuf_(struct Buffer *buf);
-int chanFreeStashedBuf_(struct Buffer *buf);
-int chanOpenSock_(int , int);
-int chanSetMode_(int, int);
 
+extern int chanAllocBuf_(struct Buffer **buf, int size);
+extern int chanFreeBuf_(struct Buffer *buf);
+extern int chanFreeStashedBuf_(struct Buffer *buf);
+extern int chanSetMode_(int, int);
 extern int chanIndex;
 extern int cherrno;
 
-#endif
+/*  epoll API
+ */
+extern int chanEpollInit_(void);
+extern int chanRegisterEpoll_(int, uint32_t);
+extern int chanModEpoll_(int, uint32_t);
+extern int chanUnRegisterEpoll_(int);
+extern int chanEpoll_(int);
+extern void chanHandlePreconn(int);
+extern void doread2(int);
+extern void dowrite2(int);
 
+#endif

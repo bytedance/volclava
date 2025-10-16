@@ -109,6 +109,16 @@ init_ServSock(u_short port)
         return -1;
     }
 
+    if (chanEpollInit_() < 0) {
+        ls_syslog(LOG_ERR, "%s: chanEpollInit_() failed %m", __func__);
+        return -1;
+    }
+
+    if (chanRegisterEpoll_(ch, EPOLLIN|EPOLLERR|EPOLLRDHUP) < 0) {
+        ls_syslog(LOG_ERR, "%s: chanRegisterEpoll_() failed %m", __func__);
+        return-1;
+    }
+
     return ch;
 }
 
@@ -172,7 +182,13 @@ do_readyOp(XDR *xdrs, int chanfd, struct sockaddr_in *from,
         xdr_destroy(&xdrs2);
         return(-1);
     }
-
+    if (chanModEpoll_(chanfd, EPOLLOUT|EPOLLIN|EPOLLERR|EPOLLRDHUP) < 0) {
+        ls_syslog(LOG_ERR, "%s: chanModEpoll_() failed %m", __func__);
+        /* xdr_destroy is NOOP it is just a logical operation
+         */
+        xdr_destroy(&xdrs2);
+        return -1;
+    }
     xdr_destroy(&xdrs2);
     return(0);
 }

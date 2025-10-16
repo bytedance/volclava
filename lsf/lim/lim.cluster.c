@@ -17,7 +17,7 @@
  */
 #include "lim.h"
 #include "../../lsf/lib/lsi18n.h"
-
+extern int epoll_fd;
 #define NL_SETN         24
 
 #define ABORT     1
@@ -37,29 +37,22 @@ static void clientReq(XDR *, struct LSFHeader *, int );
 static void shutDownChan(int);
 
 void
-clientIO(struct Masks *chanmasks)
+clientIO(struct chanData *chan, int chfd)
 {
-    int  i;
 
-    for (i = 0; (i < chanIndex) && (i < MAXCLIENTS); i++) {
+    if (chan->events & EPOLL_EVENTS_ERROR) {
 
-        if (i == limSock || i == limTcpSock)
-            continue;
-
-        if (FD_ISSET(i, &chanmasks->emask)) {
-
-            if (clientMap[i])
+            if (clientMap[chfd])
                 ls_syslog(LOG_ERR, "\
-%s: Lost connection with client %s IO or decode error",
+%s: Lost connection with client %s IO or decode error %d",
                           __func__,
-                          sockAdd2Str_(&clientMap[i]->from));
-            shutDownChan(i);
-            continue;
-        }
+                          sockAdd2Str_(&clientMap[chfd]->from), chan->chanerr);
+            shutDownChan(chfd);
+            return;
+    }
 
-        if (FD_ISSET(i, &chanmasks->rmask)) {
-            processMsg(i);
-        }
+    if (chan->events & EPOLL_EVENTS_READ) {
+        processMsg(chfd);
     }
 }
 
@@ -234,9 +227,12 @@ Reply1:
         }
 
         if (pid == 0) {
-
+            // close() limSock should the master restart when processing
+            // this request.
             if (! limParams[LIM_NO_FORK].paramValue)
-                chanClose_(limSock);
+                close(chanSock_(limSock));
+            if (epoll_fd >= 0)
+                close(epoll_fd);
 
             XDR_SETPOS(xdrs, oldpos);
             io_block_(chanSock_(chfd));
@@ -291,4 +287,3 @@ shutDownChan(int chanfd)
         FREEUP(clientMap[chanfd]);
     }
 }
-
