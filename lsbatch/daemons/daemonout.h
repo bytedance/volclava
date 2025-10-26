@@ -73,7 +73,8 @@ typedef enum {
     BATCH_STATUS_CHUNK   = 40,       
     BATCH_SET_JOB_ATTR   = 90,
     READY_FOR_OP         = 1023,
-    PREPARE_FOR_OP       = 1024
+    PREPARE_FOR_OP       = 1024,
+    BATCH_JOB_SUB_PACK    = 41
 } mbdReqType;
 
 #define SUB_RLIMIT_UNIT_IS_KB 0x80000000

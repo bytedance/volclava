@@ -1154,6 +1154,11 @@ extern void                 copyJobBill (struct submitReq *,
 extern void                 inZomJobList (struct jData *, int);
 extern struct jData *       getZombieJob (LS_LONG_INT);
 extern int                  getNextJobId (void);
+extern int                  mbdRcvJobFile(int chfd, struct lenData *jf);
+extern int                  newJobWithFile(struct submitReq *subReq, struct submitMbdReply *Reply, 
+                                          struct lenData *jf, struct lsfAuth *auth, int *schedule, 
+                                          int dispatch, struct jData **jobData);
+extern int                  unpackJobFiles(struct lenData *packed, struct lenData **jf_array, int *fileCount);
 extern void                 accumRunTime (struct jData *, int, time_t);
 extern void                 signalReplyCode (sbdReplyType reply,
                                              struct jData *jData,
@@ -1207,6 +1212,9 @@ extern int                  do_submitReq(XDR *, int, struct sockaddr_in *,
                                          struct sockaddr_in *,
                                          struct lsfAuth *, int *, int,
                                          struct jData **);
+extern int                  do_submitPackReq(XDR *, int, struct sockaddr_in *,
+                                             struct LSFHeader *,
+                                             struct lsfAuth *, int *, int);
 extern int                  do_signalReq(XDR *, int, struct sockaddr_in *,
                                          char *, struct LSFHeader *,
                                          struct lsfAuth *);
