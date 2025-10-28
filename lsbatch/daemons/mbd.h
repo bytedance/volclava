@@ -813,20 +813,23 @@ struct  timeWindow {
 #define JOB_REQUE  2
 #define JOB_REPLAY 3
 
+enum CLIENT_STATE{
+    CLIENT_STATE_CONNECTED = 1,
+    CLIENT_STATE_WAITING_THREAD = 2,
+    CLIENT_STATE_THREAD_PROCESSING = 3,
+    CLIENT_STATE_PROCESS_FINISHED = 4
+};
 struct clientNode {
     struct clientNode *forw;
     struct clientNode *back;
     int    chanfd;
-    int    state;               /*client的状态机*/
+    enum CLIENT_STATE  state;
     struct sockaddr_in from;
     char *fromHost;
     mbdReqType reqType;
     time_t lastTime;
 };
 
-#define CLIENT_STATE_ACTIVATE   1
-#define CLIENT_STATE_PROCESSING 2
-#define CLIENT_STATE_CLOSEING   3
 
 struct condData {
     char *name;
@@ -1630,6 +1633,15 @@ struct sharedJobStore {
     int writeIdx;                       // Total number of cached job units
     struct jobDataUnit units[MAX_JOB_UNITS]; // Sequentially stored array of job data units
 };
+
+typedef struct {
+    XDR* xdr;
+    struct Buffer* buf;
+    struct LSFHeader reqHdr;
+    struct clientNode *client;
+    int schedule;
+    int byQmbd;
+} RequestContext;
 
 extern int                  qmbdSelectJobs(struct jobInfoReq *,struct sharedJobStore *,struct jobDataUnit ***,int *);
 extern struct sharedJobStore*  shm;             /*Shared memory*/

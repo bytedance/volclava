@@ -144,7 +144,7 @@ b_write_fix(int s, char *buf, int len)
         if ((cc = write(s, buf, len)) > 0) {
             len -= cc;
             buf += cc;
-        } else if (cc < 0 && errno != EINTR) {
+        } else if (cc < 0 && errno != EINTR && errno != EAGAIN) {
 	    lserrno = LSE_SOCK_SYS;
             return (-1);
         }
@@ -166,52 +166,50 @@ void unblocksig(int sig)
    sigprocmask(SIG_UNBLOCK, &blockMask, &oldMask);
 }
 
-int 
-b_connect_(int s, struct sockaddr *name, int namelen, int timeout)
+int b_connect_(int s, struct sockaddr *name, int namelen, int timeout)
 {
-    struct itimerval old_itimer;
-    unsigned int oldTimer;
-    sigset_t newMask, oldMask;
-    struct sigaction action, old_action;
+    int flags, ret, so_error;
+    socklen_t len;
+    fd_set wfds;
+    struct timeval tv;
 
-    
-    if (getitimer(ITIMER_REAL, &old_itimer) <0) 
-	return -1;
+    if ((flags = fcntl(s, F_GETFL, 0)) < 0)
+        return -1;
+    if (fcntl(s, F_SETFL, flags | O_NONBLOCK) < 0)
+        return -1;
 
-    
-    action.sa_flags = 0;
-    action.sa_handler = (SIGFUNCTYPE) alarmer_;
-    
-    
-    sigfillset(&action.sa_mask);
-    sigaction(SIGALRM, &action, &old_action);
-    
-    unblocksig(SIGALRM);
-    
-    blockSigs_(SIGALRM, &newMask, &oldMask);
-
-    oldTimer = alarm(timeout);
-
-    if (connect(s, name, namelen) < 0) {
-        if (errno == EINTR) 
-	    errno = ETIMEDOUT;
-	
-	alarm(oldTimer);
-        setitimer(ITIMER_REAL, &old_itimer, NULL);
-	
-	sigaction(SIGALRM, &old_action, NULL);
-        sigprocmask(SIG_SETMASK, &oldMask, NULL);
-	return -1;
+    ret = connect(s, name, namelen);
+    if (ret == 0) {
+        fcntl(s, F_SETFL, flags);
+        return 0;
+    } else if (ret < 0 && errno != EINPROGRESS) {
+        return -1;
     }
-    
-    alarm(oldTimer);
 
-    setitimer(ITIMER_REAL, &old_itimer, NULL);
-    
-    sigaction(SIGALRM, &old_action, NULL);
-    sigprocmask(SIG_SETMASK, &oldMask, NULL);
+    FD_ZERO(&wfds);
+    FD_SET(s, &wfds);
+    tv.tv_sec = timeout;
+    tv.tv_usec = 0;
+
+    ret = select(s + 1, NULL, &wfds, NULL, &tv);
+    if (ret == 0) {
+        errno = ETIMEDOUT;
+        return -1;
+    } else if (ret < 0) {
+        return -1;
+    }
+
+    len = sizeof(so_error);
+    if (getsockopt(s, SOL_SOCKET, SO_ERROR, &so_error, &len) < 0)
+        return -1;
+    if (so_error != 0) {
+        errno = so_error;
+        return -1;
+    }
+
+    fcntl(s, F_SETFL, flags);
     return 0;
-}  
+}
 
 int 
 rd_select_(int rd, struct timeval *timeout)

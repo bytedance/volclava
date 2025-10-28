@@ -6,15 +6,16 @@
 int qmbdAliveTime = DEF_QMBD_ALIVE_TIME;
 int qmbdThreadNum = DEF_THREAD_NUM;
 int qmbdMaxTaskNum = DEF_THREADPOLL_MAX_TASK;
-static struct threadPool_t*  pool = NULL;
+extern threadPool_t*  pool;
 static int qmbdDie = 0;                             /*Flag to indicate qmbd should exit after processing remaining requests*/
 
 static int qmbdInit();                              
 static void closeClient();                          
-static void addReadyClientsToTaskQueue();           
-static void processClientWithQueryReq(void *arg);   
+static void clientIO();      
+static void processClientWithQueryReq(struct clientNode* client);   
 static void qmbdDieAlarmHandler (int sig);          
-static void acceptConnection(int socket);           
+static void acceptConnection(int socket);       
+static void* processRequest(void* arg); 
 
 /*
  * Start the qmbd daemon process and handle client requests
@@ -79,11 +80,11 @@ int startqmbd(int *qmbdPid){
         timeout.tv_sec  = 0;
         timeout.tv_usec = 0;
 
-        if (querySock != -1 && chanEventsReady(querySock, EPOLLIN)) {
+        if (querySock != -1 && chanEventsReady(querySock, EPOLL_EVENTS_READ)) {
             acceptConnection(querySock);
         }
 
-        addReadyClientsToTaskQueue();
+        clientIO();
 
     } /* for (;;) */
     destroyThreadPool(pool);
@@ -93,7 +94,7 @@ int startqmbd(int *qmbdPid){
 }
 
 /*
- * Close clients in CLIENT_STATE_CLOSEING state
+ * Close clients in CLIENT_STATE_PROCESS_FINISHED state or not in CLIENT_STATE_THREAD_PROCESSING state and channel event is EPOLL_EVENTS_ERROR
  * Delays closing to avoid thread safety issues with concurrent operations
  */
 static 
@@ -104,59 +105,59 @@ void closeClient(){
          cliPtr != clientList;
          cliPtr = nextClient) {
         nextClient = cliPtr->forw;
-        if(cliPtr->state == CLIENT_STATE_CLOSEING){
+        if((chanEventsReady(cliPtr->chanfd, EPOLL_EVENTS_ERROR)&& !cliPtr->state == CLIENT_STATE_THREAD_PROCESSING) || cliPtr->state == CLIENT_STATE_PROCESS_FINISHED){
             shutDownClient(cliPtr);
         }
     }
 }
 
 /*
- * Thread function to process client query requests
- * Parses XDR-encoded request data, dispatches to appropriate handlers based on request type,
- * and manages client connection state after processing
- * @param[in] arg: Pointer to struct clientNode representing the client connection
+ * Handles query requests from a client
+ * Parses request data, identifies request type, and dispatches tasks to thread pool or creates threads
+ * @param[in] client: Pointer to the client node needing query request processing
  */
-static void 
-processClientWithQueryReq(void *arg) {
-    static char          fname[]="processClientWithQueryReq()";
+static void processClientWithQueryReq(struct clientNode *client) {
+    static char          fname[] = "processClientWithQueryReq()";
     struct Buffer        *buf;
     mbdReqType           mbdReqtype;
     int                  s;
-    int                  cc = LSBE_NO_ERROR;
     unsigned int         len;
     struct sockaddr_in   from;
-    struct sockaddr_in   laddr;
-    socklen_t            laddrLen = sizeof(laddr);
-    struct lsfAuth       auth;
     struct LSFHeader     reqHdr;
-    XDR                  xdrs;
-    struct clientNode    *client;
-    int                  needfree = FALSE;
+    XDR*                 xdrs = NULL;
+    RequestContext*      req = NULL;
     
-    if (logclass & LC_TRACE)
-        ls_syslog(LOG_DEBUG,"processClientWithQueryReq: Entering...");
-
-    client = (struct clientNode *)arg;
-    memset(&auth, 0, sizeof(auth));
     s = client->chanfd;
+    from = client->from;
+    if (logclass & LC_TRACE)
+        ls_syslog(LOG_DEBUG, "processClientWithQueryReq: Entering...");
 
-    if (chanDequeue_(client->chanfd, &buf) < 0) {
+    if (chanDequeue_(s, &buf) < 0) {
         ls_syslog(LOG_ERR, I18N_FUNC_FAIL_ENO_D, fname, "chanDequeue_", cherrno);
-        client->state = CLIENT_STATE_CLOSEING;
+        client->state = CLIENT_STATE_PROCESS_FINISHED;
+        return;
+    }
+
+    xdrs = (XDR*)malloc(sizeof(XDR));
+    if (!xdrs) {
+        ls_syslog(LOG_ERR, "%s: Memory allocation failed for XDR", fname);
+        chanFreeBuf_(buf);
+        client->state = CLIENT_STATE_PROCESS_FINISHED;
+        return;
+    }
+    xdrmem_create(xdrs, buf->data, buf->len, XDR_DECODE);
+    
+    if (!xdr_LSFHeader(xdrs, &reqHdr)) {
+        ls_syslog(LOG_ERR, I18N_FUNC_FAIL, fname, "xdr_LSFHeader");
+        xdr_destroy(xdrs);
+        free(xdrs);
+        chanFreeBuf_(buf);
+        client->state = CLIENT_STATE_PROCESS_FINISHED;
+        return;
     }
     
-    xdrmem_create(&xdrs, buf->data, buf->len, XDR_DECODE);
-    if (!xdr_LSFHeader(&xdrs, &reqHdr)) {
-        ls_syslog(LOG_ERR, I18N_FUNC_FAIL, fname, "xdr_LSFHeader");
-        xdr_destroy(&xdrs);
-        chanFreeBuf_(buf);
-        client->state = CLIENT_STATE_CLOSEING;
-        return ;
-    }
-
     len = reqHdr.length;
     mbdReqtype = reqHdr.opCode;
-    from = client->from;
 
     if (logclass & (LC_COMM | LC_TRACE)) {
         ls_syslog(LOG_DEBUG, 
@@ -164,93 +165,128 @@ processClientWithQueryReq(void *arg) {
                  fname, mbdReqtype, client->fromHost, sockAdd2Str_(&from), s);
     }
 
-    if (getsockname(chanSock_(s), (struct sockaddr *)&laddr, &laddrLen) == -1) {
-        ls_syslog(LOG_ERR, I18N_FUNC_FAIL_M, fname, "getsockname");
-        errorBack(s, LSBE_PROTOCOL, &from);
-        goto endLoop;
-    }
-
+    client->state = CLIENT_STATE_WAITING_THREAD;
     switch (mbdReqtype) {
         case BATCH_QUE_INFO:
-            TIMEIT(3, do_queueInfoReq(&xdrs, s, &from, &reqHdr), "do_queueInfoReq()");
+            {
+                req = malloc(sizeof(RequestContext));
+                if (!req) {
+                    errorBack(s, LSBE_NO_MEM, &from);
+                    xdr_destroy(xdrs);
+                    free(xdrs);
+                    chanFreeBuf_(buf);
+                    break;
+                }
+                req->xdr = xdrs;
+                req->buf = buf;
+                req->reqHdr = reqHdr;
+                req->client = client;
+                req->schedule = 0;
+                req->byQmbd = 0;
+                addTaskToThreadPool(pool, processRequest, req);
+            }
             break;
-            
+
         case BATCH_JOB_INFO:
-            TIMEIT(3, do_jobInfoReq(&xdrs, s, &from, &reqHdr, 0, 1), "do_jobInfoReq()");
+            {
+                req = malloc(sizeof(RequestContext));
+                if (!req) {
+                    errorBack(s, LSBE_NO_MEM, &from);
+                    xdr_destroy(xdrs);
+                    free(xdrs);
+                    chanFreeBuf_(buf);
+                    break;
+                }
+                req->xdr = xdrs;
+                req->buf = buf;
+                req->reqHdr = reqHdr;
+                req->client = client;
+                req->schedule = 0;
+                req->byQmbd = 1;
+                createAndRunThread(processRequest, req);
+                //addTaskToThreadPool(pool, processRequest, req);
+            }
             break;
-        // case BATCH_JOB_PEEK:
-        //     TIMEIT(0, do_jobPeekReq(&xdrs, s, &from, client->fromHost, &reqHdr, &auth), "do_jobPeekReq()");
-        //     break;
-            
-        // case BATCH_USER_INFO:
-        //     TIMEIT(0, do_userInfoReq(&xdrs, s, &from, &reqHdr), "do_userInfoReq()");
-        //     break;
-            
-        // case BATCH_PARAM_INFO:
-        //     TIMEIT(0, do_paramInfoReq(&xdrs, s, &from, &reqHdr), "do_paramInfoReq()");
-        //     break;
-            
-        // case BATCH_GRP_INFO:
-        //     TIMEIT(3, do_groupInfoReq(&xdrs, s, &from, &reqHdr), "do_groupInfoReq()");
-        //     break;
-            
-        // case BATCH_HOST_INFO:
-        //     TIMEIT(3, do_hostInfoReq(&xdrs, s, &from, &reqHdr), "do_hostInfoReq()");
-        //     break;
-            
-        // case BATCH_RESOURCE_INFO:
-        //     TIMEIT(3, do_resourceInfoReq(&xdrs, s, &from, &reqHdr), "do_resourceInfoReq()");
-        //     break;
             
         default:
             errorBack(s, LSBE_PROTOCOL, &from);
             ls_syslog(LOG_ERR, "%s: Unsupported request type %d from host %s",
                       fname, mbdReqtype, sockAdd2Str_(&from));
+            xdr_destroy(xdrs);
+            free(xdrs);
+            chanFreeBuf_(buf);
+            client->state = CLIENT_STATE_PROCESS_FINISHED;
+            client->lastTime = now;
+            client->reqType =mbdReqtype;
             break;
     }
-
-endLoop:
-    client->reqType = mbdReqtype;
-    client->lastTime = now;
-    xdr_destroy(&xdrs);
-    chanFreeBuf_(buf);
-    client->state = CLIENT_STATE_CLOSEING;
-    return ;
+    return;
 }
 
 /*
- * Add clients with ready I/O events to the thread pool task queue
- * Iterates through client list, checks for ready events (EPOLLIN/EPOLLERR),
- * and dispatches processing tasks for active clients
+ * Executes client requests in threads
+ * Calls corresponding request handlers based on opcode, releases resources, and updates client state
+ * @param[in] arg: Pointer to RequestContext storing request details
+ */
+static void* processRequest(void* arg) {
+    int ret;
+    RequestContext* req = (RequestContext*)arg;
+    req->client->state = CLIENT_STATE_THREAD_PROCESSING;
+    switch (req->reqHdr.opCode) {
+        case BATCH_QUE_INFO:
+            ret = do_queueInfoReq(req->xdr, req->client->chanfd, &req->client->from, &req->reqHdr);
+            break;
+            
+        case BATCH_JOB_INFO:
+            ret = do_jobInfoReq(req->xdr, req->client->chanfd, &req->client->from, &req->reqHdr,req->schedule, req->byQmbd);
+            break;
+            
+        default:
+            ret = -1;
+            break;
+    }
+    
+    xdr_destroy(req->xdr);
+    chanFreeBuf_(req->buf);
+    req->client->state = CLIENT_STATE_PROCESS_FINISHED;
+    req->client->reqType = req->reqHdr.opCode;
+    req->client->lastTime = now;
+    return NULL;
+}
+
+/*
+ * Processes IO events for all clients in the list
+ * Handles channel errors, triggers request processing on read events, and closes invalid clients
  */
 static void 
-addReadyClientsToTaskQueue(){
+clientIO(){
     struct clientNode *cliPtr;
     struct clientNode *nextClient;
     if (logclass & LC_TRACE)
-        ls_syslog(LOG_DEBUG,"addReadyClientsToTaskQueue: Entering...");
+        ls_syslog(LOG_DEBUG,"clientIO: Entering...");
 
     for (cliPtr = clientList->forw;
          cliPtr != clientList;
          cliPtr = nextClient) {
         nextClient = cliPtr->forw;
-        if(cliPtr->state != CLIENT_STATE_ACTIVATE) {
-            if(cliPtr->state == CLIENT_STATE_CLOSEING){
-                shutDownClient(cliPtr);
-            }
-            continue;
-        }
-        if (chanEventsReady(cliPtr->chanfd, EPOLLERR)) {
-            cliPtr->state = CLIENT_STATE_CLOSEING;
+        if((chanEventsReady(cliPtr->chanfd, EPOLL_EVENTS_ERROR)&& !cliPtr->state == CLIENT_STATE_THREAD_PROCESSING)){
             shutDownClient(cliPtr);
             continue;
         }
-        if (chanEventsReady(cliPtr->chanfd, EPOLLIN)) {
-            cliPtr->state = CLIENT_STATE_PROCESSING;
+
+        if(cliPtr->state == CLIENT_STATE_CONNECTED){
+            if (chanEventsReady(cliPtr->chanfd, EPOLL_EVENTS_READ)) {
+            cliPtr->state = CLIENT_STATE_WAITING_THREAD;
             if (logclass & (LC_TRACE | LC_COMM))
                 ls_syslog(LOG_DEBUG,"Task append chfd is %d,from %s",cliPtr->chanfd,sockAdd2Str_(&cliPtr->from));
-            addTaskToThreadPool(pool, processClientWithQueryReq, (void *)cliPtr);
+            processClientWithQueryReq(cliPtr);
         }
+        } else if(cliPtr->state == CLIENT_STATE_WAITING_THREAD || cliPtr->state == CLIENT_STATE_THREAD_PROCESSING){
+            continue;
+        } else{
+            shutDownClient(cliPtr);
+        }
+        
 
     }
 }
@@ -375,7 +411,7 @@ acceptConnection(int socket)
     client->fromHost = safeSave(hp->h_name);
     client->reqType = 0;
     client->lastTime = 0;
-    client->state = CLIENT_STATE_ACTIVATE;
+    client->state = CLIENT_STATE_CONNECTED;
 
     inList((struct listEntry *)clientList,
         (struct listEntry *) client);

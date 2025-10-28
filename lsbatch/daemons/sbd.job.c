@@ -157,7 +157,6 @@ job_exec(struct jobCard *jobCardPtr, int chfd)
     }
 
     if (pid == 0) {
-        chanCloseEpoll();
         closeBatchSocket();
         sbdChildCloseChan (chfd);
         execJob(jobCardPtr, chfd);
@@ -1079,7 +1078,6 @@ job_finish (struct jobCard *jobCard, int report)
         }
 
         if (pid == 0) {
-            chanCloseEpoll();
             closeBatchSocket();
             finishJob(jobCard);
             return(0);
@@ -3590,7 +3588,6 @@ runUPre(struct jobCard *jp)
     }
 
     if (pid == 0) {
-        chanCloseEpoll();
         closeBatchSocket();
         if (getuid() == batchId) {
 
@@ -3634,7 +3631,6 @@ runUPost(struct jobCard *jp)
     }
 
     if (pid == 0) {
-        chanCloseEpoll();
         closeBatchSocket();
         if (getuid() == batchId) {
 

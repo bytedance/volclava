@@ -3,7 +3,6 @@
 
 #include <pthread.h> 
 #include <stdbool.h> 
-#include "lsb.h" 
 
 typedef struct { 
     void (*function)(void *);  /* Task function pointer */ 
@@ -27,5 +26,5 @@ typedef struct {
 threadPool_t *createThreadPool(int threadCount, int queueSize); 
 int addTaskToThreadPool(threadPool_t *pool, void (*function)(void *), void *arg); 
 void destroyThreadPool(threadPool_t *pool); 
-
+void createAndRunThread(void (*function)(void*), void* arg);
 #endif /* LSB_THREAD_POOL_H */

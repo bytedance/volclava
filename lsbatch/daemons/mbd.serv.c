@@ -204,18 +204,22 @@ do_jobInfoReq(XDR *xdrs,
 
     xdr_lsffree(xdr_jobInfoReq, (char *) &jobInfoReq, reqHdr);
 
-    jobInfoHead.numJobs = listSize ;
+    jobInfoHead.numJobs = listSize;
     if(byQmbd && syncNewJobs){
         jobInfoHead.numJobs += newJobCount;
     }
     if (jobInfoHead.numJobs > 0)
-        jobInfoHead.jobIds = my_calloc(listSize,
+        jobInfoHead.jobIds = my_calloc(jobInfoHead.numJobs,
                                        sizeof(LS_LONG_INT), fname);
     for (i = 0; i < listSize; i++){
         if (!jgrplist[i].isJData)
             jobInfoHead.jobIds[i] = 0;
         else
             jobInfoHead.jobIds[i] = ((struct jData *)jgrplist[i].info)->jobId;
+    }
+
+    for (i = listSize; i < jobInfoHead.numJobs; i++){
+        jobInfoHead.jobIds[i] = jobReplyXdrList[i-listSize]->meta.jobId;
     }
 
     i = jobInfoHead.numHosts = 0;
@@ -263,7 +267,7 @@ do_jobInfoReq(XDR *xdrs,
             return(-1);
         }
     }
-    FREEUP (reply_buf);
+    FREEUP (reply_buf); 
 
     xdr_destroy(&xdrs2);
     freeJobHead (&jobInfoHead);
@@ -289,15 +293,12 @@ do_jobInfoReq(XDR *xdrs,
             FREEUP (jgrplist);
             return(-1);
         }
-
-        {
-            if (chanWriteTimeout_(chfd, buf, len, DEF_WRITE_TIMEOUT) != len) {
-                ls_syslog(LOG_ERR, I18N_FUNC_FAIL_M, fname, "chanWrite_");
-                ls_syslog(LOG_ERR, "job %d",i);
-                FREEUP(buf);
-                FREEUP (jgrplist);
-                return(-1);
-            }
+        if (chanWriteTimeout_(chfd, buf, len, DEF_WRITE_TIMEOUT) != len) {
+            ls_syslog(LOG_ERR, I18N_FUNC_FAIL_M, fname, "chanWrite_");
+            ls_syslog(LOG_ERR, "job %d",i);
+            FREEUP(buf);
+            FREEUP (jgrplist);
+            return(-1);
         }
         FREEUP(buf);
     }
@@ -1507,7 +1508,7 @@ do_queueInfoReq(XDR *xdrs,
     if (chanWrite_(chfd, reply_buf, XDR_GETPOS(&xdrs2)) <= 0) {
         ls_syslog(LOG_ERR, "\
 %s: failed write() %d bytes to %s", __func__,
-                  XDR_GETPOS(&xdrs2), sockAdd2Str_(from));
+        XDR_GETPOS(&xdrs2), sockAdd2Str_(from));
         freeQueueInfoReply(&qInfoReply, replyStruct);
         FREEUP(reply_buf);
         xdr_destroy(&xdrs2);
@@ -2121,7 +2122,7 @@ doNewJobReply(struct sbdNode *sbdPtr, int exception)
 
             replyBuf->len = LSF_HEADER_LEN;
 
-            if (chanEnqueue_(sbdPtr->chanfd, replyBuf) < 0) {
+            if (chanEnqueue_(sbdPtr->chanfd, replyBuf, 1) < 0) {
                 ls_syslog(LOG_ERR, I18N_FUNC_FAIL_M, fname, "chanEnqueue");
                 chanFreeBuf_(replyBuf);
             } else {

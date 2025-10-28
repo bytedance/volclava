@@ -1899,7 +1899,6 @@ jobFileExitStatus(struct jobCard *jobCard)
         jobCard->exitPid = pid;
         return;
     }
-    chanCloseEpoll();
 
     jobCard->w_status = -1;
 

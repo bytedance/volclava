@@ -53,6 +53,7 @@ struct Buffer {
     int    pos;
     int    len;
     int stashed;
+    int freeDataAfterSend;
 };
 
 struct Masks {
@@ -61,6 +62,12 @@ struct Masks {
     fd_set emask;
 };
 
+typedef enum {
+    EPOLL_EVENTS_NONE  = 0,
+    EPOLL_EVENTS_READ  = 1,
+    EPOLL_EVENTS_WRITE = 2,
+    EPOLL_EVENTS_ERROR = 4
+} epoll_events_t;
 struct chanData {
     int  handle;		
     enum chanType type;
@@ -70,15 +77,11 @@ struct chanData {
     struct Buffer *send;
     struct Buffer *recv;
 
-    int listenEvents;               /*Events being listened to on the channel*/
-    int readyEvents;                /*Ready events reported by the channel to the upper layer*/
+    int listenEvents;
+    epoll_events_t readyEvents;                /*Ready events reported by the channel to the upper layer*/
 
 };
 
-struct chanEpollData {
-    struct epoll_event *events;
-    int epollfd;
-};
 
 #define  CHANE_NOERR      0
 #define  CHANE_CONNECTED  1
@@ -92,11 +95,7 @@ struct chanEpollData {
 #define  CHANE_BADCHFD    9
 #define  CHANE_NOMSG      10
 #define  CHANE_CONNRESET  11
-
-struct handleData {
-    int chanIndex;
-    struct chanData *channel;
-};
+#define  CHANE_EPOLLFAIL  12
 
 
 int chanInit_(void);
@@ -106,7 +105,7 @@ int chanInit_(void);
 #define chanRecv_  chanDequeue_
 
 int chanOpen_(u_int, u_short, int);
-int chanEnqueue_(int chfd, struct Buffer *buf);
+int chanEnqueue_(int chfd, struct Buffer *buf, int);
 int chanDequeue_(int chfd, struct Buffer **buf);
 
 int chanSelect_(struct Masks *, struct Masks *, struct timeval *timeout);
@@ -114,7 +113,6 @@ int chanEpoll_(int **, struct timeval *timeout);
 int chanClose_(int chfd);
 void chanCloseAll_(void);
 int chanSock_(int chfd);
-int sockChan_(int sockfd);
 
 int chanServSocket_(int, u_short, int, int);
 int chanAccept_(int, struct sockaddr_in *);
@@ -142,8 +140,11 @@ void chanCloseEpoll();
 
 extern int chanIndex;
 extern int cherrno;
-
-int chanEpollInit();
+extern struct epoll_event *epoll_events;
+extern int chanEpollInit();
+extern int chanRegisterEpoll_(int, uint32_t);
+extern int chanUpdateListenEvents(int, uint32_t);
+extern int chanUnRegisterEpoll_(int);
 
 #endif
 

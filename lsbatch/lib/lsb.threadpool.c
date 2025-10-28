@@ -3,6 +3,7 @@
 #include <string.h> 
 #include <errno.h> 
 
+threadPool_t *pool = NULL;
 /*
  * Worker thread function for the thread pool
  * Loops to retrieve tasks from the task queue and execute them; exits when the pool shuts down
@@ -145,3 +146,25 @@ void destroyThreadPool(threadPool_t *pool) {
     pthread_cond_destroy(&pool->notFull); 
     free(pool); 
 } 
+
+/*
+ * Create a detached thread to run the specified function with given argument
+ * Initializes thread attributes, sets detached state, creates thread, handles errors, and cleans up attributes
+ * @param[in] function: Function to be executed by the thread
+ * @param[in] arg: Argument passed to the function
+ */
+void createAndRunThread(void (*function)(void*), void* arg) {
+    pthread_t thread;
+    pthread_attr_t attr;
+    
+    pthread_attr_init(&attr);
+    pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
+    
+    if (pthread_create(&thread, &attr, (void*(*)(void*))function, arg) != 0) {
+        perror("pthread_create");
+        pthread_attr_destroy(&attr);
+        return;
+    }
+    
+    pthread_attr_destroy(&attr);
+}

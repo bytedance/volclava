@@ -378,11 +378,11 @@ Reading configuration from %s/lsf.conf\n", env_dir);
             continue;
         }
 
-        if (chanEventsReady(limSock, EPOLLIN)) {
+        if (chanEventsReady(limSock, EPOLL_EVENTS_READ)) {
             processUDPMsg();
         }
 
-        if (chanEventsReady(limTcpSock, EPOLLIN)) {
+        if (chanEventsReady(limTcpSock, EPOLL_EVENTS_READ)) {
             doAcceptConn();
         }
 

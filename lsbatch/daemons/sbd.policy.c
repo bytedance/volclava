@@ -1171,7 +1171,6 @@ rmJobBufFilesPid(struct jobCard *jp)
 
     
     
-    chanCloseEpoll();
     closeBatchSocket();
     putEnv(LS_EXEC_T, "END");    
 
@@ -1216,7 +1215,6 @@ cleanupMigJob(struct jobCard *jp)
 
     
     
-    chanCloseEpoll();
     closeBatchSocket();
     putEnv(LS_EXEC_T, "END");
     

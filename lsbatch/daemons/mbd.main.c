@@ -168,6 +168,7 @@ static struct jData *jobData = NULL;
 static time_t lastSchedTime = 0;
 static time_t nextSchedTime = 0;
 static int qmbdAlive = 0;   /*Current status of qmbd, 1 means started, 0 means not started*/
+static int qmbdStatus = 0;  /*record the exit status of the qmbd process from its last exit*/
 static int qmbdPid = 0;     /*PID corresponding to qmbd*/
 
 void setJobPriUpdIntvl(void);
@@ -428,6 +429,9 @@ main (int argc, char **argv)
     setJobPriUpdIntvl();
     for (;;) {
         if(forkQmbd == 1 && qmbdAlive == 0){
+            if(qmbdStatus != 0){
+                ls_syslog(LOG_ERR, "mbatchd: qmbd exit with %d",qmbdStatus);
+            }
             qmbdAlive = 1;
             startqmbd(&qmbdPid);
         }
@@ -491,7 +495,7 @@ main (int argc, char **argv)
         timeout.tv_sec  = 0;
         timeout.tv_usec = 0;
 
-        if (chanEventsReady(batchSock, EPOLLIN)) {
+        if (chanEventsReady(batchSock, EPOLL_EVENTS_READ)) {
             acceptConnection(batchSock);
         }
 
@@ -564,10 +568,9 @@ clientIO()
          sbdPtr != &sbdNodeList;
          sbdPtr = nextSbdPtr) {
         nextSbdPtr = sbdPtr->forw;
-        if (chanEventsReady(sbdPtr->chanfd, EPOLLIN)
-            || chanEventsReady(sbdPtr->chanfd, EPOLLERR)) {
-
-            if (chanEventsReady(sbdPtr->chanfd, EPOLLERR))
+        if (chanEventsReady(sbdPtr->chanfd, EPOLL_EVENTS_READ|EPOLL_EVENTS_ERROR))
+        {
+            if (chanEventsReady(sbdPtr->chanfd, EPOLL_EVENTS_ERROR))
                 exception = TRUE;
             else
                 exception = FALSE;
@@ -581,19 +584,19 @@ clientIO()
          cliPtr = nextClient) {
         int needFree;
         nextClient = cliPtr->forw;
-        if (chanEventsReady(cliPtr->chanfd, EPOLLERR)) {
+        if (chanEventsReady(cliPtr->chanfd, EPOLL_EVENTS_ERROR)) {
 
             shutDownClient(cliPtr);
             continue;
         }
         needFree = FALSE;
-        if (chanEventsReady(cliPtr->chanfd, EPOLLIN)) {
+        if (chanEventsReady(cliPtr->chanfd, EPOLL_EVENTS_READ)) {
 
             int saveChfd;
             saveChfd = cliPtr->chanfd;
             if (processClient(cliPtr, &needFree) == 0) {
 
-                chanQuitReadyEvents(saveChfd, EPOLLIN);
+                chanQuitReadyEvents(saveChfd, EPOLL_EVENTS_READ);
                 if (needFree == TRUE) {
                     offList((struct listEntry *)cliPtr);
                     FREEUP(cliPtr->fromHost);
@@ -1069,8 +1072,7 @@ child_handler (int sig)
     while ((pid = waitpid(-1, &status, WNOHANG)) > 0){
         if(pid == qmbdPid && qmbdAlive == 1){
             qmbdAlive = 0;
-            if(status != 0)
-                ls_syslog(LOG_ERR,"qmbd exit with %d",status);
+            qmbdStatus = status;
         }
     }
 
@@ -1418,14 +1420,9 @@ static void jdataToMeta(struct jData* jp, struct cachedJobMeta* meta) {
  * 
  * @param jobData  Pointer to job data (struct jData) to be written
  * @param shm      Pointer to shared memory structure (struct sharedJobStore)
- * @return 0 on success; -1 if packJobInfo fails; -2 if insufficient shared memory space
+ * @return 0 on success; -1 if packJobInfo fails; -2 if insufficient shared memory space or XDR data too large
  */
 static int WriteJobInfoToShm(struct jData* jobData, struct sharedJobStore* shm) {
-    if (!jobData || !shm) {
-        ls_syslog(LOG_ERR, "mbd: Invalid input (jobData/shm is NULL)");
-        return -1;
-    }
-
     char* packBuf = NULL; 
     int packLen = 0;
     
@@ -1457,8 +1454,9 @@ static int WriteJobInfoToShm(struct jData* jobData, struct sharedJobStore* shm) 
     memcpy(currUnit->xdrBuf, packBuf, packLen);
 
     shm->writeIdx++;
-    ls_syslog(LOG_DEBUG,"mbd: Job %lld written to shm unit %d (XDR len=%d), writeIdx=%d", 
-           (long long)jobData->jobId, currIdx, packLen, shm->writeIdx);
+    if(logclass & LC_TRACE)
+        ls_syslog(LOG_DEBUG,"mbd: Job %lld written to shm unit %d (XDR len=%d), writeIdx=%d", 
+                (long long)jobData->jobId, currIdx, packLen, shm->writeIdx);
 
     free(packBuf);
     return 0;

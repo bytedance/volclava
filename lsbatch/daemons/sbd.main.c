@@ -408,12 +408,12 @@ main (int argc, char **argv)
 	houseKeeping();
 
 	if (logclass & LC_COMM)
-	    ls_syslog(LOG_DEBUG3, "Into select");
+	    ls_syslog(LOG_DEBUG3, "Into epoll");
 
         nready = chanEpoll_(&readyChans, &timeout);
 
 	if (logclass & LC_COMM)
-	    ls_syslog(LOG_DEBUG3, "Out of select: nready=%d", nready);
+	    ls_syslog(LOG_DEBUG3, "Out of epoll: nready=%d", nready);
 
         now = time(0);
         if (nready < 0) {
@@ -442,18 +442,18 @@ main (int argc, char **argv)
             continue;
         }
 
-	if (statusChan >= 0 && (chanEventsReady(statusChan,EPOLLIN) ||
-				chanEventsReady(statusChan,EPOLLERR))) {
+	if (statusChan >= 0 && (chanEventsReady(statusChan,EPOLL_EVENTS_READ) ||
+				chanEventsReady(statusChan,EPOLL_EVENTS_ERROR))) {
 
 	    if (logclass & LC_COMM)
 		ls_syslog(LOG_DEBUG,
-			  "main: Exception on statusChan <%d>, EPOLLIN %s",
-			  statusChan, chanEventsReady(statusChan,EPOLLIN) ? "yes" : "no");
+			  "main: Exception on statusChan <%d>, EPOLL_EVENTS_READ %s",
+			  statusChan, chanEventsReady(statusChan,EPOLL_EVENTS_READ) ? "yes" : "no");
 	    chanClose_(statusChan);
 	    statusChan = -1;
 	}
 
-    if (!chanEventsReady(batchSock,EPOLLIN)) {
+    if (!chanEventsReady(batchSock,EPOLL_EVENTS_READ)) {
 	    ls_syslog(LOG_DEBUG,"main: connection already known");
         clientIO();
 	    continue;
@@ -504,14 +504,13 @@ clientIO()
 
     for(cliPtr=clientList->forw; cliPtr != clientList; cliPtr=nextClient) {
         nextClient = cliPtr->forw;
-        if (chanEventsReady(cliPtr->chanfd, EPOLLERR)) {
-
+        if (chanEventsReady(cliPtr->chanfd, EPOLL_EVENTS_ERROR)) {
             shutDownClient(cliPtr);
             continue;
         }
 
-        if (chanEventsReady(cliPtr->chanfd, EPOLLIN)) {
-	    processMsg(cliPtr);
+        if (chanEventsReady(cliPtr->chanfd, EPOLL_EVENTS_READ)) {
+	        processMsg(cliPtr);
         }
 
     }
@@ -799,7 +798,6 @@ start_master(void)
 
 	sigemptyset(&newmask);
 	sigprocmask(SIG_SETMASK, &newmask, NULL);
-        chanCloseEpoll();
         closeBatchSocket();
 
 	execve(margv[0], margv, environ);

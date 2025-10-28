@@ -46,7 +46,7 @@ clientIO(int *chfds,int nReady)
         if (chfd == limSock || chfd == limTcpSock)
             continue;
 
-        if (chanEventsReady(chfd, EPOLLERR)) {
+        if (chanEventsReady(chfd, EPOLL_EVENTS_ERROR)) {
 
             if (clientMap[chfd])
                 ls_syslog(LOG_ERR, "\
@@ -57,7 +57,7 @@ clientIO(int *chfds,int nReady)
             continue;
         }
 
-        if (chanEventsReady(chfd, EPOLLIN)) {
+        if (chanEventsReady(chfd, EPOLL_EVENTS_READ)) {
             processMsg(chfd);
         }
     }
