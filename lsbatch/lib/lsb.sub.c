@@ -66,6 +66,9 @@
 #define EMBED_RESTART      0x10
 #define EMBED_QSUB         0x20
 
+#define MAX_ESUB_LIST 16
+#define MAX_APP_NAME 64
+
 #define PRINT_ERRMSG0(errMsg, fmt)\
     {\
 	if (errMsg == NULL)\
@@ -165,6 +168,9 @@ static int readOptFile(char *filename, char *childLine);
 
 static const LSB_SPOOL_INFO_T * chUserCopySpoolFile(const char * srcFile,
 				    spoolOptions_t fileType);
+
+static int split_app_list(const char* str, char arr[][MAX_APP_NAME], int max_count);
+static int is_executable(const char* path);
 
 extern void makeCleanToRunEsub();
 extern char *translateString(char *);
@@ -4791,6 +4797,76 @@ checkLimit(int limit, int factor)
         return TRUE;
 }
 
+
+static int aggregateFileContent(
+    const char *deltaFilePath, 
+    char **buffer, 
+    size_t *buffer_size) 
+{
+    static char fname[] = "aggregateFileContent";
+    FILE *fp;
+    long file_size;
+    char *file_content;
+    size_t new_size;
+    char *new_buffer;
+
+    if (access(deltaFilePath, R_OK) != 0) {
+        return 0;
+    }
+
+    fp = fopen(deltaFilePath, "r");
+    if (fp == NULL) {
+        ls_syslog(LOG_WARNING, "%s: Cannot open delta file %s: %m", fname, deltaFilePath);
+        unlink(deltaFilePath);
+        return 0;
+    }
+
+    fseek(fp, 0, SEEK_END);
+    file_size = ftell(fp);
+    fseek(fp, 0, SEEK_SET);
+
+    if (file_size > 0) {
+        file_content = (char *)malloc(file_size + 1);
+        if (file_content == NULL) {
+            ls_syslog(LOG_ERR, "%s: Failed to allocate memory to read delta file %s", fname, deltaFilePath);
+            fclose(fp);
+            unlink(deltaFilePath);
+            return -1;
+        }
+
+        if (fread(file_content, 1, file_size, fp) != file_size) {
+            ls_syslog(LOG_WARNING, "%s: Short read from delta file %s", fname, deltaFilePath);
+            free(file_content);
+            fclose(fp);
+            unlink(deltaFilePath);
+            return 0;
+        }
+        file_content[file_size] = '\0';
+
+        new_size = *buffer_size + file_size;
+        new_buffer = (char *)realloc(*buffer, new_size + 1);
+        if (new_buffer == NULL) {
+            ls_syslog(LOG_ERR, "%s: Failed to reallocate aggregation buffer", fname);
+            free(file_content);
+            fclose(fp);
+            unlink(deltaFilePath);
+            return -1;
+        }
+        
+        memcpy(new_buffer + *buffer_size, file_content, file_size);
+        *buffer = new_buffer;
+        *buffer_size = new_size;
+        (*buffer)[*buffer_size] = '\0';
+
+        free(file_content);
+    }
+    
+    fclose(fp);
+    unlink(deltaFilePath);
+
+    return 0;
+}
+
 int
 runBatchEsub(struct lenData *ed, struct submit *jobSubReq, int esubPrintFD)
 {
@@ -4814,6 +4890,16 @@ runBatchEsub(struct lenData *ed, struct submit *jobSubReq, int esubPrintFD)
 #define LSB_SUB_COMMANDNAME 0
     struct config_param myParams[] = { {"LSB_SUB_COMMANDNAME", NULL},
                                        {NULL, NULL} };
+
+    char esub_path[MAXFILENAMELEN];
+    char* esub_method;
+    char *parmDeltaFile;
+    char *envDeltaFile;
+    char *aggregated_parms;
+    size_t aggregated_parms_size;
+    char *aggregated_envs;
+    size_t aggregated_envs_size;
+    extern char* additionEsubInfo;
 
 
 
@@ -5129,36 +5215,120 @@ char ch, next, *tmp_str=NULL; \
     putEnv("LSB_SUB_ABORT_VALUE", "97");
     putEnv("LSB_SUB_PARM_FILE", parmFile);
 
-    if ((cc = runEsub_(ed, NULL, esubPrintFD)) < 0) {
-	if (logclass & LC_TRACE)
-	    ls_syslog(LOG_DEBUG, "%s: runEsub_() failed %d: %M", fname, cc);
-	if (cc == -2) {
-            char *deltaFileName=NULL;
-            struct stat stbuf;
+    cc = 0;
+    esub_method = getenv("LSB_ESUB_METHOD");
+    parmDeltaFile = getenv("LSB_SUB_MODIFY_FILE");
+    envDeltaFile = getenv("LSB_SUB_MODIFY_ENVFILE");
 
-	    lsberrno = LSBE_ESUB_ABORT;
-	    unlink(parmFile);
+    aggregated_parms = (char *)malloc(1);
+    if (aggregated_parms) aggregated_parms[0] = '\0';
+    aggregated_parms_size = 0;
 
+    aggregated_envs = (char *)malloc(1);
+    if (aggregated_envs) aggregated_envs[0] = '\0';
+    aggregated_envs_size = 0;
 
-            if( (deltaFileName=getenv("LSB_SUB_MODIFY_FILE")) != NULL )
-            {
-                if(stat(deltaFileName, &stbuf)!=ENOENT)
-               	    unlink(deltaFileName);
-            }
-
-            deltaFileName=NULL;
-            if( (deltaFileName=getenv("LSB_SUB_MODIFY_ENVFILE")) != NULL )
-            {
-                if(stat(deltaFileName, &stbuf)!=ENOENT)
-                    unlink(deltaFileName);
-            }
-	    return(-1);
-	}
+    if (!aggregated_parms || !aggregated_envs) {
+        lsberrno = LSBE_NO_MEM;
+        cc = -1;
+        goto cleanup_and_exit;
     }
 
-    unlink(parmFile);
+    if(!esub_method) {
+        struct config_param esubParam[] = { {"LSB_ESUB_METHOD", NULL}, {NULL, NULL} };
+        if (ls_readconfenv(esubParam, NULL) == 0 && esubParam[0].paramValue) {
+            setenv("LSB_ESUB_METHOD", esubParam[0].paramValue, 1);
+            esub_method = esubParam[0].paramValue;
+        }
+    }
 
-    return (0);
+    snprintf(esub_path, sizeof(esub_path), "%s/" ESUBNAME, lsbParams[LSB_SERVERDIR].paramValue);
+    if (is_executable(esub_path)) {
+        cc = runEsub_(ed, NULL);
+        if (cc >= 0) {
+            if (aggregateFileContent(parmDeltaFile, &aggregated_parms, &aggregated_parms_size) != 0) cc = -1;
+        }
+        if (cc >= 0) {
+            if (aggregateFileContent(envDeltaFile, &aggregated_envs, &aggregated_envs_size) != 0) cc = -1;
+        }
+        if (cc < 0) goto handle_esub_error;
+    }
+
+    if (esub_method && strlen(esub_method) > 0) {
+        char app_list[MAX_ESUB_LIST][MAX_APP_NAME];
+        int app_count = split_app_list(esub_method, app_list, MAX_ESUB_LIST);
+        int i;
+        for (i = 0; i < app_count; ++i) {
+            snprintf(esub_path, sizeof(esub_path), "%s/" ESUBNAME ".%s", lsbParams[LSB_SERVERDIR].paramValue, app_list[i]);            
+            if (is_executable(esub_path)) {
+                cc = runEsub_(ed, esub_path);
+                if (cc >= 0) {
+                    if (aggregateFileContent(parmDeltaFile, &aggregated_parms, &aggregated_parms_size) != 0) cc = -1;
+                }
+                if (cc >= 0) {
+                    if (aggregateFileContent(envDeltaFile, &aggregated_envs, &aggregated_envs_size) != 0) cc = -1;
+                }
+                if (cc < 0) goto handle_esub_error;
+            }
+        }
+    }
+
+    if (additionEsubInfo && strlen(additionEsubInfo) > 0) {
+        char app_list[MAX_ESUB_LIST][MAX_APP_NAME];
+        int app_count = split_app_list(additionEsubInfo, app_list, MAX_ESUB_LIST);
+        int i;
+        for (i = 0; i < app_count; ++i) {
+            snprintf(esub_path, sizeof(esub_path), "%s/" ESUBNAME ".%s", lsbParams[LSB_SERVERDIR].paramValue, app_list[i]);
+            if (is_executable(esub_path)) {
+                cc = runEsub_(ed, esub_path);
+                if (cc >= 0) {
+                    if (aggregateFileContent(parmDeltaFile, &aggregated_parms, &aggregated_parms_size) != 0) cc = -1;
+                }
+                if (cc >= 0) {
+                    if (aggregateFileContent(envDeltaFile, &aggregated_envs, &aggregated_envs_size) != 0) cc = -1;
+                }
+                if (cc < 0) goto handle_esub_error;
+            }
+        }
+    }
+
+    goto cleanup_and_exit;
+
+handle_esub_error:
+    if (logclass & LC_TRACE)
+        ls_syslog(LOG_DEBUG, "%s: runEsub_() or aggregation failed, cc=%d: %M", fname, cc);
+    if (cc == -2) {
+        lsberrno = LSBE_ESUB_ABORT;
+    }
+    goto cleanup_and_exit;
+
+cleanup_and_exit:
+    if (aggregated_parms_size > 0) {
+        FILE *final_parm_fp = fopen(parmDeltaFile, "w");
+        if (final_parm_fp) {
+            fwrite(aggregated_parms, 1, aggregated_parms_size, final_parm_fp);
+            fclose(final_parm_fp);
+        } else {
+             ls_syslog(LOG_ERR, "%s: Failed to write aggregated parm file %s: %m", fname, parmDeltaFile);
+             if (cc >= 0) cc = -1;
+        }
+    }
+    if (aggregated_envs_size > 0) {
+        FILE *final_env_fp = fopen(envDeltaFile, "w");
+        if (final_env_fp) {
+            fwrite(aggregated_envs, 1, aggregated_envs_size, final_env_fp);
+            fclose(final_env_fp);
+        } else {
+            ls_syslog(LOG_ERR, "%s: Failed to write aggregated env file %s: %m", fname, envDeltaFile);
+            if (cc >= 0) cc = -1;
+        }
+    }
+    
+    free(aggregated_parms);
+    free(aggregated_envs);
+    unlink(parmFile);
+    
+    return (cc < 0) ? -1 : 0;
 
 }
 
@@ -6097,4 +6267,69 @@ static void trimSpaces(char *str)
         *ptr = '\0';
         ptr--;
     }
+}
+
+static int split_app_list(const char* str, char arr[][MAX_APP_NAME], int max_count) {
+    int count = 0;
+    char *tmp;
+    char *token;
+    int has_long_token = 0;
+    
+    if (!str) return 0;
+    tmp = strdup(str);
+    if (!tmp) return 0;
+    
+    token = strtok(tmp, " ");
+    
+    while (token && count < max_count) {
+        size_t len = strlen(token);
+        if (len > MAX_APP_NAME - 1) {
+            if (!has_long_token) {
+                has_long_token = 1;
+                fprintf(stderr, "Warning: App name '%.*s...' exceeds max length %d, truncated to %d characters\n",
+                        (int)len > 40 ? 40 : (int)len, token, MAX_APP_NAME, MAX_APP_NAME - 1);
+            }
+        }
+        strncpy(arr[count], token, MAX_APP_NAME-1);
+        arr[count][MAX_APP_NAME-1] = '\0';
+        count++;
+        
+        if (count >= max_count) {
+            /* Check if there are more tokens remaining */
+            token = strtok(NULL, " ");
+            if (token) {
+                int skipped = 1;
+                while ((token = strtok(NULL, " ")) != NULL) {
+                    skipped++;
+                }
+                fprintf(stderr, "Warning: Too many apps specified, exceeding max count %d. %d app(s) skipped\n",
+                        max_count, skipped);
+            }
+            break;
+        } else {
+            token = strtok(NULL, " ");
+        }
+    }
+    
+    if (count > 0) {
+        int len0;
+        int last;
+        int lenLast;
+        
+        len0 = strlen(arr[0]);
+        if (len0 > 0 && (arr[0][0] == '"' || arr[0][0] == '\'')) {
+            memmove(arr[0], arr[0]+1, len0);
+        }
+        last = count - 1;
+        lenLast = strlen(arr[last]);
+        if (lenLast > 0 && (arr[last][lenLast-1] == '"' || arr[last][lenLast-1] == '\'')) {
+            arr[last][lenLast-1] = '\0';
+        }
+    }
+    free(tmp);
+    return count;
+}
+static int is_executable(const char* path) {
+    struct stat sbuf;
+    return (stat(path, &sbuf) == 0 && (sbuf.st_mode & (S_IXUSR | S_IXGRP | S_IXOTH)));
 }
