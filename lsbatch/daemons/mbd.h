@@ -813,6 +813,11 @@ struct  timeWindow {
 #define JOB_REQUE  2
 #define JOB_REPLAY 3
 
+/*Note: This state field is added to clientNode to avoid thread safety issues when operating on clientList in multi-threaded environments.
+It currently only takes effect for BATCH_JOB_INFO and BATCH_QUE_INFO.
+Sub-threads are responsible for setting the state, while the main thread checks the client's state and channel events,
+and removes the client from the list (offList) when the conditions are met.
+*/
 enum CLIENT_STATE{
     CLIENT_STATE_CONNECTED = 1,
     CLIENT_STATE_WAITING_THREAD = 2,

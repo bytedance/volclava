@@ -427,11 +427,6 @@ do_Param(struct lsConf *conf, char *fname, int *lineNum)
         {"RUN_TIME_FACTOR", NULL, 0},
         {"RUN_JOB_FACTOR", NULL, 0},
         {"HIST_HOURS", NULL, 0},
-        {"MBD_FORK_QMBD",NULL,0},
-        {"QMBD_SYNC_NEW_JOBS",NULL,0},
-        {"QMBD_ALIVE_TIME",NULL,0},
-        {"QMBD_THREAD_NUM",NULL,0},
-        {"QMBD_MAX_TASK_NUM",NULL,0},
         {NULL, NULL, 0}
 
     };
@@ -575,64 +570,6 @@ do_Param(struct lsConf *conf, char *fname, int *lineNum)
                  */
                 if (!isSlotResReserveSet) {
                     pConf->param->slotResourceReserve = pConf->param->resourcePerTask;
-                }
-            }
-            else if(i == 44){
-                if (strcasecmp(keylist[i].val, "Y") == 0) {
-                    pConf->param->forkQmbd = TRUE;
-                } else if (strcasecmp(keylist[i].val, "N") == 0) {
-                    pConf->param->forkQmbd = FALSE;
-                } else {
-                    ls_syslog(LOG_ERR, "%s: File %s in section Parameters ending at line %d:  unrecognizable value <%s> for the keyword MBD_FORK_QMBD; Default value N used.", pname, fname, *lineNum, keylist[i].val);
-                    pConf->param->forkQmbd = FALSE;
-                    lsberrno = LSBE_CONF_WARNING;
-                }
-            }
-            else if(i == 45){
-                if (strcasecmp(keylist[i].val, "Y") == 0) {
-                    pConf->param->syncNewJobs = TRUE;
-                } else if (strcasecmp(keylist[i].val, "N") == 0) {
-                    pConf->param->syncNewJobs = FALSE;
-                } else {
-                    ls_syslog(LOG_ERR, "%s: File %s in section Parameters ending at line %d:  unrecognizable value <%s> for the keyword QMBD_SYNC_NEW_JOBS; Default value N used.", pname, fname, *lineNum, keylist[i].val);
-                    pConf->param->syncNewJobs = FALSE;
-                    lsberrno = LSBE_CONF_WARNING;
-                }
-            }
-            else if(i == 46){
-                value = my_atoi(keylist[i].val, INFINIT_INT, 0);
-                if (value == INFINIT_INT){
-                    ls_syslog(LOG_ERR,I18N(5459,"\
-%s: File %s in section Parameters ending at line %d: Value <%s> of %s isn't a positive integer between 1 and %d; ignored"), pname, fname, *lineNum, keylist[i].val, keylist[i].key, INFINIT_INT - 1);  /* catgets 5459 */
-                    pConf->param->qmbdAliveTime = 10;
-                    lsberrno = LSBE_CONF_WARNING;
-                }
-                else{
-                    pConf->param->qmbdAliveTime = value;
-                }
-            }
-            else if(i == 47){
-                value = my_atoi(keylist[i].val, INFINIT_INT, 0);
-                if (value == INFINIT_INT){
-                    ls_syslog(LOG_ERR,I18N(5459,"\
-%s: File %s in section Parameters ending at line %d: Value <%s> of %s isn't a positive integer between 1 and %d; ignored"), pname, fname, *lineNum, keylist[i].val, keylist[i].key, INFINIT_INT - 1);  /* catgets 5459 */
-                    pConf->param->qmbdThreadNum = 8;
-                    lsberrno = LSBE_CONF_WARNING;
-                }
-                else{
-                    pConf->param->qmbdThreadNum = value;
-                }
-            }
-            else if(i == 48){
-                value = my_atoi(keylist[i].val, INFINIT_INT, 0);
-                if (value == INFINIT_INT){
-                    ls_syslog(LOG_ERR,I18N(5459,"\
-%s: File %s in section Parameters ending at line %d: Value <%s> of %s isn't a positive integer between 1 and %d; ignored"), pname, fname, *lineNum, keylist[i].val, keylist[i].key, INFINIT_INT - 1);  /* catgets 5459 */
-                    pConf->param->qmbdMaxTaskNum = 10000;
-                    lsberrno = LSBE_CONF_WARNING;
-                }
-                else{
-                    pConf->param->qmbdMaxTaskNum = value;
                 }
             }
             else if (i == 3) {

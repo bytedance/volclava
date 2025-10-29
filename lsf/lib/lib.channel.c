@@ -690,6 +690,7 @@ chanEpoll_(int **readyfds, struct timeval *timeout)
                     socket %d event is %d%d%d", sockfd, (epoll_events[i].events & EPOLLIN)?1:0,(epoll_events[i].events & EPOLLOUT)?1:0,(epoll_events[i].events & EPOLLERR)?1:0);
         }
    }
+   /*In the original logic, the wmask (EPOLL_EVENTS_WRITE) of the channel seems to have no meaning, and we maintain consistency here*/
     for (i = 0; i < readyChansNum; i++) {
         sockfd = epoll_events[i].data.fd;
         chfd = epoll_events[i].data.u32;
@@ -721,6 +722,7 @@ chanEpoll_(int **readyfds, struct timeval *timeout)
             continue;
         }
 
+        /* Responsible for listening to TCP connection sockets or UDP sockets */
         if ( channels[chfd].state != CH_PRECONN &&
             !channels[chfd].recv && !channels[chfd].send) {
             if (epoll_events[i].events & EPOLLIN)
@@ -732,6 +734,7 @@ chanEpoll_(int **readyfds, struct timeval *timeout)
             continue;
         }
 
+        /* CH_PRECONN is not actually used */
         if (channels[chfd].state == CH_PRECONN) {
             if (epoll_events[i].events & EPOLLOUT) {
                 channels[chfd].state = CH_CONN;
@@ -750,6 +753,7 @@ chanEpoll_(int **readyfds, struct timeval *timeout)
                 channels[chfd].readyEvents |= EPOLL_EVENTS_WRITE;
             }
         } else {
+            /* Sockets from accept or connected sockets with buffers */
             if (epoll_events[i].events & EPOLLIN) {
                 doreadEpoll(chfd);
             }
@@ -765,6 +769,8 @@ chanEpoll_(int **readyfds, struct timeval *timeout)
 
     ready = readyChansNum;
     readyChansNum = 0;
+    /*readyChans stores the indices of channels that need to notify the upper layer of event occurrences.
+      readyChansNum returns the number of ready channels*/
     for(i = 0; i< ready ;i++){
         chfd = epoll_events[i].data.u32;
         if(chanEventsReady(chfd, EPOLL_EVENTS_READ)||chanEventsReady(chfd, EPOLL_EVENTS_ERROR)){
@@ -923,6 +929,8 @@ chanEnqueue_(int chfd, struct Buffer *msg, int needUpdateEvent)
     }
 
     enqueueTail_(msg, channels[chfd].send);
+    /*The writeable event will only be listened to when the sendbuf of the channel changes.
+    To trigger this writable event when needed, set the needUpdateEvent flag to 1.*/
     if(needUpdateEvent && chanEpollListenEventUpdateOn)
         if(chanUpdateListenEvents(chfd, EPOLLIN|EPOLLOUT|EPOLLERR) < 0){
             ls_syslog(LOG_ERR, "%s: chanUpdateListenEvents() failed for chfd %d sock %d, %m", 
@@ -1389,6 +1397,7 @@ dowriteEpoll(int chfd)
             free(sendbuf->data);
         free(sendbuf);
     }
+    /*When the sendbuf becomes empty, the listener for the writable event should be removed.*/
     if (channels[chfd].send->forw == channels[chfd].send){
         if(chanUpdateListenEvents(chfd, EPOLLIN|EPOLLERR) < 0){
             ls_syslog(LOG_ERR, "%s: chanUpdateListenEvents() failed for chfd %d sock %d, %m", 
@@ -1690,11 +1699,15 @@ int chanEpollInit(){
     return 0;
 }
 
-/*
- * Close the epoll file descriptor and reset the epoll state.
- * This function should be called to clean up epoll resources when the channel event monitoring is no longer needed.
- * It only performs cleanup if epoll resources have been initialized (i.e., chanEpollListenEventUpdateOn is set).
- */
+/*Close the epoll file descriptor and reset the epoll state.
+This function should be called to clean up epoll resources when the channel event monitoring is no longer needed.
+It only performs cleanup if epoll resources have been initialized (i.e., chanEpollListenEventUpdateOn is set).
+
+Note: This function MUST be called before a child process invokes chanClose  to close a socket belonging to the parent process.
+Otherwise, the parent process's socket will no longer be monitored by epoll, because chanClose contains epoll ctl operations.
+Epoll ctl operations performed by the child process on the inherited epoll instance will affect all processes that own this epoll instance.
+It is recommended that all child processes that use channels call this function.
+*/
 void chanCloseEpoll(){
     if(chanEpollListenEventUpdateOn){
         close(epollfd);

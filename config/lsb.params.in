@@ -21,12 +21,6 @@ DEFAULT_QUEUE  = normal   #default job queue name
 MBD_SLEEP_TIME = 10       #mbatchd scheduling interval (60 secs is default)
 SBD_SLEEP_TIME = 7        #sbatchd scheduling interval (30 secs is default)
 JOB_ACCEPT_INTERVAL = 0   #interval for any host to accept a job 
-                          # (default is 1 (one-fold of MBD_SLEEP_TIME))
-                          
-MBD_FORK_QMBD = Y         #value: Y = enable forking qmbd; N = disable forking qmbd,default is N
-QMBD_SYNC_NEW_JOBS = Y    #value: Y = enable syncing new jobs; N = disable syncing new jobs,default is N
-QMBD_ALIVE_TIME = 10      #alive time (in seconds) for the qmbd subprocess,default is 10
-QMBD_THREAD_NUM = 8       #maximum number of threads in qmbd's thread pool,default is 8
-QMBD_MAX_TASK_NUM = 10000 #capacity of qmbd's thread pool task queue,default is 10000
+                          # (default is 1 (one-fold of MBD_SLEEP_TIME))         
 DEFAULT_LIMIT_IGNORE_USER_GROUP = N #see manual of lsb.params
 End Parameters

@@ -3,12 +3,12 @@
 #define DEF_QMBD_ALIVE_TIME 10
 #define DEF_THREAD_NUM 8
 #define DEF_THREADPOLL_MAX_TASK 10000
+#define DEF_QMBD_FORCE_EXIT_DELAY 5
 int qmbdAliveTime = DEF_QMBD_ALIVE_TIME;
 int qmbdThreadNum = DEF_THREAD_NUM;
 int qmbdMaxTaskNum = DEF_THREADPOLL_MAX_TASK;
 extern threadPool_t*  pool;
 static int qmbdDie = 0;                             /*Flag to indicate qmbd should exit after processing remaining requests*/
-
 static int qmbdInit();                              
 static void closeClient();                          
 static void clientIO();      
@@ -53,11 +53,13 @@ int startqmbd(int *qmbdPid){
     cc = qmbdInit();
     
     for (;;) {
+        /*Close listen socket to stop accepting new connections */
         if(querySock != -1 && qmbdDie){
             close(chanSock_(querySock));
             querySock = -1;
         }
         closeClient();
+        /* Exit after processing remaining requests */
         if(qmbdDie && querySock == -1 && clientList->forw == clientList){
             break;
         }
@@ -203,6 +205,9 @@ static void processClientWithQueryReq(struct clientNode *client) {
                 req->client = client;
                 req->schedule = 0;
                 req->byQmbd = 1;
+                /*For BATCH_JOB_INFO, the IO time accounts for a very large proportion during full-volume queries,
+                an additional thread is launched to handle this
+                */
                 createAndRunThread(processRequest, req);
                 //addTaskToThreadPool(pool, processRequest, req);
             }
@@ -292,15 +297,10 @@ clientIO(){
 }
 
 
-/*
- * Signal handler for qmbd exit timer
- * Sets qmbdDie flag to indicate qmbd should exit after processing remaining requests
- * @param[in] sig: Signal number (SIGALRM)
- */
-static
-void qmbdDieAlarmHandler (int sig){
-    int pid, saveErrno;
-    LS_WAIT_T status;
+
+/*Handles SIGALRM signals to control qmbd exit*/
+static void qmbdDieAlarmHandler (int sig){
+    int saveErrno;
     sigset_t newmask, oldmask;
 
     saveErrno = errno;
@@ -310,7 +310,36 @@ void qmbdDieAlarmHandler (int sig){
     sigaddset(&newmask, SIGCHLD);
     sigprocmask(SIG_BLOCK, &newmask, &oldmask);
 
-    qmbdDie = 1;
+
+    if (qmbdDie == 0) {
+        /*First trigger: Marks qmbd to exit after processing remaining requests, and sets a timeout alarm*/
+        qmbdDie = 1;
+        if(logclass & LC_TRACE)
+            ls_syslog(LOG_DEBUG, "%s: First Alarm triggered, mark qmbd to exit (process remaining requests)", __func__);
+        
+        struct itimerval secondAlarm;
+        secondAlarm.it_value.tv_sec = DEF_QMBD_FORCE_EXIT_DELAY;
+        secondAlarm.it_value.tv_usec = 0;
+        secondAlarm.it_interval.tv_sec = 0;
+        secondAlarm.it_interval.tv_usec = 0;
+        setitimer(ITIMER_REAL, &secondAlarm, NULL);
+
+    } else if (qmbdDie == 1) {
+        /*Second trigger: Forces qmbd exit if timeout occurs before finishing remaining requests*/
+        ls_syslog(LOG_ERR, "%s: Second Alarm triggered, force qmbd to exit", __func__);
+        if (pool != NULL) {
+            destroyThreadPool(pool);
+        }
+        if (shm != (void*)-1) {
+            shmdt(shm);
+        }
+        if (querySock != -1) {
+            close(chanSock_(querySock));
+            querySock = -1;
+        }
+        
+        exit(SIGALRM);
+    }
 
     sigprocmask(SIG_SETMASK, &oldmask, NULL);
     errno = saveErrno;
@@ -333,6 +362,42 @@ int qmbdInit(){
 
     chanCloseEpoll();
     qmbdDie = 0;
+
+    if (daemonParams[LSB_QMBD_ALIVE_TIME].paramValue != NULL) {
+        if (atoi(daemonParams[LSB_QMBD_ALIVE_TIME].paramValue) > 0) {
+            qmbdAliveTime =
+                atoi(daemonParams[LSB_QMBD_ALIVE_TIME].paramValue);
+        } else {
+            ls_syslog(LOG_ERR, "\
+%s: Invalid LSB_HJOB_PER_SESSION %s ignored",
+                      __func__,
+                      daemonParams[LSB_QMBD_ALIVE_TIME].paramValue);
+        }
+    }
+
+    if (daemonParams[LSB_QMBD_THREAD_NUM].paramValue != NULL) {
+        if (atoi(daemonParams[LSB_QMBD_THREAD_NUM].paramValue) > 0) {
+            qmbdThreadNum =
+                atoi(daemonParams[LSB_QMBD_THREAD_NUM].paramValue);
+        } else {
+            ls_syslog(LOG_ERR, "\
+%s: Invalid LSB_HJOB_PER_SESSION %s ignored",
+                      __func__,
+                      daemonParams[LSB_QMBD_THREAD_NUM].paramValue);
+        }
+    }
+
+    if (daemonParams[LSB_QMBD_MAX_TASK_NUM].paramValue != NULL) {
+        if (atoi(daemonParams[LSB_QMBD_MAX_TASK_NUM].paramValue) > 0) {
+            qmbdMaxTaskNum =
+                atoi(daemonParams[LSB_QMBD_MAX_TASK_NUM].paramValue);
+        } else {
+            ls_syslog(LOG_ERR, "\
+%s: Invalid LSB_HJOB_PER_SESSION %s ignored",
+                      __func__,
+                      daemonParams[LSB_QMBD_MAX_TASK_NUM].paramValue);
+        }
+    }
 
     sigemptyset(&empty_set);
     sigprocmask(SIG_SETMASK, &empty_set, &old_mask);

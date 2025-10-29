@@ -1174,6 +1174,10 @@ int qmbdSelectJobs(struct jobInfoReq* jobInfoReq,
             continue;
 
         if (!allusers) {
+            /* For newly submitted jobs synchronized via shared memory the original
+            logic first obtains a pointer to udata through the getUserData function,
+            and then determines if they belong to the same user by comparing usernames 
+            */
             if (strcmp(meta->userName, jobInfoReq->userName) != 0 &&
                 (!uGrp || !gMember(meta->userName, uGrp)))
                 continue;
