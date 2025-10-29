@@ -147,7 +147,7 @@ do_jobInfoReq(XDR *xdrs,
               int chfd,
               struct sockaddr_in *from,
                struct LSFHeader *reqHdr,
-              int schedule, int byQmbd)
+              int schedule)
 {
     static char             fname[] = "do_jobInfoReq";
     char                    *reply_buf = NULL;
@@ -185,8 +185,8 @@ do_jobInfoReq(XDR *xdrs,
             reply = selectJgrps(&jobInfoReq, (void **)&jgrplist, &listSize);
         }
         else {
-            reply = selectJobs(&jobInfoReq, &joblist, &listSize,byQmbd);
-            if(byQmbd && syncNewJobs){
+            reply = selectJobs(&jobInfoReq, &joblist, &listSize);
+            if(isQmbd && syncNewJobs){
                 reply1 = qmbdSelectJobs(&jobInfoReq, shm, &jobReplyXdrList, &newJobCount);
                 if(reply == LSBE_NO_JOB && reply1 == LSBE_NO_ERROR){
                     reply = LSBE_NO_ERROR;
@@ -205,7 +205,7 @@ do_jobInfoReq(XDR *xdrs,
     xdr_lsffree(xdr_jobInfoReq, (char *) &jobInfoReq, reqHdr);
 
     jobInfoHead.numJobs = listSize;
-    if(byQmbd && syncNewJobs){
+    if(isQmbd && syncNewJobs){
         jobInfoHead.numJobs += newJobCount;
     }
     if (jobInfoHead.numJobs > 0)
@@ -305,7 +305,7 @@ do_jobInfoReq(XDR *xdrs,
     FREEUP (jgrplist);
 
     /*If the request is handled by qmbd and syncNewJobs is enabled, send the cached jobInfoReply in the shared memory*/
-    if(byQmbd && syncNewJobs){
+    if(isQmbd && syncNewJobs){
         for (i = 0; i < newJobCount; i++) {
             char* xdrBuf = jobReplyXdrList[i]->xdrBuf;
             int xdrLen = jobReplyXdrList[i]->xdrLen;

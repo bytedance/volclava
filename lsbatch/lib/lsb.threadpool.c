@@ -1,4 +1,4 @@
-#include "lsb.threadpool.h" 
+#include "lsb.threadpool.h"
 #include <stdlib.h> 
 #include <string.h> 
 #include <errno.h> 
@@ -84,10 +84,8 @@ threadPool_t *createThreadPool(int threadCount, int queueSize) {
 
     return pool; 
 } 
-
 /*
  * Add a task to the thread pool's task queue
- * Waits on the "notFull" condition variable if the queue is full
  * @param[in] pool: Pointer to the target thread pool
  * @param[in] function: Pointer to the task function to execute
  * @param[in] arg: Argument to pass to the task function
@@ -99,19 +97,32 @@ int addTaskToThreadPool(threadPool_t *pool, void (*function)(void *), void *arg)
     } 
 
     pthread_mutex_lock(&pool->lock); 
+    struct timespec timeout;
+    if (clock_gettime(CLOCK_REALTIME, &timeout) != 0) {
+        pthread_mutex_unlock(&pool->lock);
+        return -1;
+    }
+    timeout.tv_sec += pool->queueFullTimeout;
 
     while (pool->count == pool->queueSize && !pool->shutdown) { 
-        pthread_cond_wait(&pool->notFull, &pool->lock); 
-    } 
+        int ret = pthread_cond_timedwait(&pool->notFull, &pool->lock, &timeout);
+        if (ret == ETIMEDOUT) {
+            pthread_mutex_unlock(&pool->lock);
+            return -1;
+        } else if (ret != 0) {
+            pthread_mutex_unlock(&pool->lock);
+            return -1;
+        }
+    }
+
     if (pool->shutdown) { 
         pthread_mutex_unlock(&pool->lock); 
         return -1; 
-    } 
+    }
     pool->queue[pool->tail].function = function; 
     pool->queue[pool->tail].arg = arg; 
     pool->tail = (pool->tail + 1) % pool->queueSize; 
     pool->count++; 
-
     pthread_cond_signal(&pool->notEmpty); 
     pthread_mutex_unlock(&pool->lock); 
 
@@ -152,8 +163,9 @@ void destroyThreadPool(threadPool_t *pool) {
  * Initializes thread attributes, sets detached state, creates thread, handles errors, and cleans up attributes
  * @param[in] function: Function to be executed by the thread
  * @param[in] arg: Argument passed to the function
+ * @return 0 on successful; -1 on failure
  */
-void createAndRunThread(void (*function)(void*), void* arg) {
+int createAndRunThread(void (*function)(void*), void* arg) {
     pthread_t thread;
     pthread_attr_t attr;
     
@@ -161,10 +173,10 @@ void createAndRunThread(void (*function)(void*), void* arg) {
     pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
     
     if (pthread_create(&thread, &attr, (void*(*)(void*))function, arg) != 0) {
-        perror("pthread_create");
         pthread_attr_destroy(&attr);
-        return;
+        return -1;
     }
     
     pthread_attr_destroy(&attr);
+    return 0;
 }

@@ -21,10 +21,11 @@ typedef struct {
     pthread_mutex_t lock;      /* Mutex lock for synchronizing queue access */ 
     pthread_cond_t notEmpty;   /* Condition variable: signaled when queue is not empty (wakes workers) */ 
     pthread_cond_t notFull;    /* Condition variable: signaled when queue is not full (allows adding tasks) */ 
+    int queueFullTimeout;      /* Maximum wait time when the queue is full (in seconds)*/
 } threadPool_t;
 
 threadPool_t *createThreadPool(int threadCount, int queueSize); 
 int addTaskToThreadPool(threadPool_t *pool, void (*function)(void *), void *arg); 
 void destroyThreadPool(threadPool_t *pool); 
-void createAndRunThread(void (*function)(void*), void* arg);
+int createAndRunThread(void (*function)(void*), void* arg);
 #endif /* LSB_THREAD_POOL_H */

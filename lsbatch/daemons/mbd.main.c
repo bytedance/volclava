@@ -27,6 +27,7 @@ char errbuf[MAXLINELEN];
 int debug = 0;
 int lsb_CheckMode = 0;
 int lsb_CheckError = 0;
+int isQmbd = 0;
 int batchSock;
 int querySock;
 #define MAX_THRNUM     3000
@@ -161,7 +162,6 @@ int    scheRawLoad;
 int lsbModifyAllJobs = FALSE;
 int syncNewJobs = 0;   
 int shmId;
-int forkQmbd = 0;
 
 static int schedule1;
 static struct jData *jobData = NULL;
@@ -341,9 +341,16 @@ main (int argc, char **argv)
 
     }
 
-    if (daemonParams[LSB_FORK_QMBD].paramValue != NULL
-        && (strcasecmp(daemonParams[LSB_FORK_QMBD].paramValue, "y") == 0)) {
-        forkQmbd = 1;
+    if (daemonParams[LSB_QMBD_PORT].paramValue != NULL) {
+        if (atoi(daemonParams[LSB_QMBD_PORT].paramValue) > 0) {
+            qmbd_port =
+                htons(atoi(daemonParams[LSB_QMBD_PORT].paramValue));
+        } else {
+            ls_syslog(LOG_ERR, "\
+%s: Invalid LSB_QMBD_PORT %s ignored",
+                      __func__,
+                      daemonParams[LSB_QMBD_PORT].paramValue);
+        }
     }
 
     if (daemonParams[LSB_QMBD_SYNC_NEW_JOBS].paramValue != NULL
@@ -438,7 +445,7 @@ main (int argc, char **argv)
     schedulerInit();
     setJobPriUpdIntvl();
     for (;;) {
-        if(forkQmbd == 1 && qmbdAlive == 0){
+        if(qmbd_port && qmbdAlive == 0){
             if(qmbdStatus != 0){
                 ls_syslog(LOG_ERR, "mbatchd: qmbd exit with %d",qmbdStatus);
             }
@@ -739,7 +746,7 @@ processClient(struct clientNode *client, int *needFree)
         case BATCH_JOB_SUB:
             jobData = NULL;
             TIMEIT(0, cc = do_submitReq(&xdrs, s, &from, client->fromHost, &reqHdr, &laddr, &auth, &schedule1, dispatch, &jobData), "do_submitReq()");
-            if(cc == 0 && forkQmbd && syncNewJobs){
+            if(cc == 0 && qmbd_port && syncNewJobs){
                 cc = WriteJobInfoToShm(jobData,shm);
                 if(cc == -1)
                     ls_syslog(LOG_ERR, "%s pack job error", fname);
@@ -836,7 +843,7 @@ processClient(struct clientNode *client, int *needFree)
             TIMEIT(3, do_queueInfoReq(&xdrs, s, &from, &reqHdr),"do_queueInfoReq()");
             break;
         case BATCH_JOB_INFO:
-            TIMEIT(3, do_jobInfoReq(&xdrs, s, &from, &reqHdr, schedule, 0),"do_jobInfoReq()");
+            TIMEIT(3, do_jobInfoReq(&xdrs, s, &from, &reqHdr, schedule),"do_jobInfoReq()");
             break;
         case BATCH_HOST_INFO:
             TIMEIT(3, do_hostInfoReq(&xdrs, s, &from, &reqHdr),"do_hostInfoReq()");

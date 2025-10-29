@@ -20,14 +20,25 @@ LSF_LIM_PORT=6322
 LSF_RES_PORT=6323
 LSB_MBD_PORT=6324
 LSB_SBD_PORT=6325
-LSB_QMBD_PORT=6326
 
-LSB_FORK_QMBD=Y         #value: Y = enable forking qmbd; N = disable forking qmbd,default is N
-LSB_QMBD_SYNC_NEW_JOBS=Y    #value: Y = enable syncing new jobs; N = disable syncing new jobs,default is N
-LSB_QMBD_ALIVE_TIME=10      #alive time (in seconds) for the qmbd subprocess,default is 10
-LSB_QMBD_THREAD_NUM=16       #maximum number of threads in qmbd's thread pool,default is 8
-LSB_QMBD_MAX_TASK_NUM=10000 #capacity of qmbd's thread pool task queue,default is 10000
+# After setting, mbd will fork a child 
+# process responsible for handling query 
+# requests (temporarily supports only 
+# BATCH_JOB_INFO and BATCH_QUE_INFO)
+# must be enabled manually and port must not
+# be in use by other programs.
+#LSB_QMBD_PORT=6326
+
+#The following parameters take effect only after LSB_QMBD_PORT is set
+#LSB_QMBD_SYNC_NEW_JOBS=y    #value: y = enable syncing new jobs; n = disable syncing new jobs,default is n
+#LSB_QMBD_ALIVE_TIME=10      #alive time (in seconds) for the qmbd subprocess,default is 10
+#LSB_QMBD_USE_THREAD_POOL=y  #Value: y = enable threadpool; n = disable threadpool,default is n
+
+#The following parameters take effect only when LSB_QMBD_USE_THREAD_POOL is enabled
+#LSB_QMBD_THREAD_NUM=16       #maximum number of threads in qmbd's thread pool,default is 8
+#LSB_QMBD_MAX_TASK_NUM=10000 #capacity of qmbd's thread pool task queue,default is 10000
 #
+
 # Use eauth authentication.
 LSF_AUTH=eauth
 

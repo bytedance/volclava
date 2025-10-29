@@ -5,9 +5,11 @@
 #define DEF_THREADPOLL_MAX_TASK 10000
 #define DEF_QMBD_FORCE_EXIT_DELAY 5
 int qmbdAliveTime = DEF_QMBD_ALIVE_TIME;
+int qmbdUseThreadpool = 0;
 int qmbdThreadNum = DEF_THREAD_NUM;
 int qmbdMaxTaskNum = DEF_THREADPOLL_MAX_TASK;
 extern threadPool_t*  pool;
+extern ushort qmbd_port;
 static int qmbdDie = 0;                             /*Flag to indicate qmbd should exit after processing remaining requests*/
 static int qmbdInit();                              
 static void closeClient();                          
@@ -184,8 +186,9 @@ static void processClientWithQueryReq(struct clientNode *client) {
                 req->reqHdr = reqHdr;
                 req->client = client;
                 req->schedule = 0;
-                req->byQmbd = 0;
-                addTaskToThreadPool(pool, processRequest, req);
+                if(addTaskToThreadPool(pool, processRequest, req) < 0){
+                    ls_syslog(LOG_ERR, "%s: addTaskToThreadPool failed : %m",__func__);
+                }
             }
             break;
 
@@ -204,12 +207,12 @@ static void processClientWithQueryReq(struct clientNode *client) {
                 req->reqHdr = reqHdr;
                 req->client = client;
                 req->schedule = 0;
-                req->byQmbd = 1;
                 /*For BATCH_JOB_INFO, the IO time accounts for a very large proportion during full-volume queries,
                 an additional thread is launched to handle this
                 */
-                createAndRunThread(processRequest, req);
-                //addTaskToThreadPool(pool, processRequest, req);
+                if(createAndRunThread(processRequest, req) < 0){
+                    ls_syslog(LOG_ERR, "%s: createAndRunThread failed : %m",__func__);
+                }
             }
             break;
             
@@ -243,7 +246,7 @@ static void* processRequest(void* arg) {
             break;
             
         case BATCH_JOB_INFO:
-            ret = do_jobInfoReq(req->xdr, req->client->chanfd, &req->client->from, &req->reqHdr,req->schedule, req->byQmbd);
+            ret = do_jobInfoReq(req->xdr, req->client->chanfd, &req->client->from, &req->reqHdr,req->schedule);
             break;
             
         default:
@@ -358,10 +361,11 @@ int qmbdInit(){
     sigset_t old_mask, empty_set;
 
     if (logclass & LC_TRACE)
-        ls_syslog(LOG_DEBUG,"qmbdInit: Entering...");
+        ls_syslog(LOG_ERR,"qmbdInit: Entering...");
 
     chanCloseEpoll();
     qmbdDie = 0;
+    isQmbd = 1;
 
     if (daemonParams[LSB_QMBD_ALIVE_TIME].paramValue != NULL) {
         if (atoi(daemonParams[LSB_QMBD_ALIVE_TIME].paramValue) > 0) {
@@ -369,10 +373,15 @@ int qmbdInit(){
                 atoi(daemonParams[LSB_QMBD_ALIVE_TIME].paramValue);
         } else {
             ls_syslog(LOG_ERR, "\
-%s: Invalid LSB_HJOB_PER_SESSION %s ignored",
+%s: Invalid LSB_QMBD_ALIVE_TIME %s ignored",
                       __func__,
                       daemonParams[LSB_QMBD_ALIVE_TIME].paramValue);
         }
+    }
+
+    if (daemonParams[LSB_QMBD_USE_THREAD_POOL].paramValue != NULL
+        && (strcasecmp(daemonParams[LSB_QMBD_USE_THREAD_POOL].paramValue, "y") == 0)) {
+        qmbdUseThreadpool = 1;
     }
 
     if (daemonParams[LSB_QMBD_THREAD_NUM].paramValue != NULL) {
@@ -381,7 +390,7 @@ int qmbdInit(){
                 atoi(daemonParams[LSB_QMBD_THREAD_NUM].paramValue);
         } else {
             ls_syslog(LOG_ERR, "\
-%s: Invalid LSB_HJOB_PER_SESSION %s ignored",
+%s: Invalid LSB_QMBD_THREAD_NUM %s ignored",
                       __func__,
                       daemonParams[LSB_QMBD_THREAD_NUM].paramValue);
         }
@@ -393,7 +402,7 @@ int qmbdInit(){
                 atoi(daemonParams[LSB_QMBD_MAX_TASK_NUM].paramValue);
         } else {
             ls_syslog(LOG_ERR, "\
-%s: Invalid LSB_HJOB_PER_SESSION %s ignored",
+%s: Invalid LSB_QMBD_MAX_TASK_NUM %s ignored",
                       __func__,
                       daemonParams[LSB_QMBD_MAX_TASK_NUM].paramValue);
         }

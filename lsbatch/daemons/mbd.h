@@ -1101,7 +1101,7 @@ extern int                  chkAskedHosts(int, char **, int, int *,
                                           struct askedHost **,
                                           int *, int *, int);
 extern int                  selectJobs(struct jobInfoReq *,
-                                      struct jData ***, int *, int);
+                                      struct jData ***, int *);
 extern int                  signalJob(struct signalReq *, struct lsfAuth *);
 extern int                  statusJob(struct statusReq *, struct hostent *,
                                       int *);
@@ -1242,7 +1242,7 @@ extern int                  do_jobPeekReq(XDR *, int, struct sockaddr_in *,
                                           char *, struct LSFHeader *,
                                           struct lsfAuth *);
 extern int                  do_jobInfoReq(XDR *, int, struct sockaddr_in *,
-                                          struct LSFHeader *, int, int);
+                                          struct LSFHeader *, int);
 extern int                  do_queueInfoReq(XDR *, int, struct sockaddr_in *,
                                             struct LSFHeader *);
 extern int                  do_debugReq(XDR * xdrs, int chfd,
@@ -1645,15 +1645,15 @@ typedef struct {
     struct LSFHeader reqHdr;
     struct clientNode *client;
     int schedule;
-    int byQmbd;
 } RequestContext;
 
 extern int                  qmbdSelectJobs(struct jobInfoReq *,struct sharedJobStore *,struct jobDataUnit ***,int *);
-extern struct sharedJobStore*  shm;             /*Shared memory*/
-extern int                     shmId;           /*Shared memory id*/
-extern int                     syncNewJobs;      /*Whether to sync newly submitted jobs from mbd in qmbd, 1 for enabled, 0 for disabled*/ 
-extern int                     forkQmbd;        /*Whether to fork qmbd, 1 for enabled, 0 for disabled*/
-extern int                     qmbdAliveTime;
-extern int                     qmbdThreadNum;
-extern int                     qmbdMaxTaskNum;
+extern struct sharedJobStore*  shm;                 /*Shared memory*/
+extern int                     shmId;               /*Shared memory id*/
+extern int                     syncNewJobs;         /*Whether to sync newly submitted jobs from mbd in qmbd, 1 for enabled, 0 for disabled*/ 
+extern int                     qmbdAliveTime;       /*Alive time (in seconds) for the qmbd subprocess*/
+extern int                     qmbdUseThreadpool;   /*Whether to use thread pool in qmbd (1 for enabled, 0 for disabled)*/
+extern int                     qmbdThreadNum;       /*Maximum number of threads in qmbd's thread pool*/
+extern int                     qmbdMaxTaskNum;      /*Capacity of qmbd's thread pool task queue*/
+extern int                     isQmbd;              /*Flag indicating if the current process is qmbd (1 for qmbd process, 0 otherwise)*/
 #endif

@@ -929,7 +929,7 @@ freeNewJob (struct jData *newjob)
 
 int
 selectJobs (struct jobInfoReq *jobInfoReq, struct jData ***jobDataList,
-            int *listSize, int byQmbd)
+            int *listSize)
 {
     static char fname[] = "selectJobs()";
     char allqueues = FALSE;
@@ -968,7 +968,7 @@ selectJobs (struct jobInfoReq *jobInfoReq, struct jData ***jobDataList,
         if (skipJobListByReq (jobInfoReq->options, list)  == TRUE)
             continue;
 
-        if (!byQmbd && list == SJL && jDataList[list]->back != jDataList[list])
+        if (!isQmbd && list == SJL && jDataList[list]->back != jDataList[list])
             reorderSJL ();
 
         for (jp = jDataList[list]->back;

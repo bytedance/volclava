@@ -383,15 +383,14 @@ ushort
 get_qmbd_port(void)
 {
     struct servent *sv;
-    ushort qmbd_port;
-
+    static ushort qmbd_port =0;
+    if(qmbd_port) return qmbd_port;
     if (isint_(lsbParams[LSB_QMBD_PORT].paramValue)) {
 	if ((qmbd_port = atoi(lsbParams[LSB_QMBD_PORT].paramValue)) > 0)
 	    return((qmbd_port = htons(qmbd_port)));
 	else
 	{
 	    qmbd_port = 0;
-	    lsberrno = LSBE_SERVICE;
 	    return(0);
 	}
     }
@@ -461,12 +460,9 @@ callmbd(char *clusterName,
     }
 
     mbdReqtype = reqHdr.opCode;
-
-    if (mbdReqtype == BATCH_JOB_INFO 
-    || mbdReqtype == BATCH_QUE_INFO
-    ) {
+    qmbd_port = get_qmbd_port();
+    if (qmbd_port && (mbdReqtype == BATCH_JOB_INFO || mbdReqtype == BATCH_QUE_INFO)) {
         isQuery = 1;
-        qmbd_port = get_qmbd_port();
         if(logclass & LC_TRACE)
             ls_syslog (LOG_DEBUG, "%s: qmbd_port=%d,,mbdReqtype is %d", fname, ntohs(qmbd_port),mbdReqtype);
     }
