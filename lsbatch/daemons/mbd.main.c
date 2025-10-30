@@ -186,6 +186,7 @@ extern int do_setJobAttr(XDR *, int, struct sockaddr_in *, char *,
 extern void chanCloseAllBut_(int);
 extern int initLimSock_(void);
 
+
 int
 main (int argc, char **argv)
 {
@@ -717,6 +718,12 @@ processClient(struct clientNode *client, int *needFree)
             setNextSchedTimeUponNewJob(jobData);
             statusChanged = 1;
             break;
+        
+         case BATCH_JOB_SUB_PACK:
+            TIMEIT(0, do_submitPackReq(&xdrs, s, &from, &reqHdr, &auth, &schedule1, dispatch), "do_submitPackReq()");
+            statusChanged = 1;
+            break;
+            
         case BATCH_JOB_SIG:
             TIMEIT(0, do_signalReq(&xdrs, s, &from, client->fromHost, &reqHdr, &auth),"do_signalReq()");
             break;

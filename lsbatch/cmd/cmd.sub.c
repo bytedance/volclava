@@ -40,6 +40,14 @@ extern  struct submit * parseOptFile_(char *filename,
 				      struct submit *req, char **errMsg);
 extern void subUsage_(int, char **);
 static  int parseLine (char *line, int *embedArgc, char ***embedArgv, int option);
+extern int createJobInfoFile(struct submit *jobSubReq, struct lenData *jf);
+extern void subNewLine_(char *str);
+extern void makeCleanToRunEsub(void);
+extern void modifyJobInformation(struct submit *jobSubReq);
+
+
+static int send_batch_pack(struct submit **job_requests, struct lenData **job_files, int job_count);
+static LS_LONG_INT do_pack_sub_v2(int option, char **argv, struct submit *req);
 
 static int emptyCmd = TRUE;
 
@@ -109,7 +117,11 @@ do_sub (int argc, char **argv, int option)
     memset(&reply, 0, sizeof(struct submitReply));
 
     if (req.options & SUB_PACK) {
-        do_pack_sub(option, argv, &req);
+        if (do_pack_sub_v2(option, argv, &req) < 0) {
+            fprintf(stderr, ". %s.\n",
+                    (_i18n_msg_get(ls_catd,NL_SETN,1551, "Batch job not submitted")));
+            return (-1);
+        }
     } else {
         do {
             TIMEIT(0, (jobId = lsb_submit(&req, &reply)), "lsb_submit");
@@ -1165,3 +1177,431 @@ addLabel2RsrcReq(struct submit *subreq)
     return(0);
 }
 
+LS_LONG_INT do_pack_sub_v2(int option, char **argv, struct submit *req)
+{
+    static char fname[] = "do_pack_sub_v2";
+    FILE *fp;
+    int lineNum;
+    int packParsed;
+    int packSubmit;
+    int packError;
+    int parseError = FALSE;
+    char *line;
+    
+    
+    struct submit **job_requests = NULL;  
+    struct lenData **job_files = NULL;  
+    int job_count = 0;
+    int max_jobs;
+    int capacity = 0;
+    int i, j;  
+    
+    /* Check if pack submission is enabled */
+    if (lsbMaxPackJobs == DEFAULT_LSB_MAX_PACK_JOBS) {
+        fprintf(stderr, "Pack submission disabled by LSB_MAX_PACK_JOBS in lsf.conf. Job not submitted.\n");
+        return(-1);
+    }
+    
+    /* Use configured value or default */
+    max_jobs = lsbMaxPackJobs > 0 ? lsbMaxPackJobs : DEF_LSB_MAX_PACK_JOBS;
+    
+    /* Validate max_jobs value */
+    if (max_jobs <= 0) {
+        fprintf(stderr, "Error: Invalid LSB_MAX_PACK_JOBS configuration (%d). Must be greater than 0.\n", lsbMaxPackJobs);
+        return(-1);
+    }
+    
+    if (max_jobs > DEF_LSB_MAX_PACK_JOBS) {
+        fprintf(stderr, "Error: LSB_MAX_PACK_JOBS (%d) exceeds maximum allowed (%d). Please adjust configuration.\n",
+                max_jobs, DEF_LSB_MAX_PACK_JOBS);
+        return(-1);
+    }
+
+    
+    fp = fopen(req->packFile, "r");
+    if (!fp) {
+        lserrno = LSE_NO_FILE;
+        fprintf(stderr, "Cannot read file <%s>. Job not submitted.\n", req->packFile);
+        return(-1);
+    }
+
+    lineNum = 0;
+    packParsed = 0;
+    packSubmit = 0;
+    packError = 0;
+    
+    
+    /* Allocate initial capacity */
+    capacity = max_jobs;
+    job_requests = malloc(capacity * sizeof(struct submit *));
+    job_files = malloc(capacity * sizeof(struct lenData *));
+    if (!job_requests || !job_files) {
+        fprintf(stderr, "Memory allocation failed\n");
+        fclose(fp);
+        return -1;
+    }
+    memset(job_requests, 0, capacity * sizeof(struct submit *));
+    memset(job_files, 0, capacity * sizeof(struct lenData *));
+  
+    while ((line = getNextLineC_(fp, &lineNum, TRUE)) != NULL && job_count < max_jobs) {
+        char **packedArgv;
+        int packedArgc = 0;
+        struct submit packReq;
+        char tmpBuf[MAXLINELEN];
+        
+        packParsed++;
+
+        sprintf(tmpBuf, "%s %s", argv[0], line);
+        packedArgv = split_commandline(tmpBuf, &packedArgc);
+        if (packedArgv == NULL) {
+            fprintf(stderr, "failed to parsed line %d. %s. %s\n", lineNum, tmpBuf, req->packFile);
+            packError++;
+            if (packSkipErrFlag) {
+                continue;
+    } else {
+                break;
+            }
+        }
+
+        optind = 1;
+        if (fillReq(packedArgc, packedArgv, CMD_BSUB, &packReq, TRUE) < 0) {
+            fprintf(stderr, ". %s.\n", (_i18n_msg_get(ls_catd,NL_SETN,1551, "Job not submitted")));
+            packError++;
+            if (packSkipErrFlag) {
+                continue;
+            } else {
+                break;
+            }
+        }
+
+       
+        parseError = FALSE;
+        if (packReq.options2 & SUB2_BSUB_BLOCK) {
+            fprintf(stderr, "Option -K is not supported in -pack job submission file. Job not submitted.\n");
+            parseError = TRUE;
+        } else if (packReq.options & SUB_INTERACTIVE) {
+            fprintf(stderr, "Option -I is not supported in -pack job submission file. Job not submitted.\n");
+            parseError = TRUE;
+        } else if (packReq.options & SUB_PACK) {
+            fprintf(stderr, "Option -pack is not supported in -pack job submission file. Job not submitted.\n");
+            parseError = TRUE;
+        }
+        
+        if (parseError) {
+            packError++;
+            if (packSkipErrFlag) {
+                continue;
+            } else {
+                break;
+            }
+        }
+
+      
+        subNewLine_(packReq.resReq);
+        subNewLine_(packReq.dependCond);
+        subNewLine_(packReq.preExecCmd);
+        subNewLine_(packReq.postExecCmd);
+        subNewLine_(packReq.mailUser);
+        subNewLine_(packReq.jobName);
+        subNewLine_(packReq.queue);
+        subNewLine_(packReq.inFile);
+        subNewLine_(packReq.outFile);
+        subNewLine_(packReq.errFile);
+        subNewLine_(packReq.chkpntDir);
+        subNewLine_(packReq.projectName);
+        for(i = 0; i < packReq.numAskedHosts; i++) {
+            subNewLine_(packReq.askedHosts[i]);
+        }
+        
+        // 2. Set LSB_UNIXGROUP environment variable - simulate single job environment setup
+        struct group *grpEntry = getgrgid(getgid());
+        if (grpEntry != NULL) {
+            if (putEnv("LSB_UNIXGROUP", grpEntry->gr_name) < 0) {
+                fprintf(stderr, "Warning: Failed to set LSB_UNIXGROUP environment variable\n");
+            }
+        }
+        
+        // 3. Clean environment - simulate single job makeCleanToRunEsub call
+        makeCleanToRunEsub();
+        
+        // 4. Queue default handling (first time) - simulate single job queue processing
+        if (!(packReq.options & SUB_QUEUE)) {
+            char *queue = getenv("LSB_DEFAULTQUEUE");
+            if (queue != NULL && queue[0] != '\0') {
+                packReq.queue = queue;
+                packReq.options |= SUB_QUEUE;
+            }
+        }
+        
+        // 5. Modify job information - simulate single job modifyJobInformation call
+        modifyJobInformation(&packReq);
+        
+        // 6. Queue default handling (second time) - simulate single job second queue processing
+        if (!(packReq.options & SUB_QUEUE)) {
+            char *queue = getenv("LSB_DEFAULTQUEUE");
+            if (queue != NULL && queue[0] != '\0') {
+                packReq.queue = queue;
+                packReq.options |= SUB_QUEUE;
+            }
+        }
+        
+        // 7. Set interactive error handling - simulate single job LSF_INTERACTIVE_STDERR setting
+        if ((lsbParams[LSB_INTERACTIVE_STDERR].paramValue != NULL) &&
+            (strcasecmp(lsbParams[LSB_INTERACTIVE_STDERR].paramValue, "y") == 0)) {
+            if (putEnv("LSF_INTERACTIVE_STDERR", "y") < 0) {
+                fprintf(stderr, "Warning: Failed to set LSF_INTERACTIVE_STDERR environment variable\n");
+            }
+        }
+
+        /* Create job file data */
+        struct lenData *jf = malloc(sizeof(struct lenData));
+        if (!jf) {
+            fprintf(stderr, "Memory allocation failed for job file data\n");
+            packError++;
+            if (packSkipErrFlag) {
+                continue;
+    } else {
+                break;
+            }
+        }
+        
+        /* Initialize edata structure, simulate single job flow */
+        struct lenData ed;
+        memset(&ed, 0, sizeof(ed));
+        
+        /* Call runBatchEsub to handle environment variables and resource limits */
+        if (runBatchEsub(&ed, &packReq) < 0) {
+            fprintf(stderr, "Failed to run batch esub for line %d\n", lineNum);
+            FREEUP(jf);
+            packError++;
+            if (packSkipErrFlag) {
+                continue;
+            } else {
+                break;
+            }
+        }
+        
+        if (createJobInfoFile(&packReq, jf) < 0) {
+            fprintf(stderr, "Failed to create job file data for line %d\n", lineNum);
+            FREEUP(jf);
+            packError++;
+            if (packSkipErrFlag) {
+                continue;
+            } else {
+                break;
+            }
+        }
+        
+        /* Cleanup edata */
+        FREEUP(ed.data);
+        
+
+        /* Save job request and file data */
+        job_requests[job_count] = malloc(sizeof(struct submit));
+        if (!job_requests[job_count]) {
+            fprintf(stderr, "Memory allocation failed for job request\n");
+            FREEUP(jf->data);
+            FREEUP(jf);
+            packError++;
+            if (packSkipErrFlag) {
+                continue;
+            } else {
+                break;
+            }
+        }
+        
+        /* Deep copy packReq to job_requests[job_count] */
+        memset(job_requests[job_count], 0, sizeof(struct submit));
+        job_requests[job_count]->options = packReq.options;
+        job_requests[job_count]->options2 = packReq.options2;
+        job_requests[job_count]->numAskedHosts = packReq.numAskedHosts;
+        job_requests[job_count]->askedHosts = packReq.askedHosts;
+        job_requests[job_count]->rLimits[0] = packReq.rLimits[0];
+        job_requests[job_count]->rLimits[1] = packReq.rLimits[1];
+        job_requests[job_count]->rLimits[2] = packReq.rLimits[2];
+        job_requests[job_count]->rLimits[3] = packReq.rLimits[3];
+        job_requests[job_count]->rLimits[4] = packReq.rLimits[4];
+        job_requests[job_count]->rLimits[5] = packReq.rLimits[5];
+        job_requests[job_count]->rLimits[6] = packReq.rLimits[6];
+        job_requests[job_count]->rLimits[7] = packReq.rLimits[7];
+        job_requests[job_count]->rLimits[8] = packReq.rLimits[8];
+        job_requests[job_count]->rLimits[9] = packReq.rLimits[9];
+        job_requests[job_count]->rLimits[10] = packReq.rLimits[10];
+        job_requests[job_count]->rLimits[11] = packReq.rLimits[11];
+        job_requests[job_count]->rLimits[12] = packReq.rLimits[12];
+        job_requests[job_count]->rLimits[13] = packReq.rLimits[13];
+        job_requests[job_count]->rLimits[14] = packReq.rLimits[14];
+        job_requests[job_count]->rLimits[15] = packReq.rLimits[15];
+        job_requests[job_count]->beginTime = packReq.beginTime;
+        job_requests[job_count]->termTime = packReq.termTime;
+        job_requests[job_count]->sigValue = packReq.sigValue;
+        job_requests[job_count]->chkpntPeriod = packReq.chkpntPeriod;
+        job_requests[job_count]->nxf = packReq.nxf;
+        job_requests[job_count]->xf = packReq.xf;
+        job_requests[job_count]->delOptions = packReq.delOptions;
+        job_requests[job_count]->delOptions2 = packReq.delOptions2;
+        job_requests[job_count]->maxNumProcessors = packReq.maxNumProcessors;
+        job_requests[job_count]->userPriority = packReq.userPriority;
+        
+        /* Deep copy string fields */
+        job_requests[job_count]->jobName = packReq.jobName ? strdup(packReq.jobName) : NULL;
+        job_requests[job_count]->packFile = packReq.packFile ? strdup(packReq.packFile) : NULL;
+        job_requests[job_count]->queue = packReq.queue ? strdup(packReq.queue) : NULL;
+        job_requests[job_count]->resReq = packReq.resReq ? strdup(packReq.resReq) : NULL;
+        job_requests[job_count]->hostSpec = packReq.hostSpec ? strdup(packReq.hostSpec) : NULL;
+        job_requests[job_count]->dependCond = packReq.dependCond ? strdup(packReq.dependCond) : NULL;
+        job_requests[job_count]->inFile = packReq.inFile ? strdup(packReq.inFile) : NULL;
+        job_requests[job_count]->outFile = packReq.outFile ? strdup(packReq.outFile) : NULL;
+        job_requests[job_count]->errFile = packReq.errFile ? strdup(packReq.errFile) : NULL;
+        job_requests[job_count]->command = packReq.command ? strdup(packReq.command) : NULL;
+        job_requests[job_count]->newCommand = packReq.newCommand ? strdup(packReq.newCommand) : NULL;
+        job_requests[job_count]->chkpntDir = packReq.chkpntDir ? strdup(packReq.chkpntDir) : NULL;
+        job_requests[job_count]->preExecCmd = packReq.preExecCmd ? strdup(packReq.preExecCmd) : NULL;
+        job_requests[job_count]->postExecCmd = packReq.postExecCmd ? strdup(packReq.postExecCmd) : NULL;
+        job_requests[job_count]->mailUser = packReq.mailUser ? strdup(packReq.mailUser) : NULL;
+        job_requests[job_count]->projectName = packReq.projectName ? strdup(packReq.projectName) : NULL;
+        job_requests[job_count]->loginShell = packReq.loginShell ? strdup(packReq.loginShell) : NULL;
+        job_files[job_count] = jf;
+        job_count++;
+        
+        /* Check if we've reached the maximum job limit */
+        if (job_count >= max_jobs) {
+            fprintf(stderr, "Warning: Reached maximum job limit (%d). Stopping pack file parsing.\n", max_jobs);
+            break;
+        }
+        
+    }
+    
+    fclose(fp);
+    
+    if (job_count == 0) {
+        fprintf(stderr, "No valid jobs found\n");
+        FREEUP(job_requests);
+        FREEUP(job_files);
+        return -1;
+    }
+    
+    printf("Successfully collected %d jobs, starting pack submission...\n", job_count);
+    
+    /* Phase 2: Submit all jobs in batch */
+    if (send_batch_pack(job_requests, job_files, job_count) < 0) {
+        fprintf(stderr, "Pack submission failed\n");
+        /* Cleanup memory */
+        for (i = 0; i < job_count; i++) {
+            if (job_requests[i]) {
+                /* Free deep copied string fields */
+                FREEUP(job_requests[i]->jobName);
+                FREEUP(job_requests[i]->packFile);
+                FREEUP(job_requests[i]->queue);
+                FREEUP(job_requests[i]->resReq);
+                FREEUP(job_requests[i]->hostSpec);
+                FREEUP(job_requests[i]->dependCond);
+                FREEUP(job_requests[i]->inFile);
+                FREEUP(job_requests[i]->outFile);
+                FREEUP(job_requests[i]->errFile);
+                FREEUP(job_requests[i]->command);
+                FREEUP(job_requests[i]->newCommand);
+                FREEUP(job_requests[i]->chkpntDir);
+                FREEUP(job_requests[i]->preExecCmd);
+                FREEUP(job_requests[i]->postExecCmd);
+                FREEUP(job_requests[i]->mailUser);
+                FREEUP(job_requests[i]->projectName);
+                FREEUP(job_requests[i]->loginShell);
+                if (job_requests[i]->askedHosts) {
+                    for (j = 0; j < job_requests[i]->numAskedHosts; j++) {
+                        FREEUP(job_requests[i]->askedHosts[j]);
+                    }
+                    FREEUP(job_requests[i]->askedHosts);
+                }
+                FREEUP(job_requests[i]->xf);
+                FREEUP(job_requests[i]);
+            }
+            if (job_files[i]) {
+                FREEUP(job_files[i]->data);
+                FREEUP(job_files[i]);
+            }
+        }
+        return -1;
+    }
+    
+    /* Cleanup memory */
+    for (i = 0; i < job_count; i++) {
+        if (job_requests[i]) {
+            /* Free deep copied string fields */
+            FREEUP(job_requests[i]->jobName);
+            FREEUP(job_requests[i]->packFile);
+            FREEUP(job_requests[i]->queue);
+            FREEUP(job_requests[i]->resReq);
+            FREEUP(job_requests[i]->hostSpec);
+            FREEUP(job_requests[i]->dependCond);
+            FREEUP(job_requests[i]->inFile);
+            FREEUP(job_requests[i]->outFile);
+            FREEUP(job_requests[i]->errFile);
+            FREEUP(job_requests[i]->command);
+            FREEUP(job_requests[i]->newCommand);
+            FREEUP(job_requests[i]->chkpntDir);
+            FREEUP(job_requests[i]->preExecCmd);
+            FREEUP(job_requests[i]->postExecCmd);
+            FREEUP(job_requests[i]->mailUser);
+            FREEUP(job_requests[i]->projectName);
+            FREEUP(job_requests[i]->loginShell);
+            if (job_requests[i]->askedHosts) {
+                for (j = 0; j < job_requests[i]->numAskedHosts; j++) {
+                    FREEUP(job_requests[i]->askedHosts[j]);
+                }
+                FREEUP(job_requests[i]->askedHosts);
+            }
+            FREEUP(job_requests[i]->xf);
+            FREEUP(job_requests[i]);
+        }
+        if (job_files[i]) {
+            FREEUP(job_files[i]->data);
+            FREEUP(job_files[i]);
+        }
+    }
+    
+    return job_count;
+}
+
+
+
+/*
+ * send_batch_pack - Simplified pack submission wrapper
+ * Delegates all processing to lsb_submit_pack() in the library layer
+ */
+static int send_batch_pack(struct submit **job_requests, struct lenData **job_files, int job_count)
+{
+    LS_LONG_INT firstJobId;
+    struct submitReply submitReply;
+    
+    printf("========================================\n");
+    printf("Start pack submission (%d jobs)...\n", job_count);
+    printf("========================================\n");
+    
+    memset(&submitReply, 0, sizeof(submitReply));
+    
+    /* Call library function to handle the submission */
+    firstJobId = lsb_submit_pack(job_requests, job_count, &submitReply);
+    
+    if (firstJobId < 0) {
+        fprintf(stderr, "Pack submission failed: %s\n", lsb_sysmsg());
+        return -1;
+    }
+    
+    /* Display submission results */
+    printf("\nPack job submission successful!\n");
+    printf("========================================\n");
+    printf("Submitted job count: %d\n", job_count);
+    if (firstJobId > 0) {
+        printf("First job ID: %lld\n", (long long)firstJobId);
+        if (job_count > 1) {
+            printf("Number of jobs: %d\n", job_count);
+        }
+    }
+    if (submitReply.queue && submitReply.queue[0] != '\0') {
+        printf("Queue: %s\n", submitReply.queue);
+    }
+    printf("========================================\n");
+    
+    return job_count;
+}

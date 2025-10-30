@@ -45,6 +45,10 @@ extern bool_t xdr_controlReq(XDR *,
 			     struct controlReq *, 
 			     struct LSFHeader *);
 
+extern bool_t xdr_packSubmitReq(XDR *,
+				 struct packSubmitReq *,
+				 struct LSFHeader *);
+
 extern bool_t xdr_debugReq (XDR *, 
 			    struct debugReq *,
 			    struct LSFHeader *);
