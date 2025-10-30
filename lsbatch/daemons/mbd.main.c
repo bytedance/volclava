@@ -1412,7 +1412,7 @@ static void jdataToMeta(struct jData* jp, struct cachedJobMeta* meta) {
 
     if (jp->jgrpNode && jp->jgrpNode->name) {
         size_t srcLen = strlen(jp->jgrpNode->name);
-        size_t copyLen = (srcLen < (MAX_JOB_NAME - 1)) ? srcLen : (MAX_JOB_NAME - 1);
+        size_t copyLen = (srcLen < (MAXLINELEN - 1)) ? srcLen : (MAXLINELEN - 1);
         strncpy(meta->jobName, jp->jgrpNode->name, copyLen);
         meta->jobName[copyLen] = '\0';
     } else {

@@ -1609,23 +1609,20 @@ extern void updateTimeWindow(struct timeWindow *);
 extern inline int numofhosts(void);
 
 
-#define MAX_JOB_UNITS    8192    // Maximum number of job units in shared memory; set to the maximum number of jobs that can be submitted during qmbd's lifetime
-#define MAX_XDR_SIZE     1024    // Maximum length of XDR data for a single jobInfoReply and lsfheader; actual measured value is around 640, with extra margin reserved
-#define MAX_QUEUE_NAME   64      // Maximum length of queue name
-#define MAX_USER_NAME    64      // Maximum length of username
-#define MAX_HOST_NAME    64      // Maximum length of a single hostname
-#define MAX_HOST_COUNT   8       // Maximum number of associated hosts
-#define MAX_JOB_NAME     128     // Maximum length of job name
+#define MAX_JOB_UNITS    8192                   // Maximum number of job units in shared memory; set to the maximum number of jobs that can be submitted during qmbd's lifetime
+#define MAX_XDR_SIZE     1024                   // Maximum length of XDR data for a single jobInfoReply and lsfheader; actual measured value is around 640, with extra margin reserved
+#define MAX_HOST_COUNT   8                      // Maximum number of associated hosts
 
 struct cachedJobMeta {
-    LS_LONG_INT jobId;                                // Job ID
-    char queue[MAX_QUEUE_NAME];                       // Queue name
-    char userName[MAX_USER_NAME];                     // Username
-    char jobName[MAX_JOB_NAME];                       // Full job name
-    int jobStatus;                                    // Job status
-    int numHosts;                                     // Actual number of associated hosts
-    char hosts[MAX_HOST_COUNT][MAX_HOST_NAME];        // array for storing hostnames
-    time_t submitTime;                                // Job submission time
+    LS_LONG_INT jobId;                                  // Job ID
+    char queue[MAX_LSB_NAME_LEN];                       // Queue name
+    char userName[MAX_LSB_NAME_LEN];                    // Username
+    char jobName[MAXLINELEN];                           // Full job name
+    int jobStatus;                                      // Job status
+    int numHosts;                                       // Actual number of associated hosts
+    /*hosts temporarily unused, as currently only used to filter newly submitted jobs, which are all in pend status*/
+    char hosts[MAX_HOST_COUNT][MAXHOSTNAMELEN];         // array for storing hostnames
+    time_t submitTime;                                  // Job submission time
 };
 
 struct jobDataUnit {
