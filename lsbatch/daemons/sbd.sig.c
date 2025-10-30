@@ -670,6 +670,7 @@ jobsig1 (struct jobCard *jp, int sig, int forkSig)
     if (!forkSig || pid <= 0) {
 
         if (forkSig && pid == 0) {
+            
 	    closeBatchSocket();
         }
 

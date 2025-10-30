@@ -1331,6 +1331,11 @@ mbdDie (int sig)
     sigaddset(&newmask, SIGINT);
     sigprocmask(SIG_BLOCK, &newmask, NULL);
 
+    shmctl(shmId, IPC_RMID, NULL);
+
+
+
+
     for (list = 0; list < NJLIST; list++) {
         if (jDataList[list] != NULL) {
             for (jpbw = jDataList[list]->back; jpbw != jDataList[list];

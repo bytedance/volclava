@@ -181,6 +181,10 @@ call_server (char * host,
 	    ls_syslog(LOG_ERR, I18N_FUNC_FAIL_MM, "callserver",  "chanSetMode");            CLOSECD(serverSock);
 	    return (-2);
 	}
+    if(chanRegisterEpoll_(serverSock, EPOLLIN|EPOLLERR) < 0){
+        ls_syslog(LOG_ERR, "%s: chanRegisterEpoll_() failed for chfd %d sockfd %d: %m",
+                  __func__, serverSock, chanSock_(serverSock));
+    }
 
 	if (postSndFunc)
 	    tsize += ((struct lenData *)postSndFuncArg)->len + NET_INTSIZE_;
@@ -205,7 +209,7 @@ call_server (char * host,
 		   ((struct lenData *)postSndFuncArg)->len);
 	}
 
-	if (chanEnqueue_(serverSock, sndBuf) < 0) {
+	if (chanEnqueue_(serverSock, sndBuf, 1) < 0) {
 	    ls_syslog(LOG_ERR, I18N_FUNC_FAIL_ENO_D, fname,
 			"chanEnqueue_", cherrno);
 	    chanFreeBuf_(sndBuf);
@@ -375,6 +379,23 @@ get_sbd_port(void)
 #endif
 }
 
+ushort
+get_qmbd_port(void)
+{
+    struct servent *sv;
+    static ushort qmbd_port =0;
+    if(qmbd_port) return qmbd_port;
+    if (isint_(lsbParams[LSB_QMBD_PORT].paramValue)) {
+	if ((qmbd_port = atoi(lsbParams[LSB_QMBD_PORT].paramValue)) > 0)
+	    return((qmbd_port = htons(qmbd_port)));
+	else
+	{
+	    qmbd_port = 0;
+	    return(0);
+	}
+    }
+}
+
 int
 callmbd(char *clusterName,
         char *request_buf,
@@ -388,9 +409,12 @@ callmbd(char *clusterName,
     static char          fname[] = "callmbd";
     char *               masterHost;
     ushort               mbd_port;
+    ushort               qmbd_port;
     int                  cc;
     int                  num = 0;
     int                  try = 0;
+    int                  isQuery = 0;
+    int                  mbdReqtype;
     struct clusterInfo * clusterInfo;
     XDR xdrs;
     struct LSFHeader reqHdr;
@@ -435,13 +459,22 @@ callmbd(char *clusterName,
         return(-1);
     }
 
+    mbdReqtype = reqHdr.opCode;
+    qmbd_port = get_qmbd_port();
+    if (qmbd_port && (mbdReqtype == BATCH_JOB_INFO || mbdReqtype == BATCH_QUE_INFO)) {
+        isQuery = 1;
+        if(logclass & LC_TRACE)
+            ls_syslog (LOG_DEBUG, "%s: qmbd_port=%d,,mbdReqtype is %d", fname, ntohs(qmbd_port),mbdReqtype);
+    }
+
     mbd_port = get_mbd_port();
     xdr_destroy(&xdrs);
     if (logclass & LC_TRACE)
         ls_syslog (LOG_DEBUG1, "%s: mbd_port=%d", fname, ntohs(mbd_port));
 
-    cc = call_server(masterHost,
-		     mbd_port,
+    if(isQuery){
+        cc = call_server(masterHost,
+		     qmbd_port,
 		     request_buf,
 		     requestlen,
 		     reply_buf,
@@ -452,6 +485,36 @@ callmbd(char *clusterName,
 		     postSndFunc,
 		     postSndFuncArg,
 		     CALL_SERVER_NO_HANDSHAKE);
+        if (logclass & (LC_TRACE|LC_COMM)){
+            if(cc < 0){
+                    ls_syslog (LOG_DEBUG, "%s: call qmbd faild :%M", fname);
+            }else{
+                    ls_syslog (LOG_DEBUG, "%s: call qmbd success ,reply is %d byte", fname,cc);
+            }
+        }
+    }
+
+    if(!(isQuery && cc >= 0)){
+        cc = call_server(masterHost,
+                mbd_port,
+                request_buf,
+                requestlen,
+                reply_buf,
+                replyHdr,
+                _lsb_conntimeout,
+                _lsb_recvtimeout,
+                serverSock,
+                postSndFunc,
+                postSndFuncArg,
+                CALL_SERVER_NO_HANDSHAKE);
+        if (logclass & (LC_TRACE|LC_COMM)){
+            if(cc < 0){
+                ls_syslog (LOG_DEBUG, "%s: call mbd faild :%M", fname);
+            }else{
+                ls_syslog (LOG_DEBUG, "%s: call mbd success ,reply is %d byte", fname,cc);
+            }
+        }
+    }
 
     if (logclass & LC_TRACE)
         ls_syslog(LOG_DEBUG3,"\

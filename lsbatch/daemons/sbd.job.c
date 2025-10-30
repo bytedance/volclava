@@ -1078,7 +1078,6 @@ job_finish (struct jobCard *jobCard, int report)
         }
 
         if (pid == 0) {
-
             closeBatchSocket();
             finishJob(jobCard);
             return(0);
@@ -3589,7 +3588,6 @@ runUPre(struct jobCard *jp)
     }
 
     if (pid == 0) {
-
         closeBatchSocket();
         if (getuid() == batchId) {
 
@@ -3633,7 +3631,6 @@ runUPost(struct jobCard *jp)
     }
 
     if (pid == 0) {
-
         closeBatchSocket();
         if (getuid() == batchId) {
 

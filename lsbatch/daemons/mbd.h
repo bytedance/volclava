@@ -21,6 +21,7 @@
 #define MBD_H
 
 #include "../lsbatch.h"
+#include "../lib/lsb.threadpool.h"
 #include "daemonout.h"
 #include "daemons.h"
 #include "../../lsf/intlib/bitset.h"
@@ -39,7 +40,7 @@
 #define  DEF_EXCLUSIVE        FALSE
 #define  DEF_EVENT_WATCH_TIME 60
 #define  DEF_COND_CHECK_TIME  600
-#define DEF_MAX_SBD_CONNS 32
+#define DEF_MAX_SBD_CONNS 128
 #define DEF_SCHED_STAY        3
 #define DEF_FRESH_PERIOD     15
 #define DEF_PEND_EXIT       512
@@ -50,6 +51,8 @@
 #define MAX_JOB_PRIORITY   INFINIT_INT
 
 #define DEF_PRE_EXEC_DELAY    -1
+
+#define DEF_WRITE_TIMEOUT 5
 
 /* Global MBD job lists
  */
@@ -121,7 +124,7 @@ typedef enum {
 extern int mSchedStage;
 extern int freshPeriod;
 extern int maxSchedStay;
-
+extern int querySock;
 #define DEL_ACTION_KILL      0x01
 #define DEL_ACTION_REQUEUE   0x02
 
@@ -339,7 +342,6 @@ struct jData {
     int numAvailSlotsReserve;
     struct shareAcct * sa;  /*refer to shareAcct of fairshare tree in global policies*/
 };
-
 
 #define JOB_HAS_CANDHOSTS(Job)  ((Job)->candPtr != NULL)
 
@@ -811,15 +813,28 @@ struct  timeWindow {
 #define JOB_REQUE  2
 #define JOB_REPLAY 3
 
+/*Note: This state field is added to clientNode to avoid thread safety issues when operating on clientList in multi-threaded environments.
+It currently only takes effect for BATCH_JOB_INFO and BATCH_QUE_INFO.
+Sub-threads are responsible for setting the state, while the main thread checks the client's state and channel events,
+and removes the client from the list (offList) when the conditions are met.
+*/
+enum CLIENT_STATE{
+    CLIENT_STATE_CONNECTED = 1,
+    CLIENT_STATE_WAITING_THREAD = 2,
+    CLIENT_STATE_THREAD_PROCESSING = 3,
+    CLIENT_STATE_PROCESS_FINISHED = 4
+};
 struct clientNode {
     struct clientNode *forw;
     struct clientNode *back;
     int    chanfd;
+    enum CLIENT_STATE  state;
     struct sockaddr_in from;
     char *fromHost;
     mbdReqType reqType;
     time_t lastTime;
 };
+
 
 struct condData {
     char *name;
@@ -1518,6 +1533,9 @@ extern struct idxList      *getIdxListContext(void);
 extern void                 setIdxListContext(const char *);
 extern void                 freeIdxListContext(void);
 
+extern int                  startqmbd(int *);
+
+
 #define FIRST_CHILD(x)   (x)->child
 #define PARENT(x)        (x)->parent
 #define LEFT_SIBLING(x)  (x)->left
@@ -1589,4 +1607,50 @@ extern struct timeWindow *newTimeWindow (void);
 extern void freeTimeWindow(struct timeWindow *);
 extern void updateTimeWindow(struct timeWindow *);
 extern inline int numofhosts(void);
+
+
+#define MAX_JOB_UNITS    8192                   // Maximum number of job units in shared memory; set to the maximum number of jobs that can be submitted during qmbd's lifetime
+#define MAX_XDR_SIZE     1024                   // Maximum length of XDR data for a single jobInfoReply and lsfheader; actual measured value is around 640, with extra margin reserved
+#define MAX_HOST_COUNT   8                      // Maximum number of associated hosts
+
+struct cachedJobMeta {
+    LS_LONG_INT jobId;                                  // Job ID
+    char queue[MAX_LSB_NAME_LEN];                       // Queue name
+    char userName[MAX_LSB_NAME_LEN];                    // Username
+    char jobName[MAXLINELEN];                           // Full job name
+    int jobStatus;                                      // Job status
+    int numHosts;                                       // Actual number of associated hosts
+    /*hosts temporarily unused, as currently only used to filter newly submitted jobs, which are all in pend status*/
+    char hosts[MAX_HOST_COUNT][MAXHOSTNAMELEN];         // array for storing hostnames
+    time_t submitTime;                                  // Job submission time
+};
+
+struct jobDataUnit {
+    struct cachedJobMeta meta;        // Stores cached job metadata, used for job filtering
+    int xdrLen;                       // Actual length of XDR-formatted data
+    char xdrBuf[MAX_XDR_SIZE];        // XDR-formatted data (contains jobInfoReply + lsfheader)
+};
+
+struct sharedJobStore {
+    int writeIdx;                       // Total number of cached job units
+    struct jobDataUnit units[MAX_JOB_UNITS]; // Sequentially stored array of job data units
+};
+
+typedef struct {
+    XDR* xdr;
+    struct Buffer* buf;
+    struct LSFHeader reqHdr;
+    struct clientNode *client;
+    int schedule;
+} RequestContext;
+
+extern int                  qmbdSelectJobs(struct jobInfoReq *,struct sharedJobStore *,struct jobDataUnit ***,int *);
+extern struct sharedJobStore*  shm;                 /*Shared memory*/
+extern int                     shmId;               /*Shared memory id*/
+extern int                     syncNewJobs;         /*Whether to sync newly submitted jobs from mbd in qmbd, 1 for enabled, 0 for disabled*/ 
+extern int                     qmbdAliveTime;       /*Alive time (in seconds) for the qmbd subprocess*/
+extern int                     qmbdUseThreadpool;   /*Whether to use thread pool in qmbd (1 for enabled, 0 for disabled)*/
+extern int                     qmbdThreadNum;       /*Maximum number of threads in qmbd's thread pool*/
+extern int                     qmbdMaxTaskNum;      /*Capacity of qmbd's thread pool task queue*/
+extern int                     isQmbd;              /*Flag indicating if the current process is qmbd (1 for qmbd process, 0 otherwise)*/
 #endif

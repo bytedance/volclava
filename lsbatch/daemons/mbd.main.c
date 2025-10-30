@@ -27,7 +27,9 @@ char errbuf[MAXLINELEN];
 int debug = 0;
 int lsb_CheckMode = 0;
 int lsb_CheckError = 0;
+int isQmbd = 0;
 int batchSock;
+int querySock;
 #define MAX_THRNUM     3000
 
 time_t      lastForkTime;
@@ -37,6 +39,7 @@ int nextJobId = 1;
 char masterme = TRUE;
 ushort sbd_port;
 ushort mbd_port;
+ushort qmbd_port;
 int connTimeout;
 int glMigToPendFlag = FALSE;
 
@@ -123,6 +126,8 @@ struct lsInfo *allLsInfo;
 struct hTab calDataList;
 struct hTab condDataList;
 
+struct sharedJobStore* shm;
+
 char   *masterHost = NULL;
 char   *clusterName = NULL;
 char   *defaultQueues = NULL;
@@ -155,11 +160,16 @@ long   schedSeqNo;
 int    schedule;
 int    scheRawLoad;
 int lsbModifyAllJobs = FALSE;
+int syncNewJobs = 0;   
+int shmId;
 
 static int schedule1;
 static struct jData *jobData = NULL;
 static time_t lastSchedTime = 0;
 static time_t nextSchedTime = 0;
+static int qmbdAlive = 0;   /*Current status of qmbd, 1 means started, 0 means not started*/
+static int qmbdStatus = 0;  /*record the exit status of the qmbd process from its last exit*/
+static int qmbdPid = 0;     /*PID corresponding to qmbd*/
 
 void setJobPriUpdIntvl(void);
 static void updateJobPriorityInPJL(void);
@@ -170,12 +180,15 @@ static int authRequest(struct lsfAuth *, XDR *, struct LSFHeader *,
                        char *, int);
 static int processClient(struct clientNode *, int *);
 
-static void clientIO(struct Masks *);
+static void clientIO();
 static int forkOnRequest(mbdReqType);
 static void shutdownSbdConnections(void);
 static void processSbdNode(struct sbdNode *, int);
 static void setNextSchedTimeWhenJobFinish(void);
 static void acceptConnection(int);
+
+static int initShm(int *, struct sharedJobStore ** shm);                                        /*Initialize shared memory*/
+static int WriteJobInfoToShm(struct jData* jobData, struct sharedJobStore* shm);         /*pack jobData and write jobInfoReply to shared memory*/
 
 extern void chanInactivate_(int);
 extern void chanActivate_(int);
@@ -185,15 +198,13 @@ extern int do_setJobAttr(XDR *, int, struct sockaddr_in *, char *,
                          struct LSFHeader *, struct lsfAuth *);
 extern void chanCloseAllBut_(int);
 extern int initLimSock_(void);
+extern int packJobInfo(struct jData *, int, char **, int, int, int);
 
-int
 main (int argc, char **argv)
 {
-    fd_set readmask;
-    struct Masks sockmask;
-    struct Masks chanmask;
     struct timeval timeout;
-    int nready;
+    int nready = 0;
+    int *readyChans;
     int i;
     int cc;
     int hsKeeping = FALSE;
@@ -330,6 +341,23 @@ main (int argc, char **argv)
 
     }
 
+    if (daemonParams[LSB_QMBD_PORT].paramValue != NULL) {
+        if (atoi(daemonParams[LSB_QMBD_PORT].paramValue) > 0) {
+            qmbd_port =
+                htons(atoi(daemonParams[LSB_QMBD_PORT].paramValue));
+        } else {
+            ls_syslog(LOG_ERR, "\
+%s: Invalid LSB_QMBD_PORT %s ignored",
+                      __func__,
+                      daemonParams[LSB_QMBD_PORT].paramValue);
+        }
+    }
+
+    if (daemonParams[LSB_QMBD_SYNC_NEW_JOBS].paramValue != NULL
+        && (strcasecmp(daemonParams[LSB_QMBD_SYNC_NEW_JOBS].paramValue, "y") == 0)) {
+        syncNewJobs = 1;
+    }
+
     daemon_doinit();
 
     if ((!debug) && (!lsb_CheckMode))  {
@@ -404,7 +432,10 @@ main (int argc, char **argv)
 
     /* Go go go...
      */
+    chanEpollInit();
     TIMEIT(0, minit(FIRST_START),"minit");
+    if(syncNewJobs)
+        initShm(&shmId,&shm);
     log_mbdStart();
     ls_syslog(LOG_INFO, "%s: (re-)started", __func__);
     pollSbatchds(FIRST_START);
@@ -413,11 +444,16 @@ main (int argc, char **argv)
     lastElockTouch = time(0) - msleeptime;
     schedulerInit();
     setJobPriUpdIntvl();
-
     for (;;) {
+        if(qmbd_port && qmbdAlive == 0){
+            if(qmbdStatus != 0){
+                ls_syslog(LOG_ERR, "mbatchd: qmbd exit with %d",qmbdStatus);
+            }
+            qmbdAlive = 1;
+            startqmbd(&qmbdPid);
+        }
         int maxfd;
 
-        FD_ZERO(&readmask);
 
         maxfd = sysconf(_SC_OPEN_MAX);
         now = time(0);
@@ -444,14 +480,11 @@ main (int argc, char **argv)
             hsKeeping = FALSE;
             timeout.tv_sec = 0;
         }
-
-        sockmask.rmask = readmask;
-
-        nready = chanSelect_(&sockmask, &chanmask, &timeout);
+        nready = chanEpoll_(&readyChans, &timeout);
         if (nready < 0) {
             if (errno != EINTR)
                 ls_syslog(LOG_ERR, "\
-%s: Ohmygosh.. select() failed %m", __func__);
+%s: Ohmygosh.. epoll() failed %m", __func__);
             continue;
         }
 
@@ -479,11 +512,11 @@ main (int argc, char **argv)
         timeout.tv_sec  = 0;
         timeout.tv_usec = 0;
 
-        if (FD_ISSET(batchSock, &chanmask.rmask)) {
+        if (chanEventsReady(batchSock, EPOLL_EVENTS_READ)) {
             acceptConnection(batchSock);
         }
 
-        clientIO(&chanmask);
+        clientIO();
 
     } /* for (;;) */
 }
@@ -537,7 +570,7 @@ acceptConnection(int socket)
 }
 
 static void
-clientIO(struct Masks *chanmask)
+clientIO()
 {
     struct clientNode *cliPtr;
     struct clientNode *nextClient;
@@ -552,11 +585,9 @@ clientIO(struct Masks *chanmask)
          sbdPtr != &sbdNodeList;
          sbdPtr = nextSbdPtr) {
         nextSbdPtr = sbdPtr->forw;
-
-        if (FD_ISSET(sbdPtr->chanfd, &chanmask->rmask)
-            || FD_ISSET(sbdPtr->chanfd, &chanmask->emask)) {
-
-            if (FD_ISSET(sbdPtr->chanfd, &chanmask->emask))
+        if (chanEventsReady(sbdPtr->chanfd, EPOLL_EVENTS_READ|EPOLL_EVENTS_ERROR))
+        {
+            if (chanEventsReady(sbdPtr->chanfd, EPOLL_EVENTS_ERROR))
                 exception = TRUE;
             else
                 exception = FALSE;
@@ -570,19 +601,19 @@ clientIO(struct Masks *chanmask)
          cliPtr = nextClient) {
         int needFree;
         nextClient = cliPtr->forw;
+        if (chanEventsReady(cliPtr->chanfd, EPOLL_EVENTS_ERROR)) {
 
-        if (FD_ISSET(cliPtr->chanfd, &chanmask->emask)) {
             shutDownClient(cliPtr);
             continue;
         }
         needFree = FALSE;
-        if (FD_ISSET(cliPtr->chanfd, &chanmask->rmask)) {
+        if (chanEventsReady(cliPtr->chanfd, EPOLL_EVENTS_READ)) {
 
             int saveChfd;
             saveChfd = cliPtr->chanfd;
             if (processClient(cliPtr, &needFree) == 0) {
 
-                FD_CLR(saveChfd, &chanmask->rmask);
+                chanQuitReadyEvents(saveChfd, EPOLL_EVENTS_READ);
                 if (needFree == TRUE) {
                     offList((struct listEntry *)cliPtr);
                     FREEUP(cliPtr->fromHost);
@@ -696,6 +727,7 @@ processClient(struct clientNode *client, int *needFree)
             goto endLoop;
         }
 
+        chanCloseEpoll();
         if (debug < 2)
             closeExceptFD(chanSock_(s));
     }
@@ -713,7 +745,14 @@ processClient(struct clientNode *client, int *needFree)
 
         case BATCH_JOB_SUB:
             jobData = NULL;
-            TIMEIT(0, do_submitReq(&xdrs, s, &from, client->fromHost, &reqHdr, &laddr, &auth, &schedule1, dispatch, &jobData), "do_submitReq()");
+            TIMEIT(0, cc = do_submitReq(&xdrs, s, &from, client->fromHost, &reqHdr, &laddr, &auth, &schedule1, dispatch, &jobData), "do_submitReq()");
+            if(cc == 0 && qmbd_port && syncNewJobs){
+                cc = WriteJobInfoToShm(jobData,shm);
+                if(cc == -1)
+                    ls_syslog(LOG_ERR, "%s pack job error", fname);
+                else if(cc == -2)
+                    ls_syslog(LOG_ERR, "%s Shared memory is full", fname);
+            }
             setNextSchedTimeUponNewJob(jobData);
             statusChanged = 1;
             break;
@@ -1028,27 +1067,34 @@ terminate_handler(int sig)
     sigaddset(&newmask, SIGINT);
     sigaddset(&newmask, SIGCHLD);
     sigprocmask(SIG_BLOCK, &newmask, &oldmask);
-
+    if(syncNewJobs)
+        shmctl(shmId, IPC_RMID, NULL);
     exit(sig);
 }
 
 void
 child_handler (int sig)
 {
-    int pid;
+    int pid, saveErrno;
     LS_WAIT_T status;
     sigset_t newmask, oldmask;
 
+    saveErrno = errno;
     sigemptyset(&newmask);
     sigaddset(&newmask, SIGTERM);
     sigaddset(&newmask, SIGINT);
     sigaddset(&newmask, SIGCHLD);
     sigprocmask(SIG_BLOCK, &newmask, &oldmask);
 
-    while ((pid = waitpid(-1, &status, WNOHANG)) > 0)
-        ;
+    while ((pid = waitpid(-1, &status, WNOHANG)) > 0){
+        if(pid == qmbdPid && qmbdAlive == 1){
+            qmbdAlive = 0;
+            qmbdStatus = status;
+        }
+    }
 
     sigprocmask(SIG_SETMASK, &oldmask, NULL);
+    errno = saveErrno;
 }
 
 
@@ -1317,4 +1363,122 @@ updateJobPriorityInPJL(void)
         unsigned int newVal = jp->jobPriority + priority;
         jp->jobPriority = MIN(newVal, (unsigned int)MAX_JOB_PRIORITY);
     }
+}
+
+/**
+ * Initialize shared memory for job data storage
+ * 
+ * @param shmId  Output parameter; pointer to store the ID of the created shared memory
+ * @param shm    Output parameter; pointer to store the attached address of the shared memory (struct sharedJobStore type)
+ * @return 0 on successful initialization; -1 on failure
+ */
+static int initShm(int *shmId, struct sharedJobStore **shm) {
+    *shmId = shmget(IPC_PRIVATE, sizeof(struct sharedJobStore), IPC_CREAT | 0666);
+    if (*shmId == -1) {
+        ls_syslog(LOG_ERR, "%s: shmget failed! Error: %m", __func__);  
+        return -1;
+    }
+    ls_syslog(LOG_DEBUG, "%s: Create shared memory success. shmId=%d", 
+              __func__, *shmId);
+
+    
+    *shm = (struct sharedJobStore*)shmat(*shmId, NULL, 0);
+    if (*shm == (void*)-1) {
+        ls_syslog(LOG_ERR, "%s: shmat failed! Error: %m. Cleanup shmId=%d", 
+                  __func__, *shmId);
+        shmctl(*shmId, IPC_RMID, NULL);  
+        return -1;
+    }
+    
+    memset(*shm, 0, sizeof(struct sharedJobStore));  
+    (*shm)->writeIdx = 0;  
+    return 0;  
+}
+
+/**
+ * Convert and store job filtering-related data from struct jData into struct cachedJobMeta
+ * 
+ * @param jp    Input: Pointer to source job data (struct jData) containing filtering info
+ * @param meta  Output: Pointer to target structure (struct cachedJobMeta) for storing filtering data
+ */
+static void jdataToMeta(struct jData* jp, struct cachedJobMeta* meta) {
+    int i;
+    memset(meta, 0, sizeof(struct cachedJobMeta));
+    meta->jobId = jp->jobId;
+    meta->jobStatus = jp->jStatus;
+    strncpy(meta->userName, jp->userName, strlen(jp->userName));
+
+    if (jp->qPtr) strncpy(meta->queue, jp->qPtr->queue, strlen(jp->qPtr->queue));
+
+    if (jp->jgrpNode && jp->jgrpNode->name) {
+        size_t srcLen = strlen(jp->jgrpNode->name);
+        size_t copyLen = (srcLen < (MAXLINELEN - 1)) ? srcLen : (MAXLINELEN - 1);
+        strncpy(meta->jobName, jp->jgrpNode->name, copyLen);
+        meta->jobName[copyLen] = '\0';
+    } else {
+        meta->jobName[0] = '\0';
+    }
+
+    meta->numHosts = 0;
+    if (jp->hPtr && jp->numHostPtr > 0) {
+        for (i = 0; i < jp->numHostPtr && i < MAX_HOST_COUNT; i++) {
+            if (jp->hPtr[i] && jp->hPtr[i]->host) {
+                strncpy(meta->hosts[i], jp->hPtr[i]->host, strlen(jp->hPtr[i]->host));
+                meta->numHosts++;
+            }
+        }
+    }
+
+    meta->submitTime = jp->shared->jobBill.submitTime;
+}
+
+/**
+ * Write job info (meta + packed XDR) to shared memory
+ * 
+ * @param jobData  Pointer to job data (struct jData) to be written
+ * @param shm      Pointer to shared memory structure (struct sharedJobStore)
+ * @return 0 on success; -1 if packJobInfo fails; -2 if insufficient shared memory space or XDR data too large
+ */
+static int WriteJobInfoToShm(struct jData* jobData, struct sharedJobStore* shm) {
+    char* packBuf = NULL; 
+    int packLen = 0;
+    
+    /*Remain is stored in the reserved field of LSFheader.
+    When bjobs reads job information, it only checks if reserveds is >= 0.
+    Therefore, to reuse the buf corresponding to the job generated by packJobInfo, all remain values are set to 0.
+    */
+    packLen = packJobInfo(jobData, 0, &packBuf, 0, 0, VOLCLAVA_VERSION);
+    if (packLen <= 0) {
+        ls_syslog(LOG_ERR, "mbd: packJobInfo failed (packLen=%d)", packLen);
+        return -1; 
+    }
+
+    int currIdx = shm->writeIdx;
+    if (currIdx >= MAX_JOB_UNITS) {
+        ls_syslog(LOG_ERR, "mbd: Shared memory full (currIdx=%d, max=%d)", currIdx, MAX_JOB_UNITS);
+        free(packBuf);
+        return -2;
+    }
+    if (packLen > MAX_XDR_SIZE) {
+        ls_syslog(LOG_ERR, "mbd: XDR data too large (packLen=%d, max=%d)", packLen, MAX_XDR_SIZE);
+        free(packBuf);
+        return -2;
+    }
+
+    struct jobDataUnit* currUnit = &shm->units[currIdx];
+    struct cachedJobMeta meta;
+
+    jdataToMeta(jobData, &meta);
+    memset(currUnit, 0, sizeof(struct jobDataUnit));
+    memcpy(&currUnit->meta, &meta, sizeof(struct cachedJobMeta));
+    currUnit->xdrLen = packLen;
+    memcpy(currUnit->xdrBuf, packBuf, packLen);
+
+    shm->writeIdx++;
+    if(logclass & LC_TRACE)
+        ls_syslog(LOG_DEBUG,"mbd: Job %lld written to shm unit %d (XDR len=%d), writeIdx=%d", 
+                (long long)jobData->jobId, currIdx, packLen, shm->writeIdx);
+
+    free(packBuf);
+    return 0;
 }

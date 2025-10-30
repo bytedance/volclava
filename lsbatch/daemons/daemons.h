@@ -158,6 +158,15 @@
 #define MBD_DONT_FORK          54
 #define LIM_NO_MIGRANT_HOSTS   55
 #define LSF_UNIT_FOR_LIMITS    56
+#ifdef LSB_QMBD_PORT
+#undef LSB_QMBD_PORT
+#endif
+#define LSB_QMBD_PORT               57
+#define LSB_QMBD_SYNC_NEW_JOBS      58
+#define LSB_QMBD_ALIVE_TIME         59 
+#define LSB_QMBD_USE_THREAD_POOL    60
+#define LSB_QMBD_THREAD_NUM         61
+#define LSB_QMBD_MAX_TASK_NUM       62 
 #define NOT_LOG  INFINIT_INT
 
 

@@ -20,7 +20,6 @@
 #include <sys/types.h>
 #include "lib.hdr.h"
 
-
 enum chanState {CH_FREE,
                 CH_DISC,
                 CH_PRECONN,
@@ -54,6 +53,7 @@ struct Buffer {
     int    pos;
     int    len;
     int stashed;
+    int freeDataAfterSend;
 };
 
 struct Masks {
@@ -62,7 +62,12 @@ struct Masks {
     fd_set emask;
 };
 
-
+typedef enum {
+    EPOLL_EVENTS_NONE  = 0,
+    EPOLL_EVENTS_READ  = 1,
+    EPOLL_EVENTS_WRITE = 2,
+    EPOLL_EVENTS_ERROR = 4
+} epoll_events_t;
 struct chanData {
     int  handle;		
     enum chanType type;
@@ -71,8 +76,12 @@ struct chanData {
     int chanerr; 
     struct Buffer *send;
     struct Buffer *recv;
-    
+
+    int listenEvents;
+    epoll_events_t readyEvents;                /*Ready events reported by the channel to the upper layer*/
+
 };
+
 
 #define  CHANE_NOERR      0
 #define  CHANE_CONNECTED  1
@@ -86,6 +95,8 @@ struct chanData {
 #define  CHANE_BADCHFD    9
 #define  CHANE_NOMSG      10
 #define  CHANE_CONNRESET  11
+#define  CHANE_EPOLLFAIL  12
+
 
 int chanInit_(void);
 
@@ -94,10 +105,11 @@ int chanInit_(void);
 #define chanRecv_  chanDequeue_
 
 int chanOpen_(u_int, u_short, int);
-int chanEnqueue_(int chfd, struct Buffer *buf);
+int chanEnqueue_(int chfd, struct Buffer *buf, int);
 int chanDequeue_(int chfd, struct Buffer **buf);
 
 int chanSelect_(struct Masks *, struct Masks *, struct timeval *timeout);
+int chanEpoll_(int **, struct timeval *timeout);
 int chanClose_(int chfd);
 void chanCloseAll_(void);
 int chanSock_(int chfd);
@@ -114,6 +126,7 @@ int chanRpc_(int , struct Buffer *, struct Buffer *, struct LSFHeader *, int tim
 int chanRead_(int, char *, int);
 int chanReadNonBlock_(int, char *, int, int);
 int chanWrite_(int, char *, int);
+int chanWriteTimeout_(int, char *, int, int);
 
 int chanAllocBuf_(struct Buffer **buf, int size);
 int chanFreeBuf_(struct Buffer *buf);
@@ -121,8 +134,17 @@ int chanFreeStashedBuf_(struct Buffer *buf);
 int chanOpenSock_(int , int);
 int chanSetMode_(int, int);
 
+int chanEventsReady(int chfd, int events);
+void chanQuitReadyEvents(int chfd, int events);
+void chanCloseEpoll();
+
 extern int chanIndex;
 extern int cherrno;
+extern struct epoll_event *epoll_events;
+extern int chanEpollInit();
+extern int chanRegisterEpoll_(int, uint32_t);
+extern int chanUpdateListenEvents(int, uint32_t);
+extern int chanUnRegisterEpoll_(int);
 
 #endif
 
