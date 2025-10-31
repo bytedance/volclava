@@ -1072,6 +1072,7 @@ authRequest(struct lsfAuth *auth,
     char buf[MAXLSFNAMELEN];
 
     if (!(reqType == BATCH_JOB_SUB
+          || reqType == BATCH_JOB_SUB_PACK
           || reqType == BATCH_JOB_PEEK
           || reqType == BATCH_JOB_SIG
           || reqType == BATCH_QUE_CTRL
@@ -1109,6 +1110,7 @@ authRequest(struct lsfAuth *auth,
 
     switch(reqType) {
         case BATCH_JOB_SUB:
+        case BATCH_JOB_SUB_PACK:
             if (auth->uid == 0
                 && daemonParams[LSF_ROOT_REX].paramValue  == NULL) {
                 ls_syslog(LOG_CRIT, "\

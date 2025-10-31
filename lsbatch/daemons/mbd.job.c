@@ -444,14 +444,6 @@ newJobWithFile (struct submitReq *subReq, struct submitMbdReply *Reply,
     newjob->restartPid = newjob->shared->jobBill.restartPid;
     newjob->chkpntPeriod = newjob->shared->jobBill.chkpntPeriod;
 
-
-    logJobInfo(subReq, newjob, jf);
-
-    if (returnErr != LSBE_NO_ERROR) {
-        freeNewJob (newjob);
-        return (returnErr);
-    }
-
     newjob->schedHost = safeSave (hostType);
 
     /* Follow original newJob logic: always call handleNewJob unless it is a job array */
@@ -464,11 +456,7 @@ newJobWithFile (struct submitReq *subReq, struct submitMbdReply *Reply,
             handleNewJob (newjob, JOB_NEW, LOG_IT);
         }
         else {
-            FREEUP(Reply->badJobName);
-            Reply->badJobName = safeSave(newjob->shared->jobBill.jobName);
-            strncpy(Reply->pendLimitReason, pendLimitReason, MAX_CMD_DESC_LEN);
-            freeJData(newjob);
-            return(returnErr);
+            goto error_cleanup;
         }
     }
     else {
@@ -479,26 +467,29 @@ newJobWithFile (struct submitReq *subReq, struct submitMbdReply *Reply,
             freeIdxList(idxList);
         }
         else {
-            FREEUP(Reply->badJobName);
-            Reply->badJobName = safeSave(newjob->shared->jobBill.jobName);
-            strncpy(Reply->pendLimitReason, pendLimitReason, MAX_CMD_DESC_LEN);
-            freeIdxList(idxList);
-            freeJData(newjob);
-            return(returnErr);
+            goto error_cleanup;
         }
+
     }
 
     Reply->jobId = newjob->jobId;
-    Reply->badReqIndx = 0;
-
-    if (jobData != NULL)
-        *jobData = newjob;
+    *jobData = newjob;
 
     if (logclass & (LC_TRACE | LC_EXEC | LC_SCHED))
         ls_syslog(LOG_DEBUG1, "%s: New job <%s> submitted to queue <%s>",
                   fname, lsb_jobid2str(newjob->jobId), newjob->qPtr->queue);
 
-    return (LSBE_NO_ERROR);
+    logJobInfo(subReq, newjob, jf);
+
+    return(LSBE_NO_ERROR);
+
+error_cleanup:
+    FREEUP(Reply->badJobName);
+    freeIdxList(idxList);
+    Reply->badJobName = safeSave(newjob->shared->jobBill.jobName);
+    strncpy(Reply->pendLimitReason, pendLimitReason, MAX_CMD_DESC_LEN);
+    freeJData(newjob);
+    return(returnErr);
 }
 
 struct hData *
