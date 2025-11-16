@@ -1154,10 +1154,11 @@ extern void                 copyJobBill (struct submitReq *,
 extern void                 inZomJobList (struct jData *, int);
 extern struct jData *       getZombieJob (LS_LONG_INT);
 extern int                  getNextJobId (void);
+extern int                  batchAllocateJobIds(int count, int *allocatedIds);
 extern int                  mbdRcvJobFile(int chfd, struct lenData *jf);
 extern int                  newJobWithFile(struct submitReq *subReq, struct submitMbdReply *Reply, 
                                           struct lenData *jf, struct lsfAuth *auth, int *schedule, 
-                                          int dispatch, struct jData **jobData);
+                                          int dispatch, struct jData **jobData, int preAllocatedJobId);
 extern int                  unpackJobFiles(struct lenData *packed, struct lenData **jf_array, int *fileCount);
 extern void                 accumRunTime (struct jData *, int, time_t);
 extern void                 signalReplyCode (sbdReplyType reply,

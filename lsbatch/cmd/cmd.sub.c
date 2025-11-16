@@ -1177,14 +1177,44 @@ addLabel2RsrcReq(struct submit *subreq)
     return(0);
 }
 
+/* Helper function to check if file is a text file */
+static int is_text_file(const char *filename) {
+    FILE *fp = fopen(filename, "rb");
+    if (!fp) return 0;
+    
+    unsigned char buffer[1024];
+    size_t bytes = fread(buffer, 1, sizeof(buffer), fp);
+    fclose(fp);
+    
+    if (bytes == 0) return 1;  /* Empty file is considered text */
+    
+    /* Check for binary content */
+    int non_text = 0;
+    for (size_t i = 0; i < bytes; i++) {
+        unsigned char c = buffer[i];
+        /* Reject null bytes (common in binary files) */
+        if (c == 0) {
+            return 0;
+        }
+        /* Count non-printable characters (excluding common whitespace) */
+        if (c < 32 && c != '\n' && c != '\r' && c != '\t') {
+            non_text++;
+        }
+    }
+    
+    /* If more than 10% is non-text, consider it binary */
+    return (non_text * 10 < bytes);
+}
+
 LS_LONG_INT do_pack_sub_v2(int option, char **argv, struct submit *req)
 {
     static char fname[] = "do_pack_sub_v2";
     FILE *fp;
     int lineNum;
-    int packParsed;
-    int packSubmit;
-    int packError;
+    int packParsed;          /* Total lines parsed */
+    int packSubmit;          /* Successfully submitted jobs */
+    int packParseError;      /* Parse/validation errors */
+    int packSubmitError;     /* Submission errors from MBD */
     int parseError = FALSE;
     char *line;
     
@@ -1217,6 +1247,11 @@ LS_LONG_INT do_pack_sub_v2(int option, char **argv, struct submit *req)
         return(-1);
     }
 
+    /* Check if file is a text file before opening */
+    if (!is_text_file(req->packFile)) {
+        fprintf(stderr, "Error: File <%s> is not a valid text file. Job not submitted.\n", req->packFile);
+        return(-1);
+    }
     
     fp = fopen(req->packFile, "r");
     if (!fp) {
@@ -1224,11 +1259,32 @@ LS_LONG_INT do_pack_sub_v2(int option, char **argv, struct submit *req)
         fprintf(stderr, "Cannot read file <%s>. Job not submitted.\n", req->packFile);
         return(-1);
     }
+    
+    /* Check file size */
+    fseek(fp, 0, SEEK_END);
+    long file_size = ftell(fp);
+    fseek(fp, 0, SEEK_SET);
+    
+    if (file_size == 0) {
+        fprintf(stderr, "Error: Pack file <%s> is empty. Job not submitted.\n", req->packFile);
+        fclose(fp);
+        return(-1);
+    }
+    
+    /* Check file size limit (10MB) */
+    #define MAX_PACK_FILE_SIZE (10 * 1024 * 1024)
+    if (file_size > MAX_PACK_FILE_SIZE) {
+        fprintf(stderr, "Error: Pack file <%s> is too large (%ld bytes, max %d bytes). Job not submitted.\n",
+                req->packFile, file_size, MAX_PACK_FILE_SIZE);
+        fclose(fp);
+        return(-1);
+    }
 
     lineNum = 0;
     packParsed = 0;
     packSubmit = 0;
-    packError = 0;
+    packParseError = 0;
+    packSubmitError = 0;
     
     
     /* Allocate initial capacity */
@@ -1254,19 +1310,21 @@ LS_LONG_INT do_pack_sub_v2(int option, char **argv, struct submit *req)
         sprintf(tmpBuf, "%s %s", argv[0], line);
         packedArgv = split_commandline(tmpBuf, &packedArgc);
         if (packedArgv == NULL) {
-            fprintf(stderr, "failed to parsed line %d. %s. %s\n", lineNum, tmpBuf, req->packFile);
-            packError++;
+            fprintf(stderr, "Line#%d: Failed to parse command line: \"%s\". Job not submitted.\n", 
+                    lineNum, line);
+            packParseError++;
             if (packSkipErrFlag) {
                 continue;
-    } else {
+            } else {
                 break;
             }
         }
 
         optind = 1;
         if (fillReq(packedArgc, packedArgv, CMD_BSUB, &packReq, TRUE) < 0) {
-            fprintf(stderr, ". %s.\n", (_i18n_msg_get(ls_catd,NL_SETN,1551, "Job not submitted")));
-            packError++;
+            fprintf(stderr, "Line#%d: %s.\n", lineNum,
+                    (_i18n_msg_get(ls_catd,NL_SETN,1551, "Job not submitted")));
+            packParseError++;
             if (packSkipErrFlag) {
                 continue;
             } else {
@@ -1277,18 +1335,21 @@ LS_LONG_INT do_pack_sub_v2(int option, char **argv, struct submit *req)
        
         parseError = FALSE;
         if (packReq.options2 & SUB2_BSUB_BLOCK) {
-            fprintf(stderr, "Option -K is not supported in -pack job submission file. Job not submitted.\n");
+            fprintf(stderr, "Line#%d: Option -K is not supported in -pack job submission file. Job not submitted.\n",
+                    lineNum);
             parseError = TRUE;
         } else if (packReq.options & SUB_INTERACTIVE) {
-            fprintf(stderr, "Option -I is not supported in -pack job submission file. Job not submitted.\n");
+            fprintf(stderr, "Line#%d: Option -I is not supported in -pack job submission file. Job not submitted.\n",
+                    lineNum);
             parseError = TRUE;
         } else if (packReq.options & SUB_PACK) {
-            fprintf(stderr, "Option -pack is not supported in -pack job submission file. Job not submitted.\n");
+            fprintf(stderr, "Line#%d: Option -pack is not supported in -pack job submission file. Job not submitted.\n",
+                    lineNum);
             parseError = TRUE;
         }
         
         if (parseError) {
-            packError++;
+            packParseError++;
             if (packSkipErrFlag) {
                 continue;
             } else {
@@ -1356,11 +1417,11 @@ LS_LONG_INT do_pack_sub_v2(int option, char **argv, struct submit *req)
         /* Create job file data */
         struct lenData *jf = malloc(sizeof(struct lenData));
         if (!jf) {
-            fprintf(stderr, "Memory allocation failed for job file data\n");
-            packError++;
+            fprintf(stderr, "Line#%d: Memory allocation failed for job file data. Job not submitted.\n", lineNum);
+            packParseError++;
             if (packSkipErrFlag) {
                 continue;
-    } else {
+            } else {
                 break;
             }
         }
@@ -1371,9 +1432,9 @@ LS_LONG_INT do_pack_sub_v2(int option, char **argv, struct submit *req)
         
         /* Call runBatchEsub to handle environment variables and resource limits */
         if (runBatchEsub(&ed, &packReq) < 0) {
-            fprintf(stderr, "Failed to run batch esub for line %d\n", lineNum);
+            fprintf(stderr, "Line#%d: Failed to run batch esub. Job not submitted.\n", lineNum);
             FREEUP(jf);
-            packError++;
+            packParseError++;
             if (packSkipErrFlag) {
                 continue;
             } else {
@@ -1382,9 +1443,9 @@ LS_LONG_INT do_pack_sub_v2(int option, char **argv, struct submit *req)
         }
         
         if (createJobInfoFile(&packReq, jf) < 0) {
-            fprintf(stderr, "Failed to create job file data for line %d\n", lineNum);
+            fprintf(stderr, "Line#%d: Failed to create job file data. Job not submitted.\n", lineNum);
             FREEUP(jf);
-            packError++;
+            packParseError++;
             if (packSkipErrFlag) {
                 continue;
             } else {
@@ -1399,10 +1460,10 @@ LS_LONG_INT do_pack_sub_v2(int option, char **argv, struct submit *req)
         /* Save job request and file data */
         job_requests[job_count] = malloc(sizeof(struct submit));
         if (!job_requests[job_count]) {
-            fprintf(stderr, "Memory allocation failed for job request\n");
+            fprintf(stderr, "Line#%d: Memory allocation failed for job request. Job not submitted.\n", lineNum);
             FREEUP(jf->data);
             FREEUP(jf);
-            packError++;
+            packParseError++;
             if (packSkipErrFlag) {
                 continue;
             } else {
@@ -1474,18 +1535,22 @@ LS_LONG_INT do_pack_sub_v2(int option, char **argv, struct submit *req)
     
     fclose(fp);
     
+    /* Print parsing summary */
+    printf("%d lines parsed, %d jobs collected, %d parse errors found.\n",
+           packParsed, job_count, packParseError);
+    
     if (job_count == 0) {
-        fprintf(stderr, "No valid jobs found\n");
+        fprintf(stderr, "No valid jobs to submit.\n");
         FREEUP(job_requests);
         FREEUP(job_files);
         return -1;
     }
     
-    printf("Successfully collected %d jobs, starting pack submission...\n", job_count);
-    
     /* Phase 2: Submit all jobs in batch */
-    if (send_batch_pack(job_requests, job_files, job_count) < 0) {
+    packSubmit = send_batch_pack(job_requests, job_files, job_count);
+    if (packSubmit < 0) {
         fprintf(stderr, "Pack submission failed\n");
+        packSubmitError = job_count;  /* All jobs failed */
         /* Cleanup memory */
         for (i = 0; i < job_count; i++) {
             if (job_requests[i]) {
@@ -1523,6 +1588,22 @@ LS_LONG_INT do_pack_sub_v2(int option, char **argv, struct submit *req)
         }
         return -1;
     }
+    
+    /* Calculate submission errors */
+    if (packSubmit > 0) {
+        packSubmitError = job_count - packSubmit;
+    }
+    
+    /* Print final summary */
+    fprintf(stdout, "\n=== Pack Submission Summary ===\n");
+    fprintf(stdout, "Total lines parsed: %d\n", packParsed);
+    fprintf(stdout, "Jobs collected: %d\n", job_count);
+    fprintf(stdout, "Parse errors: %d\n", packParseError);
+    fprintf(stdout, "Jobs successfully submitted: %d\n", packSubmit);
+    if (packSubmitError > 0) {
+        fprintf(stdout, "Submission errors: %d\n", packSubmitError);
+    }
+    fprintf(stdout, "===============================\n");
     
     /* Cleanup memory */
     for (i = 0; i < job_count; i++) {
@@ -1572,11 +1653,10 @@ LS_LONG_INT do_pack_sub_v2(int option, char **argv, struct submit *req)
 static int send_batch_pack(struct submit **job_requests, struct lenData **job_files, int job_count)
 {
     LS_LONG_INT firstJobId;
+    LS_LONG_INT lastJobId;
     struct submitReply submitReply;
-    
-    printf("========================================\n");
-    printf("Start pack submission (%d jobs)...\n", job_count);
-    printf("========================================\n");
+    const char *queueName;
+    int actualSubmitted;
     
     memset(&submitReply, 0, sizeof(submitReply));
     
@@ -1584,24 +1664,105 @@ static int send_batch_pack(struct submit **job_requests, struct lenData **job_fi
     firstJobId = lsb_submit_pack(job_requests, job_count, &submitReply);
     
     if (firstJobId < 0) {
+        /* Check if it's a partial failure */
         fprintf(stderr, "Pack submission failed: %s\n", lsb_sysmsg());
+        
+        /* Even on error, some jobs might have been submitted */
+        if (submitReply.badReqIndx > 0) {
+            actualSubmitted = submitReply.badReqIndx;
+            fprintf(stderr, "Warning: Only %d out of %d jobs were submitted before error.\n",
+                    actualSubmitted, job_count);
+            return actualSubmitted;
+        }
         return -1;
     }
     
-    /* Display submission results */
-    printf("\nPack job submission successful!\n");
-    printf("========================================\n");
-    printf("Submitted job count: %d\n", job_count);
-    if (firstJobId > 0) {
-        printf("First job ID: %lld\n", (long long)firstJobId);
-        if (job_count > 1) {
-            printf("Number of jobs: %d\n", job_count);
+    /* MBD returns actual success count in badReqIndx */
+    if (submitReply.badReqIndx > 0 && submitReply.badReqIndx <= job_count) {
+        actualSubmitted = submitReply.badReqIndx;
+    } else {
+        /* Fallback: assume all succeeded if badReqIndx not set properly */
+        actualSubmitted = job_count;
+    }
+    
+    /* Query all successfully submitted jobs to get accurate lastJobId */
+    LS_LONG_INT *successfulJobIds = NULL;
+    int foundCount = 0;
+    
+    lastJobId = firstJobId;  /* Default to firstJobId */
+    
+    /* Get queue name from submitReply */
+    const char *actualQueueName;
+    if (submitReply.queue && submitReply.queue[0] != '\0') {
+        actualQueueName = submitReply.queue;
+    } else {
+        actualQueueName = "normal";
+    }
+    
+    if (actualSubmitted > 1) {
+        int i;
+        
+        /* Allocate array to store successful job IDs */
+        successfulJobIds = (LS_LONG_INT *)calloc(actualSubmitted, sizeof(LS_LONG_INT));
+        
+        /* Query to find all successful jobs */
+        for (i = 0; i < job_count * 2 && foundCount < actualSubmitted; i++) {
+            LS_LONG_INT candidateId;
+            struct jobInfoEnt *job;
+            
+            candidateId = firstJobId + i;
+            
+            if (lsb_openjobinfo(candidateId, NULL, NULL, NULL, NULL, ALL_JOB) > 0) {
+                job = lsb_readjobinfo(NULL);
+                if (job && job->jobId == candidateId) {
+                    successfulJobIds[foundCount] = candidateId;
+                    lastJobId = candidateId;
+                    foundCount++;
+                }
+                lsb_closejobinfo();
+            }
         }
     }
-    if (submitReply.queue && submitReply.queue[0] != '\0') {
-        printf("Queue: %s\n", submitReply.queue);
-    }
-    printf("========================================\n");
     
-    return job_count;
+    /* Get queue name */
+    queueName = (submitReply.queue && submitReply.queue[0] != '\0') 
+                ? submitReply.queue : "default queue";
+    
+    /* Display submission results in LSF format */
+    if (actualSubmitted == 1) {
+        printf("Job <%lld> is submitted to queue <%s>.\n", 
+               (long long)firstJobId, queueName);
+    } else {
+        printf("Request <%d> jobs submitted to %s <%s>, %d jobs submitted.\n",
+               job_count, 
+               (submitReply.queue && submitReply.queue[0] != '\0') ? "queue" : "default queue",
+               queueName,
+               actualSubmitted);
+        printf("First job: <%lld>, last job: <%lld>\n", 
+               (long long)firstJobId, (long long)lastJobId);
+    }
+    
+    /* Display detailed list if some jobs failed */
+    if (actualSubmitted > 1 && actualSubmitted < job_count && successfulJobIds) {
+        int i;
+        
+        printf("\n--- Successfully Submitted Jobs ---\n");
+        
+        for (i = 0; i < foundCount; i++) {
+            printf("  Job <%lld> submitted to queue <%s>\n", 
+                   (long long)successfulJobIds[i], 
+                   actualQueueName);
+        }
+        
+        if (foundCount < actualSubmitted) {
+            printf("  (Warning: Only found %d of %d successful jobs)\n", 
+                   foundCount, actualSubmitted);
+        }
+        printf("-----------------------------------\n");
+    }
+    
+    /* Clean up */
+    FREEUP(successfulJobIds);
+    
+    return actualSubmitted;
 }

@@ -155,11 +155,33 @@ sendBackPack(int overallReply, int successCount, int firstError,
             goto cleanup;
         }
     } else if (replyArray && jobCount > 0) {
-        if (!xdr_encodeMsg(&xdrs, (char *)&replyArray[0], &replyHdr,
-                          xdr_submitMbdReply, 0, NULL)) {
-            ls_syslog(LOG_ERR, I18N_FUNC_FAIL, fname, "xdr_encodeMsg");
-            xdr_destroy(&xdrs);
-            goto cleanup;
+        /* Find first successful job */
+        int firstSuccessIdx = -1;
+        for (int i = 0; i < jobCount; i++) {
+            if (replyArray[i].jobId > 0) {
+                firstSuccessIdx = i;
+                break;
+            }
+        }
+        
+        /* Set badReqIndx to indicate success count */
+        if (firstSuccessIdx >= 0) {
+            replyArray[firstSuccessIdx].badReqIndx = successCount;
+            if (!xdr_encodeMsg(&xdrs, (char *)&replyArray[firstSuccessIdx], &replyHdr,
+                              xdr_submitMbdReply, 0, NULL)) {
+                ls_syslog(LOG_ERR, I18N_FUNC_FAIL, fname, "xdr_encodeMsg");
+                xdr_destroy(&xdrs);
+                goto cleanup;
+            }
+        } else {
+            /* All failed, return first error */
+            replyArray[0].badReqIndx = 0;
+            if (!xdr_encodeMsg(&xdrs, (char *)&replyArray[0], &replyHdr,
+                              xdr_submitMbdReply, 0, NULL)) {
+                ls_syslog(LOG_ERR, I18N_FUNC_FAIL, fname, "xdr_encodeMsg");
+                xdr_destroy(&xdrs);
+                goto cleanup;
+            }
         }
     } else {
         xdr_destroy(&xdrs);
@@ -212,6 +234,8 @@ do_submitPackReq(XDR *xdrs,
     int                     overallReply = LSBE_NO_ERROR;
     int                     successCount = 0;
     int                     firstError = LSBE_NO_ERROR;
+    int                     *preallocatedJobIds = NULL;
+    int                     firstJobId = -1;
 
     if (logclass & (LC_TRACE | LC_EXEC | LC_COMM))
         ls_syslog(LOG_DEBUG, "%s: Entering this routine...; socket=%d", fname, chanSock_(chfd));
@@ -251,11 +275,43 @@ do_submitPackReq(XDR *xdrs,
         goto sendback;
     }
 
+    /* Batch pre-allocate jobIds for pack submission */
+    preallocatedJobIds = (int *)calloc(packReq.jobCount, sizeof(int));
+    if (!preallocatedJobIds) {
+        overallReply = LSBE_NO_MEM;
+        ls_syslog(LOG_ERR, "%s: Failed to allocate jobId array", fname);
+        if (jf_array) {
+            for (j = 0; j < fileCount; j++)
+                FREEUP(jf_array[j].data);
+            FREEUP(jf_array);
+        }
+        goto sendback;
+    }
+    
+    firstJobId = batchAllocateJobIds(packReq.jobCount, preallocatedJobIds);
+    if (firstJobId < 0) {
+        overallReply = LSBE_NO_JOBID;
+        ls_syslog(LOG_ERR, "%s: Failed to allocate job IDs", fname);
+        FREEUP(preallocatedJobIds);
+        if (jf_array) {
+            for (j = 0; j < fileCount; j++)
+                FREEUP(jf_array[j].data);
+            FREEUP(jf_array);
+        }
+        goto sendback;
+    }
+    
+    if (logclass & LC_COMM) {
+        ls_syslog(LOG_DEBUG, "%s: Pre-allocated %d job IDs starting from %d",
+                 fname, packReq.jobCount, firstJobId);
+    }
+
     replyArray = (struct submitMbdReply *)
         calloc(packReq.jobCount, sizeof(struct submitMbdReply));
     if (!replyArray) {
         overallReply = LSBE_NO_MEM;
         ls_syslog(LOG_ERR, "%s: Failed to allocate reply array", fname);
+        FREEUP(preallocatedJobIds);
         if (jf_array) {
             for (j = 0; j < fileCount; j++)
                 FREEUP(jf_array[j].data);
@@ -309,7 +365,8 @@ do_submitPackReq(XDR *xdrs,
             convertRLimit(packReq.jobs[i].rLimits, 1);
 
         reply = newJobWithFile(&packReq.jobs[i], submitReply, &jf_array[i],
-                              auth, schedule, dispatch, &jobData);
+                              auth, schedule, dispatch, &jobData,
+                              preallocatedJobIds[i]);
 
         FREEUP(savedFromHost);
         FREEUP(savedCommand);
@@ -335,6 +392,9 @@ do_submitPackReq(XDR *xdrs,
                 firstError = reply;
         }
     }
+    
+    /* Clean up pre-allocated jobIds array */
+    FREEUP(preallocatedJobIds);
 
 sendback:
     if (sendBackPack(overallReply, successCount, firstError,
