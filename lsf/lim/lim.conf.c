@@ -859,6 +859,14 @@ doresources(FILE *fp, int *LineNum, char *lsfile)
                 continue;
             }
 
+            if (strcmp(keyList[RKEY_RESOURCENAME].val, "slots") == 0) {
+                ls_syslog(LOG_ERR, _i18n_msg_get(ls_catd , NL_SETN, 5280, "%s: %s(%d): Built-in resource <%s> cannot be overridden. Ignoring line"),
+                        fname, lsfile, *LineNum, keyList[0].val); /* catgets 5250 */
+                lim_CheckError = WARNING_ERR;
+                freeKeyList (keyList);
+                continue;
+            }
+
             if ((resIdx = resNameDefined(keyList[RKEY_RESOURCENAME].val)) >= 0){
                 if ((allInfo.resTable[resIdx].flags & RESF_BUILTIN)
                     && (allInfo.resTable[resIdx].flags & RESF_DYNAMIC)) {
@@ -874,7 +882,7 @@ doresources(FILE *fp, int *LineNum, char *lsfile)
                     else{
 
                         ls_syslog(LOG_ERR, _i18n_msg_get(ls_catd , NL_SETN, 5251,
-                                                         "%s: %s(%d): Built-in resource %s can't be overrided with different type or increasing. Ignoring line"),
+                                                         "%s: %s(%d): Built-in resource %s cannot be overridden with a different type or an increased value. Ignoring line"),
                                   fname, lsfile, *LineNum, keyList[0].val); /* catgets 5251 */
                         lim_CheckError = WARNING_ERR;
                     }
@@ -1002,7 +1010,7 @@ doresources(FILE *fp, int *LineNum, char *lsfile)
                               *LineNum,
                               keyList[RKEY_INCREASING].val,
                               keyList[RKEY_RESOURCENAME].val,
-                              (allInfo.resTable[allInfo.nRes].orderType == LS_BOOLEAN)?"BOOLEAN":"STRING");
+                              (allInfo.resTable[allInfo.nRes].valueType == LS_BOOLEAN)?"BOOLEAN":"STRING");
             } else {
                 if (allInfo.resTable[allInfo.nRes].valueType
                     == LS_NUMERIC) {
@@ -1391,6 +1399,13 @@ addResourceMap (char *resName, char *location, char *lsfile, int LineNum,
         ls_syslog(LOG_ERR, _i18n_msg_get(ls_catd , NL_SETN, 5275,
                                          "%s: %s(%d): Resource name <%s> not defined"), /* catgets 5275 */
                   fname, lsfile, LineNum, resName);
+        return (-1);
+    }
+
+    if (strcmp(resName, "slots") == 0) {
+        ls_syslog(LOG_ERR, _i18n_msg_get(ls_catd , NL_SETN, 5281,
+                                         "%s: %s(%d): Built-in resource <%s> cannot be defined with a location"), /* catgets 5281 */
+                fname, lsfile, LineNum, resName);
         return (-1);
     }
 
@@ -3083,13 +3098,11 @@ addHost_(struct clusterNode *clPtr,
             int isSet;
             int j;
             char *value;
-            char *name;;
 
             TEST_BIT(resNo, hPtr->resBitMaps, isSet);
             if (isSet == 0)
                 continue;
 
-            name = shortInfo.resName[resNo];
             j = resNameDefined (shortInfo.resName[resNo]);
             if (allInfo.resTable[j].valueType == LS_BOOLEAN)
                 value = "1";
@@ -3624,7 +3637,7 @@ addInstance (struct sharedResource *sharedResource,  int nHosts, char **hostName
 {
 
     static char fname[] = "addInstance()";
-    int i, resNo;
+    int i;
     struct resourceInstance **insPtr, *temp;
     struct hostNode *hPtr;
 
@@ -3640,7 +3653,6 @@ addInstance (struct sharedResource *sharedResource,  int nHosts, char **hostName
         return (NULL);
     }
     temp->resName = sharedResource->resourceName;
-    resNo = validResource(temp->resName);
     for (i = 0; i < nHosts; i++) {
         if (hostNames[i] == NULL)
             continue;

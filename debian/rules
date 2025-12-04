@@ -6,48 +6,6 @@ ifeq ($(clustername),)
 	clustername = volclava
 endif
 
-# Platform detection function
-PLATFORM := $(shell \
-	OS_NAME="unknown"; \
-	OS_VERSION="unknown"; \
-	CPU_ARCH=$$(uname -m); \
-	if [ -f /etc/os-release ]; then \
-		. /etc/os-release; \
-		if [ "$$ID" = "ubuntu" ] || [ "$$ID_LIKE" = "debian" ]; then \
-			OS_NAME="ubuntu"; \
-			OS_VERSION="$$VERSION_ID"; \
-		elif [ "$$ID" = "centos" ]; then \
-			OS_NAME="centos"; \
-			OS_VERSION="$$VERSION_ID"; \
-		elif [ "$$ID" = "rocky" ]; then \
-			OS_NAME="rocky"; \
-			OS_VERSION="$$VERSION_ID"; \
-		elif [ "$$ID" = "rhel" ] || [ "$$ID_LIKE" = "rhel" ] || [ "$$NAME" = "Red Hat Enterprise Linux" ]; then \
-			OS_NAME="redhat"; \
-			OS_VERSION="$$VERSION_ID"; \
-		fi; \
-	else \
-		if [ -f /etc/redhat-release ]; then \
-			RELEASE=$$(cat /etc/redhat-release); \
-			if echo "$$RELEASE" | grep -qi "centos"; then \
-				OS_NAME="centos"; \
-				OS_VERSION=$$(echo "$$RELEASE" | awk '{print $$4}' | cut -d '.' -f 1); \
-			elif echo "$$RELEASE" | grep -qi "red hat"; then \
-				OS_NAME="redhat"; \
-				OS_VERSION=$$(echo "$$RELEASE" | awk '{print $$7}' | cut -d '.' -f 1); \
-			fi; \
-		elif [ -f /etc/lsb-release ]; then \
-			. /etc/lsb-release; \
-			if [ "$$DISTRIB_ID" = "Ubuntu" ]; then \
-				OS_NAME="ubuntu"; \
-				OS_VERSION=$$DISTRIB_RELEASE; \
-			fi; \
-		fi; \
-	fi; \
-	OS_VERSION=$$(echo "$$OS_VERSION" | sed -E 's/[^0-9.]//g' | cut -d '.' -f 1); \
-	echo "$${OS_NAME}-$${OS_VERSION}-$${CPU_ARCH}" \
-)
-
 %:
 	dh $@
 
@@ -63,12 +21,12 @@ override_dh_auto_install:
 	dh_auto_install
 
 	# install directories and files
-	install -d debian/volclava/opt/volclava-2.1/exec/$(PLATFORM)/bin
+	install -d debian/volclava/opt/volclava-2.1/bin
 	install -d debian/volclava/opt/volclava-2.1/etc
 	install -d debian/volclava/opt/volclava-2.1/include
-	install -d debian/volclava/opt/volclava-2.1/exec/$(PLATFORM)/lib
+	install -d debian/volclava/opt/volclava-2.1/lib
 	install -d debian/volclava/opt/volclava-2.1/log
-	install -d debian/volclava/opt/volclava-2.1/exec/$(PLATFORM)/sbin
+	install -d debian/volclava/opt/volclava-2.1/sbin
 	install -d debian/volclava/opt/volclava-2.1/share/man/man1
 	install -d debian/volclava/opt/volclava-2.1/share/man/man3
 	install -d debian/volclava/opt/volclava-2.1/share/man/man5
@@ -76,51 +34,51 @@ override_dh_auto_install:
 	install -d debian/volclava/opt/volclava-2.1/work/logdir
 
 	# bin
-	install -m 755 lsbatch/cmd/badmin      debian/volclava/opt/volclava-2.1/exec/$(PLATFORM)/bin
-	install -m 755 lsbatch/cmd/bbot        debian/volclava/opt/volclava-2.1/exec/$(PLATFORM)/bin
-	install -m 755 lsbatch/bhist/bhist     debian/volclava/opt/volclava-2.1/exec/$(PLATFORM)/bin
-	install -m 755 lsbatch/cmd/bhosts      debian/volclava/opt/volclava-2.1/exec/$(PLATFORM)/bin
-	install -m 755 lsbatch/cmd/bjobs       debian/volclava/opt/volclava-2.1/exec/$(PLATFORM)/bin
-	install -m 755 lsbatch/cmd/bkill       debian/volclava/opt/volclava-2.1/exec/$(PLATFORM)/bin
-	install -m 755 lsbatch/cmd/bmgroup     debian/volclava/opt/volclava-2.1/exec/$(PLATFORM)/bin
-	install -m 755 lsbatch/cmd/bmig        debian/volclava/opt/volclava-2.1/exec/$(PLATFORM)/bin
-	install -m 755 lsbatch/cmd/bmod        debian/volclava/opt/volclava-2.1/exec/$(PLATFORM)/bin
-	install -m 755 lsbatch/cmd/bparams     debian/volclava/opt/volclava-2.1/exec/$(PLATFORM)/bin
-	install -m 755 lsbatch/cmd/bpeek       debian/volclava/opt/volclava-2.1/exec/$(PLATFORM)/bin
-	install -m 755 lsbatch/cmd/bqueues     debian/volclava/opt/volclava-2.1/exec/$(PLATFORM)/bin
-	install -m 755 lsbatch/cmd/brequeue    debian/volclava/opt/volclava-2.1/exec/$(PLATFORM)/bin
-	install -m 755 lsbatch/cmd/brestart    debian/volclava/opt/volclava-2.1/exec/$(PLATFORM)/bin
-	install -m 755 lsbatch/cmd/brun        debian/volclava/opt/volclava-2.1/exec/$(PLATFORM)/bin
-	install -m 755 lsbatch/cmd/bsub        debian/volclava/opt/volclava-2.1/exec/$(PLATFORM)/bin
-	install -m 755 lsbatch/cmd/bswitch     debian/volclava/opt/volclava-2.1/exec/$(PLATFORM)/bin
-	install -m 755 lsbatch/cmd/btop        debian/volclava/opt/volclava-2.1/exec/$(PLATFORM)/bin
-	install -m 755 lsbatch/cmd/busers      debian/volclava/opt/volclava-2.1/exec/$(PLATFORM)/bin
-	install -m 755 scripts/lam-mpirun      debian/volclava/opt/volclava-2.1/exec/$(PLATFORM)/bin
-	install -m 755 lsf/lstools/lsacct      debian/volclava/opt/volclava-2.1/exec/$(PLATFORM)/bin
-	install -m 755 lsf/lsadm/lsadmin       debian/volclava/opt/volclava-2.1/exec/$(PLATFORM)/bin
-	install -m 755 lsf/lstools/lseligible  debian/volclava/opt/volclava-2.1/exec/$(PLATFORM)/bin
-	install -m 755 lsf/lstools/lshosts     debian/volclava/opt/volclava-2.1/exec/$(PLATFORM)/bin
-	install -m 755 lsf/lstools/lsid        debian/volclava/opt/volclava-2.1/exec/$(PLATFORM)/bin
-	install -m 755 lsf/lstools/lsinfo      debian/volclava/opt/volclava-2.1/exec/$(PLATFORM)/bin
-	install -m 755 lsf/lstools/lsload      debian/volclava/opt/volclava-2.1/exec/$(PLATFORM)/bin
-	install -m 755 lsf/lstools/lsloadadj   debian/volclava/opt/volclava-2.1/exec/$(PLATFORM)/bin
-	install -m 755 lsf/lstools/lsmon       debian/volclava/opt/volclava-2.1/exec/$(PLATFORM)/bin
-	install -m 755 lsf/lstools/lsplace     debian/volclava/opt/volclava-2.1/exec/$(PLATFORM)/bin
-	install -m 755 lsf/lstools/lsrcp	debian/volclava/opt/volclava-2.1/exec/$(PLATFORM)/bin
-	install -m 755 scripts/mpich2-mpiexec	debian/volclava/opt/volclava-2.1/exec/$(PLATFORM)/bin
-	install -m 755 scripts/mpich-mpirun	debian/volclava/opt/volclava-2.1/exec/$(PLATFORM)/bin
-	install -m 755 scripts/openmpi-mpirun	debian/volclava/opt/volclava-2.1/exec/$(PLATFORM)/bin
+	install -m 755 lsbatch/cmd/badmin      debian/volclava/opt/volclava-2.1/bin
+	install -m 755 lsbatch/cmd/bbot        debian/volclava/opt/volclava-2.1/bin
+	install -m 755 lsbatch/bhist/bhist     debian/volclava/opt/volclava-2.1/bin
+	install -m 755 lsbatch/cmd/bhosts      debian/volclava/opt/volclava-2.1/bin
+	install -m 755 lsbatch/cmd/bjobs       debian/volclava/opt/volclava-2.1/bin
+	install -m 755 lsbatch/cmd/bkill       debian/volclava/opt/volclava-2.1/bin
+	install -m 755 lsbatch/cmd/bmgroup     debian/volclava/opt/volclava-2.1/bin
+	install -m 755 lsbatch/cmd/bmig        debian/volclava/opt/volclava-2.1/bin
+	install -m 755 lsbatch/cmd/bmod        debian/volclava/opt/volclava-2.1/bin
+	install -m 755 lsbatch/cmd/bparams     debian/volclava/opt/volclava-2.1/bin
+	install -m 755 lsbatch/cmd/bpeek       debian/volclava/opt/volclava-2.1/bin
+	install -m 755 lsbatch/cmd/bqueues     debian/volclava/opt/volclava-2.1/bin
+	install -m 755 lsbatch/cmd/brequeue    debian/volclava/opt/volclava-2.1/bin
+	install -m 755 lsbatch/cmd/brestart    debian/volclava/opt/volclava-2.1/bin
+	install -m 755 lsbatch/cmd/brun        debian/volclava/opt/volclava-2.1/bin
+	install -m 755 lsbatch/cmd/bsub        debian/volclava/opt/volclava-2.1/bin
+	install -m 755 lsbatch/cmd/bswitch     debian/volclava/opt/volclava-2.1/bin
+	install -m 755 lsbatch/cmd/btop        debian/volclava/opt/volclava-2.1/bin
+	install -m 755 lsbatch/cmd/busers      debian/volclava/opt/volclava-2.1/bin
+	install -m 755 scripts/lam-mpirun      debian/volclava/opt/volclava-2.1/bin
+	install -m 755 lsf/lstools/lsacct      debian/volclava/opt/volclava-2.1/bin
+	install -m 755 lsf/lsadm/lsadmin       debian/volclava/opt/volclava-2.1/bin
+	install -m 755 lsf/lstools/lseligible  debian/volclava/opt/volclava-2.1/bin
+	install -m 755 lsf/lstools/lshosts     debian/volclava/opt/volclava-2.1/bin
+	install -m 755 lsf/lstools/lsid        debian/volclava/opt/volclava-2.1/bin
+	install -m 755 lsf/lstools/lsinfo      debian/volclava/opt/volclava-2.1/bin
+	install -m 755 lsf/lstools/lsload      debian/volclava/opt/volclava-2.1/bin
+	install -m 755 lsf/lstools/lsloadadj   debian/volclava/opt/volclava-2.1/bin
+	install -m 755 lsf/lstools/lsmon       debian/volclava/opt/volclava-2.1/bin
+	install -m 755 lsf/lstools/lsplace     debian/volclava/opt/volclava-2.1/bin
+	install -m 755 lsf/lstools/lsrcp	debian/volclava/opt/volclava-2.1/bin
+	install -m 755 scripts/mpich2-mpiexec	debian/volclava/opt/volclava-2.1/bin
+	install -m 755 scripts/mpich-mpirun	debian/volclava/opt/volclava-2.1/bin
+	install -m 755 scripts/openmpi-mpirun	debian/volclava/opt/volclava-2.1/bin
 
 	# sbin
-	install -m 755 eauth/eauth             debian/volclava/opt/volclava-2.1/exec/$(PLATFORM)/sbin
-	install -m 755 lsf/lim/lim             debian/volclava/opt/volclava-2.1/exec/$(PLATFORM)/sbin
-	install -m 755 lsbatch/daemons/mbatchd debian/volclava/opt/volclava-2.1/exec/$(PLATFORM)/sbin
-	install -m 755 lsf/res/nios            debian/volclava/opt/volclava-2.1/exec/$(PLATFORM)/sbin
-	install -m 755 lsf/pim/pim             debian/volclava/opt/volclava-2.1/exec/$(PLATFORM)/sbin
-	install -m 755 lsf/res/res             debian/volclava/opt/volclava-2.1/exec/$(PLATFORM)/sbin
-	install -m 755 lsbatch/daemons/sbatchd debian/volclava/opt/volclava-2.1/exec/$(PLATFORM)/sbin
-	install -m 755 chkpnt/echkpnt          debian/volclava/opt/volclava-2.1/exec/$(PLATFORM)/sbin
-	install -m 755 chkpnt/erestart         debian/volclava/opt/volclava-2.1/exec/$(PLATFORM)/sbin
+	install -m 755 eauth/eauth             debian/volclava/opt/volclava-2.1/sbin
+	install -m 755 lsf/lim/lim             debian/volclava/opt/volclava-2.1/sbin
+	install -m 755 lsbatch/daemons/mbatchd debian/volclava/opt/volclava-2.1/sbin
+	install -m 755 lsf/res/nios            debian/volclava/opt/volclava-2.1/sbin
+	install -m 755 lsf/pim/pim             debian/volclava/opt/volclava-2.1/sbin
+	install -m 755 lsf/res/res             debian/volclava/opt/volclava-2.1/sbin
+	install -m 755 lsbatch/daemons/sbatchd debian/volclava/opt/volclava-2.1/sbin
+	install -m 755 chkpnt/echkpnt          debian/volclava/opt/volclava-2.1/sbin
+	install -m 755 chkpnt/erestart         debian/volclava/opt/volclava-2.1/sbin
 
 	# share
 	install	-m	644	lsbatch/man1/bbot.1			debian/volclava/opt/volclava-2.1/share/man/man1
@@ -202,8 +160,8 @@ override_dh_auto_install:
 	install	-m	644	lsbatch/lsbatch.h				debian/volclava/opt/volclava-2.1/include
 
 	# lib
-	install -m 755 lsf/lib/liblsf.a             debian/volclava/opt/volclava-2.1/exec/$(PLATFORM)/lib
-	install -m 755 lsbatch/lib/liblsbatch.a     debian/volclava/opt/volclava-2.1/exec/$(PLATFORM)/lib
+	install -m 755 lsf/lib/liblsf.a             debian/volclava/opt/volclava-2.1/lib
+	install -m 755 lsbatch/lib/liblsbatch.a     debian/volclava/opt/volclava-2.1/lib
 
 	# init.d
 	install -d debian/volclava/etc/init.d

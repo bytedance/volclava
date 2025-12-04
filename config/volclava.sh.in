@@ -5,83 +5,96 @@
 
 VOLCLAVA_TOP=@prefix@
 LSF_ENVDIR=@prefix@/etc
+MIX_OS_FOLDER=""
 
-OS_NAME="unknown"
-OS_VERSION="unknown"
-CPU_ARCH="unknown"
-
-#Check OS name and version
-if [ -f /etc/os-release ]; then
-    . /etc/os-release
-    
-    #check ubuntu
-    if [ "$ID" = "ubuntu" ] || [ "$ID_LIKE" = "debian" ]; then
-        OS_NAME="ubuntu"
-        OS_VERSION=$VERSION_ID
-    
-    #check centos
-    elif [ "$ID" = "centos" ]; then
-        OS_NAME="centos"
-        OS_VERSION=$VERSION_ID
-    
-    #check rocky
-    elif [ "$ID" = "rocky" ]; then
-        OS_NAME="rocky"
-        OS_VERSION=$VERSION_ID
-    
-    #check redhat
-    elif [ "$ID" = "rhel" ] || [ "$ID_LIKE" = "rhel" ] || [ "$NAME" = "Red Hat Enterprise Linux" ]; then
-        OS_NAME="redhat"
-        OS_VERSION=$VERSION_ID
-    fi
-
-# Compatible with older systems without /etc/os-release
+if [[ -z "$MIX_OS_FOLDER" ]]; then
+    #Install in single platform mode
+    LSF_SERVERDIR="${VOLCLAVA_TOP}/sbin"
+    LSF_BINDIR="${VOLCLAVA_TOP}/bin"
+    LSF_LIBDIR="${VOLCLAVA_TOP}/lib"
+    MANPATH="${VOLCLAVA_TOP}/share/man:$MANPATH"
+    PATH="${LSF_SERVERDIR}:${LSF_BINDIR}:$PATH"
+    export LSF_ENVDIR PATH LSF_SERVERDIR LSF_BINDIR LSF_LIBDIR MANPATH
 else
-    if [ -f /etc/redhat-release ]; then
-        RELEASE=$(cat /etc/redhat-release)
-        # Check CentOS
-        if echo "$RELEASE" | grep -qi "centos"; then
-            OS_NAME="centos"
-            OS_VERSION=$(echo "$RELEASE" | awk '{print $4}' | cut -d '.' -f 1)
-        # Check RedHat
-        elif echo "$RELEASE" | grep -qi "red hat"; then
-            OS_NAME="redhat"
-            OS_VERSION=$(echo "$RELEASE" | awk '{print $7}' | cut -d '.' -f 1)
-        fi
-    elif [ -f /etc/lsb-release ]; then
-        . /etc/lsb-release
-        if [ "$DISTRIB_ID" = "Ubuntu" ]; then
+    #Install in multi-platform mode
+    OS_NAME="unknown"
+    OS_VERSION="unknown"
+    CPU_ARCH="unknown"
+
+    #Check OS name and version
+    if [ -f /etc/os-release ]; then
+        . /etc/os-release
+    
+        #check ubuntu
+        if [ "$ID" = "ubuntu" ] || [ "$ID_LIKE" = "debian" ]; then
             OS_NAME="ubuntu"
-            OS_VERSION=$DISTRIB_RELEASE
+            OS_VERSION=$VERSION_ID
+    
+        #check centos
+        elif [ "$ID" = "centos" ]; then
+            OS_NAME="centos"
+            OS_VERSION=$VERSION_ID
+    
+       #check rocky
+        elif [ "$ID" = "rocky" ]; then
+            OS_NAME="rocky"
+            OS_VERSION=$VERSION_ID
+    
+        #check redhat
+        elif [ "$ID" = "rhel" ] || [ "$ID_LIKE" = "rhel" ] || [ "$NAME" = "Red Hat Enterprise Linux" ]; then
+            OS_NAME="redhat"
+            OS_VERSION=$VERSION_ID
+        fi
+
+    # Compatible with older systems without /etc/os-release
+    else
+        if [ -f /etc/redhat-release ]; then
+             RELEASE=$(cat /etc/redhat-release)
+             # Check CentOS
+             if echo "$RELEASE" | grep -qi "centos"; then
+                OS_NAME="centos"
+                OS_VERSION=$(echo "$RELEASE" | awk '{print $4}' | cut -d '.' -f 1)
+            # Check RedHat
+            elif echo "$RELEASE" | grep -qi "red hat"; then
+                OS_NAME="redhat"
+                OS_VERSION=$(echo "$RELEASE" | awk '{print $7}' | cut -d '.' -f 1)
+            fi
+        elif [ -f /etc/lsb-release ]; then
+            . /etc/lsb-release
+            if [ "$DISTRIB_ID" = "Ubuntu" ]; then
+                OS_NAME="ubuntu"
+                OS_VERSION=$DISTRIB_RELEASE
+            fi
         fi
     fi
-fi
 
-# Check main version
-OS_VERSION=$(echo "$OS_VERSION" | sed -E 's/[^0-9.]//g' | cut -d '.' -f 1)
+    # Check main version
+    OS_VERSION=$(echo "$OS_VERSION" | sed -E 's/[^0-9.]//g' | cut -d '.' -f 1)
 
-# Check CPU arch
-CPU_ARCH=$(uname -m)
+    # Check CPU arch
+    CPU_ARCH=$(uname -m)
 
-# Check the binaries directory for current OS platform
-PLATFORM=""
-for (( version=OS_VERSION; version >= 1; version-- )); do
-    FOLDER_NAME="${OS_NAME}-${version}-${CPU_ARCH}"
-    FOLDER_PATH="${VOLCLAVA_TOP}/exec/${FOLDER_NAME}"
+    # Check the binaries directory for current OS platform
+    PLATFORM=""
+    for (( version=OS_VERSION; version >= 1; version-- )); do
+        FOLDER_NAME="${OS_NAME}-${version}-${CPU_ARCH}"
+        FOLDER_PATH="${VOLCLAVA_TOP}/${MIX_OS_FOLDER}/${FOLDER_NAME}"
     
-    if [ -d "$FOLDER_PATH" ]; then
-        PLATFORM="${OS_NAME}-${version}-${CPU_ARCH}"
-        break
-    fi
-done
+        if [ -d "$FOLDER_PATH" ]; then
+            PLATFORM="${OS_NAME}-${version}-${CPU_ARCH}"
+            break
+        fi
+    done
 
-if [ -n "$PLATFORM" ]; then
-    LSF_SERVERDIR="${VOLCLAVA_TOP}/exec/${PLATFORM}/sbin"
-    LSF_BINDIR="${VOLCLAVA_TOP}/exec/${PLATFORM}/bin"
-    LSF_LIBDIR="${VOLCLAVA_TOP}/exec/${PLATFORM}/lib"
-    PATH=${LSF_SERVERDIR}:${LSF_BINDIR}:$PATH
-    export LSF_ENVDIR PATH LSF_SERVERDIR LSF_BINDIR LSF_LIBDIR
-else
-    PLATFORM="${OS_NAME}-${OS_VERSION}-${CPU_ARCH}"
-    echo "The environment initialization failed for Volclava: The binaries directory <${VOLCLAVA_TOP}/exec/${PLATFORM}> not found for the current OS platform."
+    if [ -n "$PLATFORM" ]; then
+        LSF_SERVERDIR="${VOLCLAVA_TOP}/${MIX_OS_FOLDER}/${PLATFORM}/sbin"
+        LSF_BINDIR="${VOLCLAVA_TOP}/${MIX_OS_FOLDER}/${PLATFORM}/bin"
+        LSF_LIBDIR="${VOLCLAVA_TOP}/${MIX_OS_FOLDER}/${PLATFORM}/lib"
+        MANPATH="${VOLCLAVA_TOP}/share/man:$MANPATH"
+        PATH="${LSF_SERVERDIR}:${LSF_BINDIR}:$PATH"
+        export LSF_ENVDIR PATH LSF_SERVERDIR LSF_BINDIR LSF_LIBDIR MANPATH
+    else
+        PLATFORM="${OS_NAME}-${OS_VERSION}-${CPU_ARCH}"
+        echo "The environment initialization failed for Volclava: The binaries directory <${VOLCLAVA_TOP}/${MIX_OS_FOLDER}/${PLATFORM}> not found for the current OS platform."
+    fi
 fi

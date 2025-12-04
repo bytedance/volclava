@@ -1364,6 +1364,7 @@ extern void                 updQaccount(struct jData *jData, int, int, int,
 extern struct uData *       getUserData(char *user);
 extern struct userAcct *    getUAcct(struct hTab *, struct uData *);
 extern struct hostAcct *    getHAcct(struct hTab  *, struct hData *);
+extern void                 initUserGroup (struct uData *);
 extern struct uData *       addUserData (char *, int, float, int, int, char *, int, int);
 extern int                  checkUsers(struct infoReq *,
                                        struct userInfoReply *);

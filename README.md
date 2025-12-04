@@ -1,5 +1,5 @@
 ## Description
-**volclava 2.1.0** is developed based on OpenLava 2.0 with following its license of GPL 2.0.
+**volclava**, whose latest version is 2.1.1, is developed based on OpenLava 2.0 with following its license of GPL 2.0.
 
 OpenLava is a free and open-source workload scheduler that's fully compatible with IBM LSF. It supports diverse high-performance computing and analytical applications.
 It came from an early version of LSF through open-sourcing. Its command-line and file formats are similar to most LSF functions, so both users and administrators can easily get the hang of operating it.
@@ -14,7 +14,7 @@ Everyone is welcomed to feed back via git issue.
 - Redhat/Rocky 8
 - Ubuntu 20.04
 
-The development and testing operating system for the volclava project 2.1.0 is CentOS Linux release 7.9.2009 (Core), which is also one of the commonly used operating system versions in IC design.
+The development and testing operating system for the volclava project 2.1.1 is CentOS Linux release 7.9.2009 (Core), which is also one of the commonly used operating system versions in IC design.
 CentOS 6, CentOS 7, CentOS 8, as well as their corresponding Red Hat and Rocky versions should all be able to run. The main potential risk lies in that differences in system library versions may affect the operation of some components.
 
 ## Install
@@ -28,16 +28,23 @@ The following uses the setup of a 3-node cluster (master-test,cmp1-test,cmp2-tes
 ```
 [root@master-test test]# cd /install_pkg/volclava
 ```
-3. Customize Cluster Admininistrator and Cluster Name(Optional)
-If you need to customize the cluster administrator account or cluster name, you can set the **volclavaadmin** and **volclavacluster** environment variables. See the example below:
+3. Create an install.conf file to customize the cluster setup 
 ```
-[root@master-test test]# export volclavaadmin=volcadmin
-[root@master-test test]# export volclavacluster=VOLCCLUSTER
+[root@master-test test]# cp ./install.conf.example install.conf
 ```
-If the above environment variables are not manually specified, the cluster will use the default administrator account **volclava** and the default cluster name **volclava**. The subsequent steps will be demonstrated using these default values.
+Edit the file, then save it with the following content:
+```
+[root@master-test test]# cat ./install.conf
+VOLC_PREFIX=/software/volclava-2.1
+VOLC_ADMIN=volclava
+VOLC_CLUSTER_NAME=volclava
+VOLC_HOSTS="master-test cmp1-test cmp2-test"
+```
+The default administrator account and cluster name are volclava. The following demonstrations will use these values, but you can specify your own.  
+
 4. Run install script
 ```
-[root@master-test volclava]# ./volcinstall.sh --type=code --profix=/software/volclava-2.1 --hosts="master-test cmp1-test cmp2-test"
+[root@master-test volclava]# ./volcinstall.sh --file=./install.conf
 ....
 make[1]: Leaving directory `/install_pkg/volclava'
 make: warning:  Clock skew detected.  Your build may be incomplete.
@@ -89,7 +96,7 @@ sbatchd pid: <5927>
 lim mbatchd: <5940>
 
 [root@master-test ~]# lsid  ##check cluster status
-volclava project 1.0.0, Nov 14 2024
+volclava project 2.1.1, Nov 11 2025
 
 My cluster name is volclava
 My master name is master-test

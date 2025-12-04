@@ -20,56 +20,14 @@
 
 %define major 2
 %define minor 1
-%define release 0
+%define release 1
 %define build_timestamp %(date +"%Y%m%d")
 
 %define version %{major}.%{minor}
 %define _volclavatop /opt/volclava-%{version}
-
-%define _platform %( \
-    OS_NAME="unknown"; \
-    OS_VERSION="unknown"; \
-    CPU_ARCH="unknown"; \
-    if [ -f /etc/os-release ]; then \
-        . /etc/os-release; \
-        if [ "$ID" = "ubuntu" ] || [ "$ID_LIKE" = "debian" ]; then \
-            OS_NAME="ubuntu"; \
-            OS_VERSION=$VERSION_ID; \
-        elif [ "$ID" = "centos" ]; then \
-            OS_NAME="centos"; \
-            OS_VERSION=$VERSION_ID; \
-        elif [ "$ID" = "rocky" ]; then \
-            OS_NAME="rocky"; \
-            OS_VERSION=$VERSION_ID; \
-        elif [ "$ID" = "rhel" ] || [ "$ID_LIKE" = "rhel" ] || [ "$NAME" = "Red Hat Enterprise Linux" ]; then \
-            OS_NAME="redhat"; \
-            OS_VERSION=$VERSION_ID; \
-        fi; \
-    else \
-        if [ -f /etc/redhat-release ]; then \
-            RELEASE=$(cat /etc/redhat-release); \
-            if echo "$RELEASE" | grep -qi "centos"; then \
-                OS_NAME="centos"; \
-                OS_VERSION=$(echo "$RELEASE" | awk '{print $4}' | cut -d '.' -f 1); \
-            elif echo "$RELEASE" | grep -qi "red hat"; then \
-                OS_NAME="redhat"; \
-                OS_VERSION=$(echo "$RELEASE" | awk '{print $7}' | cut -d '.' -f 1); \
-            fi; \
-        elif [ -f /etc/lsb-release ]; then \
-            . /etc/lsb-release; \
-            if [ "$DISTRIB_ID" = "Ubuntu" ]; then \
-                OS_NAME="ubuntu"; \
-                OS_VERSION=$DISTRIB_RELEASE; \
-            fi; \
-        fi; \
-    fi; \
-    OS_VERSION=$(echo "$OS_VERSION" | sed -E 's/[^0-9.]//g' | cut -d '.' -f 1); \
-    CPU_ARCH=$(uname -m); \
-    echo "${OS_NAME}-${OS_VERSION}-${CPU_ARCH}" \
-)
-%define _libdir %{_volclavatop}/exec/%{_platform}/lib
-%define _bindir %{_volclavatop}/exec/%{_platform}/bin
-%define _sbindir %{_volclavatop}/exec/%{_platform}/sbin
+%define _libdir %{_volclavatop}/lib
+%define _bindir %{_volclavatop}/bin
+%define _sbindir %{_volclavatop}/sbin
 %define _mandir %{_volclavatop}/share/man
 %define _logdir %{_volclavatop}/log
 %define _includedir %{_volclavatop}/include
@@ -94,7 +52,7 @@ Summary: volclava Distributed Batch Scheduler
 Name: volclava
 Version: %{version}
 # Release: 0.b.%{build_timestamp}
-Release: 0.b.20250616
+Release: %{release}.20251116
 License: GPLv2
 Group: Applications/Productivity
 Vendor: volclava foundation
@@ -307,19 +265,16 @@ install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/lsbatch/man8/sbatchd.8  ${RPM
 # set variables
 #
 _volclavatop=${RPM_INSTALL_PREFIX}/volclava-%{version}
-#_volclavatop_trans=%(echo ${RPM_INSTALL_PREFIX}/volclava-%{version} | sed 's:/:\\/:g')
-#echo ${_volclavatop}
-#echo ${_volclavatop_trans}
 
 # create the symbolic links
-ln -sf ${_volclavatop}/exec/%{_platform}/bin/bkill  ${_volclavatop}/exec/%{_platform}/bin/bstop
-ln -sf ${_volclavatop}/exec/%{_platform}/bin/bkill  ${_volclavatop}/exec/%{_platform}/bin/bresume
-ln -sf ${_volclavatop}/exec/%{_platform}/bin/bkill  ${_volclavatop}/exec/%{_platform}/bin/bchkpnt
-ln -sf ${_volclavatop}/exec/%{_platform}/bin/bmgroup  ${_volclavatop}/exec/%{_platform}/bin/bugroup
-chown -h volclava:volclava ${_volclavatop}/exec/%{_platform}/bin/bstop
-chown -h volclava:volclava ${_volclavatop}/exec/%{_platform}/bin/bresume
-chown -h volclava:volclava ${_volclavatop}/exec/%{_platform}/bin/bchkpnt
-chown -h volclava:volclava ${_volclavatop}/exec/%{_platform}/bin/bugroup
+ln -sf ${_volclavatop}/bin/bkill  ${_volclavatop}/bin/bstop
+ln -sf ${_volclavatop}/bin/bkill  ${_volclavatop}/bin/bresume
+ln -sf ${_volclavatop}/bin/bkill  ${_volclavatop}/bin/bchkpnt
+ln -sf ${_volclavatop}/bin/bmgroup  ${_volclavatop}/bin/bugroup
+chown -h %{VOLCADMIN}:%{VOLCADMIN} ${_volclavatop}/bin/bstop
+chown -h %{VOLCADMIN}:%{VOLCADMIN} ${_volclavatop}/bin/bresume
+chown -h %{VOLCADMIN}:%{VOLCADMIN} ${_volclavatop}/bin/bchkpnt
+chown -h %{VOLCADMIN}:%{VOLCADMIN} ${_volclavatop}/bin/bugroup
 sed -i "s:/opt/volclava-%{version}:${_volclavatop}:g" ${_volclavatop}/etc/volclava.sh
 sed -i "s:/opt/volclava-%{version}:${_volclavatop}:g" ${_volclavatop}/etc/volclava.csh
 sed -i "s:/opt/volclava-%{version}:${_volclavatop}:g" ${_volclavatop}/etc/volclava
@@ -343,7 +298,12 @@ sed -i "s:/opt/volclava-%{version}:${_volclavatop}:g" ${_volclavatop}/etc/lsf.co
 _volclavatop=${RPM_INSTALL_PREFIX}/volclava-%{version}
 rm -f /etc/init.d/volclava
 rm -f /etc/profile.d/volclava.*
-rm -rf ${_volclavatop}
+rm -f ${_volclavatop}/bin/bstop ${_volclavatop}/bin/bresume ${_volclavatop}/bin/bchkpnt ${_volclavatop}/bin/bugroup
+if [ -d "${_volclavatop}/bin" ]; then
+    if [ -z "$(ls -A "${_volclavatop}/bin")" ]; then
+        rm -rf "${_volclavatop}/bin"
+    fi
+fi
 
 #
 # FILES
@@ -481,8 +441,6 @@ rm -rf ${_volclavatop}
 %config(noreplace) %{_etcdir}/lsf.task
 %config(noreplace) %{_volclavatop}/README.md
 %config(noreplace) %{_volclavatop}/COPYING
-%dir %attr(0755,%{VOLCADMIN},%{VOLCADMIN}) %{_volclavatop}/exec
-%dir %attr(0755,%{VOLCADMIN},%{VOLCADMIN}) %{_volclavatop}/exec/%{_platform}
 %dir %attr(0755,%{VOLCADMIN},%{VOLCADMIN}) %{_bindir}
 %dir %attr(0755,%{VOLCADMIN},%{VOLCADMIN}) %{_etcdir}
 %dir %attr(0755,%{VOLCADMIN},%{VOLCADMIN}) %{_includedir}
@@ -490,10 +448,18 @@ rm -rf ${_volclavatop}
 %dir %attr(0755,%{VOLCADMIN},%{VOLCADMIN}) %{_logdir}
 %dir %attr(0755,%{VOLCADMIN},%{VOLCADMIN}) %{_sbindir}
 %dir %attr(0755,%{VOLCADMIN},%{VOLCADMIN}) %{_volclavatop}/share
+%dir %attr(0755,%{VOLCADMIN},%{VOLCADMIN}) %{_volclavatop}/share/man
+%dir %attr(0755,%{VOLCADMIN},%{VOLCADMIN}) %{_volclavatop}/share/man/man1
+%dir %attr(0755,%{VOLCADMIN},%{VOLCADMIN}) %{_volclavatop}/share/man/man5
+%dir %attr(0755,%{VOLCADMIN},%{VOLCADMIN}) %{_volclavatop}/share/man/man8
 %dir %attr(0755,%{VOLCADMIN},%{VOLCADMIN}) %{_volclavatop}/work
 %dir %attr(0755,%{VOLCADMIN},%{VOLCADMIN}) %{_volclavatop}/work/logdir
 
 %changelog
+* Sun Nov 16 2025 Releasing volclava 2.1.1 by Bytedance Ltd. and/or its affiliates
+- support sorting hosts for job scheduling via order[slots];
+- enhance mixed-OS deployment installation to maintain compatibility with single-platform mode;
+- fix volclava script error on Ubuntu;
 * Mon Sep 12 2025 Releasing volclava 2.1.0 by Bytedance Ltd. and/or its affiliates
 - support adding comments to badmin operations;
 - JOB_SPOOL_DIR supports the %U dynamic pattern format;

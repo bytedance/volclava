@@ -1257,6 +1257,7 @@ getTclHostData(struct tclHostData *tclHostData,
     tclHostData->numResPairs = hPtr->numInstances;
     tclHostData->resPairs = getResPairs(hPtr);
     tclHostData->flag = TCL_CHECK_EXPRESSION;
+    tclHostData->slots = hPtr->maxJobs - hPtr->numJobs;
 }
 
 static struct resPair *

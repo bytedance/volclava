@@ -1356,6 +1356,7 @@ struct shareAcct * getSAcctForJob(struct fairsharePolicy *policy, struct jData *
 
         /*continue to check user's related usergroup*/
         u = getUserData(jPtr->userName);
+        initUserGroup(u);
         for (i = 0; i < u->numGrpPtr; i++) {
              ent = h_getEnt_(&(policy->userTab), u->gPtr[i]->user);
             if (ent) {

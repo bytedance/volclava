@@ -294,10 +294,9 @@ minit(int mbdInitFlags)
     }
 
     TIMEIT(0, readUserConf(mbdInitFlags), "minit_readUserConf");
+    TIMEIT(0, readQueueConf(mbdInitFlags), "minit_readQueueConf");
     copyUserGroups();
     updUserList(mbdInitFlags);
-
-    TIMEIT(0, readQueueConf(mbdInitFlags), "minit_readQueueConf");
     updQueueList();
 
     if (chanInit_() < 0) {
@@ -2666,8 +2665,6 @@ addQData(struct queueConf *queueConf, int mbdInitFlags )
 
         if (queue->qAttrib & Q_ATTRIB_FS) {
             qPtr->userShares = safeSave(queue->userShares);
-            /*create fairshare policy tree*/
-            addFSPolicy(qPtr);
         }
     }
 }
@@ -3159,6 +3156,10 @@ updQueueList(void)
 
     numofqueues = 0;
     for (qp = qDataList->forw; qp != qDataList; qp = qp->forw) {
+        if (qp->qAttrib & Q_ATTRIB_FS) {
+            /*create fairshare policy tree*/
+            addFSPolicy(qp);
+        }
         queueHostsPF(qp, &allHosts);
         createQueueHostSet(qp);
         numofqueues++;

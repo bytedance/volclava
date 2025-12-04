@@ -3671,10 +3671,14 @@ getNumericLoadValue(const struct hData *hp, int lidx)
         return (-INFINIT_LOAD);
     }
 
-    if ( !(allLsInfo->resTable[lidx].flags & RESF_SHARED) ) {
+    if ( !(allLsInfo->resTable[lidx].flags & RESF_SHARED) && (lidx < allLsInfo->numIndx)) {
         return hp->lsbLoad[lidx];
     }
 
+    if ((allLsInfo->resTable[lidx].flags & RESF_BATCH)
+        && strcmp(allLsInfo->resTable[lidx].name,"slots") == 0) {
+        return (hp->maxJobs - hp->numJobs);
+    }
 
     for (i = 0; i < hp->numInstances; i++) {
         if ( !(strcmp(hp->instances[i]->resName,

@@ -151,7 +151,6 @@ static int   switchAJob(struct jobSwitchReq *,
                         struct qData        *);
 static int   moveAJob (struct jobMoveReq *, int log, struct lsfAuth *);
 static int staticNumPendJobs (void);
-static void initUserGroup (struct uData *);
 
 int
 newJob (struct submitReq *subReq, struct submitMbdReply *Reply, int chan,
@@ -9166,42 +9165,3 @@ static int staticNumPendJobs (void)
     return numPend;
 }
 
-static void initUserGroup (struct uData *uData)
-{
-    // reference from updUserData
-    int numNew=0;
-    int k=0;
-    static struct uData **grpPtr = NULL;
-    struct uData *ugp;
-
-    if (!(uData->flags & USER_INIT)) {
-
-        if (grpPtr == NULL && numofugroups > 0) {
-            grpPtr = (struct uData **) my_calloc(numofugroups,
-                                                 sizeof(struct uData *), "updUserList");
-        }
-
-        for (k = 0; k < numofugroups; k++) {
-            if (!gMember(uData->user, usergroups[k]))
-                continue;
-            if ((ugp = getUserData(usergroups[k]->group)) == NULL)
-                continue;
-            ugp->gData = usergroups[k];
-            grpPtr[numNew++] = ugp;
-        }
-        FREEUP(uData->gPtr);
-        if (numNew > 0) {
-            uData->gPtr = (struct uData **) my_calloc(numNew,
-                                                      sizeof(struct uData *), "updUserList");
-        }
-
-        for (k = 0; k < numNew; k++) {
-            uData->gPtr[k] = grpPtr[k];
-        }
-        uData->numGrpPtr = numNew;
-        uData->flags |= USER_INIT;
-
-        FREEUP(grpPtr);
-    }
-
-}

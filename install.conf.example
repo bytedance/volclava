@@ -1,0 +1,26 @@
+#Specify top directory, installer will install volclava under this directory.
+#If not defined, installer will install volclava under /opt/volclava-version.
+#e.g. /opt/volclava-2.1
+VOLC_PREFIX=/opt/volclava-version
+
+#Specify the cluster administrator. If not defined, installer will create
+#volclava user as cluster administrator
+VOLC_ADMIN=volclava
+
+#Specify the cluster name. If not defined, installer will use 'volclava' as
+#cluster name
+VOLC_CLUSTER_NAME=volclava
+
+#Optional. Specify the hostlist. The value can be either a space-delimited
+#list of hostnames or a file (with its path) whose content consists of
+#hostnames in a single column. e.g. hosts="master server1 ..."|/path/file]
+#VOLC_HOSTS="master server1 ..."
+
+#Optional. Enables multi-platform support for cluster installation. Default
+#is N.
+#VOLC_MIX_OS_MODE=Y
+
+#Optional. VOLC_MIX_OS_FOLDER customizes the directory name under the top
+#level volclava installation directory for storing platform-specific
+#executables. Default value is exec
+#VOLC_MIX_OS_FOLDER=exec
