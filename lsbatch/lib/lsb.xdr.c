@@ -2043,131 +2043,228 @@ xdrsize_QueueInfoReply(struct queueInfoReply * qInfoReply)
 
 
 
-/* XDR for pack submit request - fixes LSF header offset handling */
 bool_t
 xdr_packSubmitReq(XDR *xdrs, struct packSubmitReq *packReq, struct LSFHeader *hdr)
 {
+
     int i;
     static int numJobs = 0;
     static struct submitReq *jobs = NULL;
     static char *sourceFile = NULL;
     static char *batchName = NULL;
     static int maxJobsLimit = DEF_LSB_MAX_PACK_JOBS;
-    
-    /* DECODE phase: strictly follow submitReq initialization pattern */
+
     if (xdrs->x_op == XDR_DECODE) {
-        /* Cleanup previously decoded data - same as submitReq pattern */
-        if (numJobs > 0 && jobs) {
-            for (i = 0; i < numJobs; i++) {
-                XDR freeXdr;
-                xdrmem_create(&freeXdr, NULL, 0, XDR_FREE);
-                xdr_submitReq(&freeXdr, &jobs[i], hdr);
-                xdr_destroy(&freeXdr);
-            }
-            FREEUP(jobs);
-        }
-        numJobs = 0;
-        jobs = NULL;
-
-        /* Cleanup string pointers - follow submitReq FREEUP pattern */
-        FREEUP(sourceFile);
-        FREEUP(batchName);
-
-        /* Initialize struct pointers to NULL - submitReq pattern */
-        packReq->sourceFile = NULL;
-        packReq->batchName = NULL;
-        packReq->jobs = NULL;
+	if (numJobs > 0 && jobs) {
+	    for (i = 0; i < numJobs; i++) {
+		XDR freeXdr;
+		xdrmem_create(&freeXdr, NULL, 0, XDR_FREE);
+		xdr_submitReq(&freeXdr, &jobs[i], hdr);
+		xdr_destroy(&freeXdr);
+	    }
+	    FREEUP(jobs);
+	}
+	numJobs = 0;
+	jobs = NULL;
+	FREEUP(sourceFile);
+	FREEUP(batchName);
+	packReq->sourceFile = NULL;
+	packReq->batchName = NULL;
+	packReq->jobs = NULL;
     }
 
-    /* XDR_FREE phase: free all dynamically allocated memory */
     if (xdrs->x_op == XDR_FREE) {
-        if (packReq->jobs && packReq->jobCount > 0) {
-            for (i = 0; i < packReq->jobCount; i++) {
-                XDR freeXdr;
-                xdrmem_create(&freeXdr, NULL, 0, XDR_FREE);
-                xdr_submitReq(&freeXdr, &packReq->jobs[i], hdr);
-                xdr_destroy(&freeXdr);
-            }
-        }
-        FREEUP(packReq->jobs);
-        FREEUP(packReq->sourceFile);
-        FREEUP(packReq->batchName);
-        return TRUE;
+	if (packReq->jobs && packReq->jobCount > 0) {
+	    for (i = 0; i < packReq->jobCount; i++) {
+		XDR freeXdr;
+		xdrmem_create(&freeXdr, NULL, 0, XDR_FREE);
+		xdr_submitReq(&freeXdr, &packReq->jobs[i], hdr);
+		xdr_destroy(&freeXdr);
+	    }
+	}
+	FREEUP(packReq->jobs);
+	FREEUP(packReq->sourceFile);
+	FREEUP(packReq->batchName);
+	return TRUE;
     }
 
-    
-    /* Decode fields in the exact order sent by the client */
-    if (!xdr_int(xdrs, &packReq->jobCount)) {
-        goto Error0;
-    }
-    
-    /* Immediately validate jobCount */
+    if (!(xdr_int(xdrs, &packReq->jobCount) &&
+	  xdr_int(xdrs, &packReq->options) &&
+	  xdr_int(xdrs, &packReq->maxConcurrency) &&
+	  xdr_time_t(xdrs, &packReq->clientTimestamp)))
+	return (FALSE);
+
     if (xdrs->x_op == XDR_DECODE) {
-        if (packReq->jobCount <= 0 || packReq->jobCount > maxJobsLimit) {
-            goto Error0;
-        }
-    }
-    
-    if (!xdr_int(xdrs, &packReq->options)) {
-        goto Error0;
-    }
-    if (!xdr_int(xdrs, &packReq->maxConcurrency)) {
-        goto Error0;
-    }
-    if (!xdr_time_t(xdrs, &packReq->clientTimestamp)) {
-        goto Error0;
+	if (packReq->jobCount <= 0 || packReq->jobCount > maxJobsLimit)
+	    return (FALSE);
     }
 
-    /* Encode string fields - use xdr_var_string for dynamically allocated strings */
-    
-    if (!xdr_var_string(xdrs, &packReq->sourceFile)) {
-        fprintf(stderr, "*** XDR ERROR *** Failed to decode sourceFile at position %d\n", xdr_getpos(xdrs));
-        fflush(stderr);
-        goto Error0;
-    }
-    
-    if (!xdr_var_string(xdrs, &packReq->batchName)) {
-        fprintf(stderr, "*** XDR ERROR *** Failed to decode batchName at position %d\n", xdr_getpos(xdrs));
-        fflush(stderr);
-        goto Error0;
-    }
-    
+    if (!(xdr_var_string(xdrs, &packReq->sourceFile) &&
+	  xdr_var_string(xdrs, &packReq->batchName)))
+	return (FALSE);
 
-    /* Handle jobs array - follow submitReq askedHosts handling pattern */
     if (xdrs->x_op == XDR_DECODE && packReq->jobCount > 0) {
-        packReq->jobs = (struct submitReq *)
-            calloc(packReq->jobCount, sizeof(struct submitReq));
-        if (packReq->jobs == NULL) {
-            goto Error0;
-        }
-        /* Initialize jobs array */
-        for (i = 0; i < packReq->jobCount; i++) {
-            memset(&packReq->jobs[i], 0, sizeof(struct submitReq));
-        }
+	packReq->jobs = (struct submitReq *)
+		calloc(packReq->jobCount, sizeof(struct submitReq));
+	if (packReq->jobs == NULL)
+	    return (FALSE);
+	for (i = 0; i < packReq->jobCount; i++) {
+	    memset(&packReq->jobs[i], 0, sizeof(struct submitReq));
+	    packReq->jobs[i].fromHost = (char *)malloc(MAXHOSTNAMELEN);
+	    packReq->jobs[i].jobFile = (char *)malloc(MAXFILENAMELEN);
+	    packReq->jobs[i].inFile = (char *)malloc(MAXFILENAMELEN);
+	    packReq->jobs[i].outFile = (char *)malloc(MAXFILENAMELEN);
+	    packReq->jobs[i].errFile = (char *)malloc(MAXFILENAMELEN);
+	    packReq->jobs[i].inFileSpool = (char *)malloc(MAXFILENAMELEN);
+	    packReq->jobs[i].commandSpool = (char *)malloc(MAXFILENAMELEN);
+	    packReq->jobs[i].cwd = (char *)malloc(MAXFILENAMELEN);
+	    packReq->jobs[i].subHomeDir = (char *)malloc(MAXFILENAMELEN);
+	    packReq->jobs[i].chkpntDir = (char *)malloc(MAXFILENAMELEN);
+	    packReq->jobs[i].hostSpec = (char *)malloc(MAXHOSTNAMELEN);
+	    if (!packReq->jobs[i].fromHost || !packReq->jobs[i].jobFile ||
+		!packReq->jobs[i].inFile || !packReq->jobs[i].outFile ||
+		!packReq->jobs[i].errFile || !packReq->jobs[i].cwd)
+		goto Error0;
+	}
     }
 
-    /* Encode each job using xdr_arrayElement for compatibility */
     for (i = 0; i < packReq->jobCount; i++) {
-        if (!xdr_arrayElement(xdrs, (char *) &(packReq->jobs[i]), hdr, xdr_submitReq)) {
-            goto Error0;
-        }
+	if (!xdr_arrayElement(xdrs, (char *) &(packReq->jobs[i]), hdr, xdr_submitReq, NULL)) {
+	    packReq->jobCount = i;
+	    goto Error0;
+	}
     }
 
-    /* Update static variables - follow submitReq pattern */
     if (xdrs->x_op == XDR_DECODE) {
-        numJobs = packReq->jobCount;
-        jobs = packReq->jobs;
-        sourceFile = packReq->sourceFile;
-        batchName = packReq->batchName;
+	numJobs = packReq->jobCount;
+	jobs = packReq->jobs;
+	sourceFile = packReq->sourceFile;
+	batchName = packReq->batchName;
     }
     return (TRUE);
 
 Error0:
     if (xdrs->x_op == XDR_DECODE) {
-        FREEUP(packReq->jobs);
-        FREEUP(packReq->sourceFile);
-        FREEUP(packReq->batchName);
-        packReq->jobCount = 0;
+	FREEUP(packReq->jobs);
+	FREEUP(packReq->sourceFile);
+	FREEUP(packReq->batchName);
+	packReq->jobCount = 0;
     }
     return (FALSE);
+}
+
+/*
+ * xdr_submitMbdPackReply - Pack submission reply XDR serialization
+ */
+bool_t
+xdr_submitMbdPackReply(XDR *xdrs, struct submitMbdPackReply *reply,
+                       struct LSFHeader *hdr)
+{
+    static char queueName[MAX_LSB_NAME_LEN];
+    int i;
+    int *jobArrIds = NULL;
+    int *jobArrElemIds = NULL;
+
+    if (xdrs->x_op == XDR_DECODE) {
+        queueName[0] = '\0';
+        reply->queue = queueName;
+        reply->jobIds = NULL;
+        reply->jobStatus = NULL;
+        reply->errorMsgs = NULL;
+    }
+
+    /* Serialize basic fields */
+    if (!xdr_string(xdrs, &reply->queue, MAX_LSB_NAME_LEN) ||
+        !xdr_int(xdrs, &reply->numJobs) ||
+        !xdr_int(xdrs, &reply->numSuccess) ||
+        !xdr_int(xdrs, &reply->numFailed)) {
+        return (FALSE);
+    }
+
+    /* Decode: allocate arrays (caller is responsible for freeing) */
+    if (xdrs->x_op == XDR_DECODE && reply->numJobs > 0) {
+        reply->jobIds = (LS_LONG_INT *)calloc(reply->numJobs, sizeof(LS_LONG_INT));
+        reply->jobStatus = (int *)calloc(reply->numJobs, sizeof(int));
+        reply->errorMsgs = (char **)calloc(reply->numJobs, sizeof(char *));
+        
+        if (!reply->jobIds || !reply->jobStatus || !reply->errorMsgs) {
+            FREEUP(reply->jobIds);
+            FREEUP(reply->jobStatus);
+            FREEUP(reply->errorMsgs);
+            return (FALSE);
+        }
+    }
+
+    /* Serialize jobIds array */
+    if (reply->numJobs > 0) {
+        /* Allocate temporary arrays for jobId conversion */
+        jobArrIds = (int *)malloc(reply->numJobs * sizeof(int));
+        jobArrElemIds = (int *)malloc(reply->numJobs * sizeof(int));
+        if (!jobArrIds || !jobArrElemIds) {
+            FREEUP(jobArrIds);
+            FREEUP(jobArrElemIds);
+            return (FALSE);
+        }
+
+        for (i = 0; i < reply->numJobs; i++) {
+            if (xdrs->x_op == XDR_ENCODE) {
+                jobId64To32(reply->jobIds[i], &jobArrIds[i], &jobArrElemIds[i]);
+            }
+            
+            if (!xdr_int(xdrs, &jobArrIds[i])) {
+                FREEUP(jobArrIds);
+                FREEUP(jobArrElemIds);
+                return (FALSE);
+            }
+        }
+        
+        for (i = 0; i < reply->numJobs; i++) {
+            if (!xdr_int(xdrs, &jobArrElemIds[i])) {
+                FREEUP(jobArrIds);
+                FREEUP(jobArrElemIds);
+                return (FALSE);
+            }
+            
+            if (xdrs->x_op == XDR_DECODE) {
+                jobId32To64(&reply->jobIds[i], jobArrIds[i], jobArrElemIds[i]);
+            }
+        }
+
+        FREEUP(jobArrIds);
+        FREEUP(jobArrElemIds);
+        
+        /* Serialize jobStatus array */
+        for (i = 0; i < reply->numJobs; i++) {
+            if (!xdr_int(xdrs, &reply->jobStatus[i])) {
+                return (FALSE);
+            }
+        }
+        
+        /* Serialize errorMsgs array */
+        for (i = 0; i < reply->numJobs; i++) {
+            char *errMsg = NULL;
+            
+            if (xdrs->x_op == XDR_ENCODE) {
+                /* For encoding: point to actual message or empty string */
+                errMsg = reply->errorMsgs[i] ? reply->errorMsgs[i] : "";
+                if (!xdr_string(xdrs, &errMsg, MAX_CMD_DESC_LEN)) {
+                    return (FALSE);
+                }
+            } else {
+                /* For decoding: let xdr_string allocate memory */
+                if (!xdr_string(xdrs, &errMsg, MAX_CMD_DESC_LEN)) {
+                    return (FALSE);
+                }
+                /* xdr_string allocated memory for non-empty strings, or set to NULL/empty */
+                if (errMsg && errMsg[0] != '\0') {
+                    reply->errorMsgs[i] = errMsg;  /* Take ownership of xdr_string's allocation */
+                } else {
+                    reply->errorMsgs[i] = NULL;
+                    FREEUP(errMsg);  /* Free empty string allocated by xdr_string */
+                }
+            }
+        }
+    }
+
+    return (TRUE);
 }

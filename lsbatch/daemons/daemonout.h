@@ -149,6 +149,17 @@ struct submitMbdReply {
     char    *pendLimitReason;
 };
 
+/* Pack job submission reply - MBD server side */
+struct submitMbdPackReply {
+    char    *queue;
+    int     numJobs;
+    int     numSuccess;
+    int     numFailed;
+    LS_LONG_INT *jobIds;
+    int     *jobStatus;
+    char    **errorMsgs;
+};
+
 struct modifyReq {                   
     LS_LONG_INT jobId;                
     char * jobIdStr;             

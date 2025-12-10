@@ -19,6 +19,7 @@
 
 #include "mbd.h"
 #include "mbd.fairshare.h"
+#include <pthread.h>
 
 #define NL_SETN         10
 
@@ -335,7 +336,7 @@ error_cleanup:
 int
 newJobWithFile (struct submitReq *subReq, struct submitMbdReply *Reply, 
                 struct lenData *jf, struct lsfAuth *auth, int *schedule, 
-                int dispatch, struct jData **jobData)
+                int dispatch, struct jData **jobData, int preAllocatedJobId)
 {
     static char fname[] = "newJobWithFile";
     static struct jData *newjob;
@@ -356,8 +357,15 @@ newJobWithFile (struct submitReq *subReq, struct submitMbdReply *Reply,
     if (logclass & (LC_TRACE | LC_EXEC))
         ls_syslog(LOG_DEBUG1, "%s: Entering this routine...", fname);
 
-    if ((nextId = getNextJobId()) < 0)
-        return (LSBE_NO_JOBID);
+    /* Use pre-allocated jobId if provided, otherwise allocate dynamically */
+    if (preAllocatedJobId > 0) {
+        nextId = preAllocatedJobId;
+        if (logclass & (LC_TRACE | LC_EXEC))
+            ls_syslog(LOG_DEBUG1, "%s: Using pre-allocated jobId %d", fname, preAllocatedJobId);
+    } else {
+        if ((nextId = getNextJobId()) < 0)
+            return (LSBE_NO_JOBID);
+    }
 
     hData = getHostData (subReq->fromHost);
     if (hData == NULL) {
@@ -444,14 +452,6 @@ newJobWithFile (struct submitReq *subReq, struct submitMbdReply *Reply,
     newjob->restartPid = newjob->shared->jobBill.restartPid;
     newjob->chkpntPeriod = newjob->shared->jobBill.chkpntPeriod;
 
-
-    logJobInfo(subReq, newjob, jf);
-
-    if (returnErr != LSBE_NO_ERROR) {
-        freeNewJob (newjob);
-        return (returnErr);
-    }
-
     newjob->schedHost = safeSave (hostType);
 
     /* Follow original newJob logic: always call handleNewJob unless it is a job array */
@@ -464,11 +464,7 @@ newJobWithFile (struct submitReq *subReq, struct submitMbdReply *Reply,
             handleNewJob (newjob, JOB_NEW, LOG_IT);
         }
         else {
-            FREEUP(Reply->badJobName);
-            Reply->badJobName = safeSave(newjob->shared->jobBill.jobName);
-            strncpy(Reply->pendLimitReason, pendLimitReason, MAX_CMD_DESC_LEN);
-            freeJData(newjob);
-            return(returnErr);
+            goto error_cleanup;
         }
     }
     else {
@@ -479,26 +475,29 @@ newJobWithFile (struct submitReq *subReq, struct submitMbdReply *Reply,
             freeIdxList(idxList);
         }
         else {
-            FREEUP(Reply->badJobName);
-            Reply->badJobName = safeSave(newjob->shared->jobBill.jobName);
-            strncpy(Reply->pendLimitReason, pendLimitReason, MAX_CMD_DESC_LEN);
-            freeIdxList(idxList);
-            freeJData(newjob);
-            return(returnErr);
+            goto error_cleanup;
         }
+
     }
 
     Reply->jobId = newjob->jobId;
-    Reply->badReqIndx = 0;
-
-    if (jobData != NULL)
-        *jobData = newjob;
+    *jobData = newjob;
 
     if (logclass & (LC_TRACE | LC_EXEC | LC_SCHED))
         ls_syslog(LOG_DEBUG1, "%s: New job <%s> submitted to queue <%s>",
                   fname, lsb_jobid2str(newjob->jobId), newjob->qPtr->queue);
 
-    return (LSBE_NO_ERROR);
+    logJobInfo(subReq, newjob, jf);
+
+    return(LSBE_NO_ERROR);
+
+error_cleanup:
+    FREEUP(Reply->badJobName);
+    freeIdxList(idxList);
+    Reply->badJobName = safeSave(newjob->shared->jobBill.jobName);
+    strncpy(Reply->pendLimitReason, pendLimitReason, MAX_CMD_DESC_LEN);
+    freeJData(newjob);
+    return(returnErr);
 }
 
 struct hData *
@@ -517,6 +516,90 @@ getHostByType(char *hostType)
     }
 
     return NULL;
+}
+
+/* Global mutex for jobId allocation */
+static pthread_mutex_t jobIdMutex = PTHREAD_MUTEX_INITIALIZER;
+
+/* Batch allocate consecutive job IDs for pack submission
+ * Parameters:
+ *   count: number of IDs to allocate
+ *   allocatedIds: output array to store allocated IDs (must be pre-allocated)
+ * Returns:
+ *   first jobId on success, -1 on failure
+ */
+int
+batchAllocateJobIds(int count, int *allocatedIds)
+{
+    static char fname[] = "batchAllocateJobIds()";
+    int i;
+    int firstJobId;
+    int candidateId;
+    int skipCount;
+    
+    if (count <= 0 || count > 10000) {
+        ls_syslog(LOG_ERR, "%s: Invalid count %d", fname, count);
+        return -1;
+    }
+    
+    if (!allocatedIds) {
+        ls_syslog(LOG_ERR, "%s: NULL allocatedIds array", fname);
+        return -1;
+    }
+    
+    /* Lock to ensure thread safety */
+    pthread_mutex_lock(&jobIdMutex);
+    
+    /* Ensure nextJobId is in valid range */
+    nextJobId = (nextJobId < maxJobId) ? nextJobId : 1;
+    firstJobId = nextJobId;
+    
+    /* Optimized pre-allocation: minimize getJobData() calls
+     * Instead of checking each ID individually for each job,
+     * we use a simpler strategy for batch allocation */
+    candidateId = nextJobId;
+    for (i = 0; i < count; i++) {
+        skipCount = 0;
+        
+        /* Find next available ID */
+        while (getJobData(candidateId) != NULL) {
+            candidateId++;
+            skipCount++;
+            
+            if (candidateId >= maxJobId) {
+                candidateId = 1;
+            }
+            
+            /* Prevent infinite loop if all IDs are occupied */
+            if (skipCount >= maxJobId) {
+                ls_syslog(LOG_ERR, "%s: Cannot allocate job ID at position %d (all occupied)",
+                         fname, i);
+                pthread_mutex_unlock(&jobIdMutex);
+                return -1;
+            }
+        }
+        
+        /* Allocate this ID */
+        allocatedIds[i] = candidateId;
+        
+        /* Move to next candidate (may skip a few for next iteration) */
+        candidateId++;
+        if (candidateId >= maxJobId) {
+            candidateId = 1;
+        }
+    }
+    
+    /* Update nextJobId to continue from where we left off */
+    nextJobId = candidateId;
+    
+    pthread_mutex_unlock(&jobIdMutex);
+    
+    if (logclass & LC_COMM) {
+        ls_syslog(LOG_DEBUG, "%s: Allocated %d job IDs from %d to %d",
+                 fname, count, allocatedIds[0], allocatedIds[count-1]);
+    }
+    
+    return firstJobId;
 }
 
 
