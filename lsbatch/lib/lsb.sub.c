@@ -853,16 +853,8 @@ send_pack(struct packSubmitReq *packReq, struct lenData *jf_array,
         reqBufSize += xdrSubReqSize(&packReq->jobs[i]);
     }
     
-    /* Cap the buffer size to prevent excessive memory usage
-     * Use LSF standard MSGSIZE for maximum single job size */
-    int maxSingleJobSize = MSGSIZE;  /* Use LSF standard message size */
-    int maxTotalSize = DEF_LSB_MAX_PACK_JOBS * sizeof(struct submitReq) + 
-                       DEF_LSB_MAX_PACK_JOBS * maxSingleJobSize + 
-                       sizeof(struct packSubmitReq);
-    
-    if (reqBufSize > maxTotalSize) {
-        reqBufSize = maxTotalSize;
-    }
+    /* Add 10% margin for XDR encoding overhead and alignment */
+    reqBufSize = (int)(reqBufSize * 1.1);
     if ((request_buf = (char *) malloc(reqBufSize)) == NULL) {
         if (logclass & LC_EXEC)
             ls_syslog(LOG_DEBUG, "%s: request_buf malloc (%d) failed: %m",
@@ -913,21 +905,21 @@ send_pack(struct packSubmitReq *packReq, struct lenData *jf_array,
         return(-1);
     }
     
-    /* Decode reply */
+    /* Decode reply - use new pack reply structure */
     xdrmem_create(&xdrs, reply_buf, XDR_DECODE_SIZE_(cc), XDR_DECODE);
-    reply = (struct submitMbdReply *) malloc(sizeof (struct submitMbdReply));
-    if (!reply) {
+    
+    struct submitMbdPackReply *packReply;
+    packReply = (struct submitMbdPackReply *)malloc(sizeof(struct submitMbdPackReply));
+    if (!packReply) {
         lsberrno = LSBE_NO_MEM;
         xdr_destroy(&xdrs);
         return (-1);
     }
-    reply->queue = NULL;
-    reply->badJobName = NULL;
-    reply->pendLimitReason = NULL;
+    memset(packReply, 0, sizeof(struct submitMbdPackReply));
     
-    if (!xdr_submitMbdReply(&xdrs, reply, &hdr)) {
+    if (!xdr_submitMbdPackReply(&xdrs, packReply, &hdr)) {
         lsberrno = LSBE_XDR;
-        FREEUP(reply);
+        FREEUP(packReply);
         xdr_destroy(&xdrs);
         return (-1);
     }
@@ -935,25 +927,90 @@ send_pack(struct packSubmitReq *packReq, struct lenData *jf_array,
     FREEUP(reply_buf);
     xdr_destroy(&xdrs);
     
-    submitReply->badJobId = reply->jobId;
-    submitReply->badReqIndx = reply->badReqIndx;
-    submitReply->queue = reply->queue;
-    submitReply->badJobName = reply->badJobName;
-    submitReply->subTryInterval = reply->subTryInterval;
-    submitReply->pendLimitReason = reply->pendLimitReason;
+    /* Fill old submitReply for API compatibility */
+    if (packReply->numSuccess > 0 && packReply->jobIds) {
+        submitReply->badJobId = packReply->jobIds[0];
+        firstJobId = packReply->jobIds[0];
+    } else {
+        submitReply->badJobId = 0;
+        firstJobId = -1;
+    }
+    submitReply->badReqIndx = packReply->numSuccess;
+    submitReply->queue = packReply->queue;
+    submitReply->badJobName = "";
+    submitReply->subTryInterval = DEF_SUB_TRY_INTERVAL;
+    submitReply->pendLimitReason = "";
     
-    if (lsberrno == LSBE_NO_ERROR) {
-        if (reply->jobId == 0)
-            lsberrno = LSBE_PROTOCOL;
-        firstJobId = reply->jobId;
-        FREEUP(reply);
+    /* Print detailed information for failed jobs (same format as single job submission) */
+    if (packReply->numFailed > 0) {
+        fprintf(stderr, "\n--- Failed Jobs Details ---\n");
+        for (i = 0; i < packReply->numJobs; i++) {
+            if (packReply->jobStatus[i] != 0) {
+                /* Set lsberrno so lsb_sysmsg() returns the correct message */
+                int saved_lsberrno = lsberrno;
+                lsberrno = packReply->jobStatus[i];
+                
+                /* Format: similar to sub_perror() - context: error_message */
+                if (packReply->errorMsgs[i] && packReply->errorMsgs[i][0] != '\0') {
+                    /* Has additional context (badJobName or pendLimitReason) */
+                    fprintf(stderr, "  Job index %d: %s: %s\n",
+                           i, packReply->errorMsgs[i], lsb_sysmsg());
+                } else {
+                    /* No additional context - just show standard error message */
+                    fprintf(stderr, "  Job index %d: %s\n",
+                           i, lsb_sysmsg());
+                }
+                
+                lsberrno = saved_lsberrno;
+            }
+        }
+        fprintf(stderr, "---------------------------\n\n");
+    }
+    
+    /* Print successful jobs list (avoids need for client-side status polling) */
+    if (packReply->numSuccess > 0 && packReply->numSuccess < packReply->numJobs) {
+        fprintf(stderr, "--- Successfully Submitted Jobs ---\n");
+        for (i = 0; i < packReply->numJobs; i++) {
+            if (packReply->jobStatus[i] == 0 && packReply->jobIds[i] > 0) {
+                fprintf(stderr, "  Job <%lld> (index %d) submitted to queue <%s>\n",
+                       (long long)packReply->jobIds[i], i, packReply->queue);
+            }
+        }
+        fprintf(stderr, "-----------------------------------\n\n");
+    }
+    
+    /* Log detailed pack reply info for debugging */
+    if (logclass & (LC_TRACE | LC_EXEC)) {
+        ls_syslog(LOG_DEBUG, "%s: Pack submission result: %d/%d jobs succeeded",
+                 fname, packReply->numSuccess, packReply->numJobs);
+        for (i = 0; i < packReply->numJobs; i++) {
+            if (packReply->jobStatus[i] != 0 && packReply->errorMsgs[i]) {
+                ls_syslog(LOG_DEBUG, "%s: Job %d failed: %s",
+                         fname, (int)packReply->jobIds[i], packReply->errorMsgs[i]);
+            }
+        }
+    }
+    
+    /* Clean up packReply arrays */
+    if (packReply) {
+        FREEUP(packReply->jobIds);
+        FREEUP(packReply->jobStatus);
+        if (packReply->errorMsgs) {
+            for (i = 0; i < packReply->numJobs; i++) {
+                FREEUP(packReply->errorMsgs[i]);
+            }
+            FREEUP(packReply->errorMsgs);
+        }
+        FREEUP(packReply);
+    }
+    
+    if (lsberrno == LSBE_NO_ERROR && firstJobId > 0) {
         if (logclass & (LC_TRACE | LC_EXEC))
             ls_syslog(LOG_DEBUG, "%s: Pack submission successful, first job <%s>",
                       fname, lsb_jobid2str(firstJobId));
         return (firstJobId);
     }
     
-    FREEUP(reply);
     return(-1);
 }
 

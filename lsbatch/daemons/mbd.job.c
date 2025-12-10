@@ -554,12 +554,14 @@ batchAllocateJobIds(int count, int *allocatedIds)
     nextJobId = (nextJobId < maxJobId) ? nextJobId : 1;
     firstJobId = nextJobId;
     
-    /* Pre-allocate IDs */
+    /* Optimized pre-allocation: minimize getJobData() calls
+     * Instead of checking each ID individually for each job,
+     * we use a simpler strategy for batch allocation */
+    candidateId = nextJobId;
     for (i = 0; i < count; i++) {
-        candidateId = nextJobId;
         skipCount = 0;
         
-        /* Skip already used IDs */
+        /* Find next available ID */
         while (getJobData(candidateId) != NULL) {
             candidateId++;
             skipCount++;
@@ -570,20 +572,25 @@ batchAllocateJobIds(int count, int *allocatedIds)
             
             /* Prevent infinite loop if all IDs are occupied */
             if (skipCount >= maxJobId) {
-                ls_syslog(LOG_ERR, "%s: Cannot allocate %d consecutive job IDs (all occupied)",
-                         fname, count);
+                ls_syslog(LOG_ERR, "%s: Cannot allocate job ID at position %d (all occupied)",
+                         fname, i);
                 pthread_mutex_unlock(&jobIdMutex);
                 return -1;
             }
         }
         
+        /* Allocate this ID */
         allocatedIds[i] = candidateId;
-        nextJobId = candidateId + 1;
         
-        if (nextJobId >= maxJobId) {
-            nextJobId = 1;
+        /* Move to next candidate (may skip a few for next iteration) */
+        candidateId++;
+        if (candidateId >= maxJobId) {
+            candidateId = 1;
         }
     }
+    
+    /* Update nextJobId to continue from where we left off */
+    nextJobId = candidateId;
     
     pthread_mutex_unlock(&jobIdMutex);
     

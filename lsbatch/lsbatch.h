@@ -566,6 +566,17 @@ struct submitReply {
      int     subTryInterval;
 };
 
+/* Pack job submission reply - extended info for pack submission */
+struct submitPackReply {
+    char    *queue;
+    int     numJobs;
+    int     numSuccess;
+    int     numFailed;
+    LS_LONG_INT *jobIds;
+    int     *jobStatus;
+    char    **errorMsgs;
+};
+
 struct submig {
     LS_LONG_INT jobId;
     int options;

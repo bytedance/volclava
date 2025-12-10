@@ -1260,26 +1260,6 @@ LS_LONG_INT do_pack_sub_v2(int option, char **argv, struct submit *req)
         return(-1);
     }
     
-    /* Check file size */
-    fseek(fp, 0, SEEK_END);
-    long file_size = ftell(fp);
-    fseek(fp, 0, SEEK_SET);
-    
-    if (file_size == 0) {
-        fprintf(stderr, "Error: Pack file <%s> is empty. Job not submitted.\n", req->packFile);
-        fclose(fp);
-        return(-1);
-    }
-    
-    /* Check file size limit (10MB) */
-    #define MAX_PACK_FILE_SIZE (10 * 1024 * 1024)
-    if (file_size > MAX_PACK_FILE_SIZE) {
-        fprintf(stderr, "Error: Pack file <%s> is too large (%ld bytes, max %d bytes). Job not submitted.\n",
-                req->packFile, file_size, MAX_PACK_FILE_SIZE);
-        fclose(fp);
-        return(-1);
-    }
-
     lineNum = 0;
     packParsed = 0;
     packSubmit = 0;
@@ -1535,10 +1515,6 @@ LS_LONG_INT do_pack_sub_v2(int option, char **argv, struct submit *req)
     
     fclose(fp);
     
-    /* Print parsing summary */
-    printf("%d lines parsed, %d jobs collected, %d parse errors found.\n",
-           packParsed, job_count, packParseError);
-    
     if (job_count == 0) {
         fprintf(stderr, "No valid jobs to submit.\n");
         FREEUP(job_requests);
@@ -1594,16 +1570,9 @@ LS_LONG_INT do_pack_sub_v2(int option, char **argv, struct submit *req)
         packSubmitError = job_count - packSubmit;
     }
     
-    /* Print final summary */
-    fprintf(stdout, "\n=== Pack Submission Summary ===\n");
-    fprintf(stdout, "Total lines parsed: %d\n", packParsed);
-    fprintf(stdout, "Jobs collected: %d\n", job_count);
-    fprintf(stdout, "Parse errors: %d\n", packParseError);
-    fprintf(stdout, "Jobs successfully submitted: %d\n", packSubmit);
-    if (packSubmitError > 0) {
-        fprintf(stdout, "Submission errors: %d\n", packSubmitError);
-    }
-    fprintf(stdout, "===============================\n");
+    /* Print final summary - single line format like original LSF */
+    fprintf(stdout, "%d lines parsed, %d jobs submitted, %d errors found.\n",
+            packParsed, packSubmit, packParseError);
     
     /* Cleanup memory */
     for (i = 0; i < job_count; i++) {
@@ -1685,44 +1654,9 @@ static int send_batch_pack(struct submit **job_requests, struct lenData **job_fi
         actualSubmitted = job_count;
     }
     
-    /* Query all successfully submitted jobs to get accurate lastJobId */
-    LS_LONG_INT *successfulJobIds = NULL;
-    int foundCount = 0;
-    
-    lastJobId = firstJobId;  /* Default to firstJobId */
-    
-    /* Get queue name from submitReply */
-    const char *actualQueueName;
-    if (submitReply.queue && submitReply.queue[0] != '\0') {
-        actualQueueName = submitReply.queue;
-    } else {
-        actualQueueName = "normal";
-    }
-    
-    if (actualSubmitted > 1) {
-        int i;
-        
-        /* Allocate array to store successful job IDs */
-        successfulJobIds = (LS_LONG_INT *)calloc(actualSubmitted, sizeof(LS_LONG_INT));
-        
-        /* Query to find all successful jobs */
-        for (i = 0; i < job_count * 2 && foundCount < actualSubmitted; i++) {
-            LS_LONG_INT candidateId;
-            struct jobInfoEnt *job;
-            
-            candidateId = firstJobId + i;
-            
-            if (lsb_openjobinfo(candidateId, NULL, NULL, NULL, NULL, ALL_JOB) > 0) {
-                job = lsb_readjobinfo(NULL);
-                if (job && job->jobId == candidateId) {
-                    successfulJobIds[foundCount] = candidateId;
-                    lastJobId = candidateId;
-                    foundCount++;
-                }
-                lsb_closejobinfo();
-            }
-        }
-    }
+    /* Calculate lastJobId based on actualSubmitted count
+     * No need to query job status - all info already printed by send_pack */
+    lastJobId = firstJobId + actualSubmitted - 1;
     
     /* Get queue name */
     queueName = (submitReply.queue && submitReply.queue[0] != '\0') 
@@ -1741,28 +1675,6 @@ static int send_batch_pack(struct submit **job_requests, struct lenData **job_fi
         printf("First job: <%lld>, last job: <%lld>\n", 
                (long long)firstJobId, (long long)lastJobId);
     }
-    
-    /* Display detailed list if some jobs failed */
-    if (actualSubmitted > 1 && actualSubmitted < job_count && successfulJobIds) {
-        int i;
-        
-        printf("\n--- Successfully Submitted Jobs ---\n");
-        
-        for (i = 0; i < foundCount; i++) {
-            printf("  Job <%lld> submitted to queue <%s>\n", 
-                   (long long)successfulJobIds[i], 
-                   actualQueueName);
-        }
-        
-        if (foundCount < actualSubmitted) {
-            printf("  (Warning: Only found %d of %d successful jobs)\n", 
-                   foundCount, actualSubmitted);
-        }
-        printf("-----------------------------------\n");
-    }
-    
-    /* Clean up */
-    FREEUP(successfulJobIds);
     
     return actualSubmitted;
 }

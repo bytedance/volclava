@@ -2152,3 +2152,119 @@ Error0:
     }
     return (FALSE);
 }
+
+/*
+ * xdr_submitMbdPackReply - Pack submission reply XDR serialization
+ */
+bool_t
+xdr_submitMbdPackReply(XDR *xdrs, struct submitMbdPackReply *reply,
+                       struct LSFHeader *hdr)
+{
+    static char queueName[MAX_LSB_NAME_LEN];
+    int i;
+    int *jobArrIds = NULL;
+    int *jobArrElemIds = NULL;
+
+    if (xdrs->x_op == XDR_DECODE) {
+        queueName[0] = '\0';
+        reply->queue = queueName;
+        reply->jobIds = NULL;
+        reply->jobStatus = NULL;
+        reply->errorMsgs = NULL;
+    }
+
+    /* Serialize basic fields */
+    if (!xdr_string(xdrs, &reply->queue, MAX_LSB_NAME_LEN) ||
+        !xdr_int(xdrs, &reply->numJobs) ||
+        !xdr_int(xdrs, &reply->numSuccess) ||
+        !xdr_int(xdrs, &reply->numFailed)) {
+        return (FALSE);
+    }
+
+    /* Decode: allocate arrays (caller is responsible for freeing) */
+    if (xdrs->x_op == XDR_DECODE && reply->numJobs > 0) {
+        reply->jobIds = (LS_LONG_INT *)calloc(reply->numJobs, sizeof(LS_LONG_INT));
+        reply->jobStatus = (int *)calloc(reply->numJobs, sizeof(int));
+        reply->errorMsgs = (char **)calloc(reply->numJobs, sizeof(char *));
+        
+        if (!reply->jobIds || !reply->jobStatus || !reply->errorMsgs) {
+            FREEUP(reply->jobIds);
+            FREEUP(reply->jobStatus);
+            FREEUP(reply->errorMsgs);
+            return (FALSE);
+        }
+    }
+
+    /* Serialize jobIds array */
+    if (reply->numJobs > 0) {
+        /* Allocate temporary arrays for jobId conversion */
+        jobArrIds = (int *)malloc(reply->numJobs * sizeof(int));
+        jobArrElemIds = (int *)malloc(reply->numJobs * sizeof(int));
+        if (!jobArrIds || !jobArrElemIds) {
+            FREEUP(jobArrIds);
+            FREEUP(jobArrElemIds);
+            return (FALSE);
+        }
+
+        for (i = 0; i < reply->numJobs; i++) {
+            if (xdrs->x_op == XDR_ENCODE) {
+                jobId64To32(reply->jobIds[i], &jobArrIds[i], &jobArrElemIds[i]);
+            }
+            
+            if (!xdr_int(xdrs, &jobArrIds[i])) {
+                FREEUP(jobArrIds);
+                FREEUP(jobArrElemIds);
+                return (FALSE);
+            }
+        }
+        
+        for (i = 0; i < reply->numJobs; i++) {
+            if (!xdr_int(xdrs, &jobArrElemIds[i])) {
+                FREEUP(jobArrIds);
+                FREEUP(jobArrElemIds);
+                return (FALSE);
+            }
+            
+            if (xdrs->x_op == XDR_DECODE) {
+                jobId32To64(&reply->jobIds[i], jobArrIds[i], jobArrElemIds[i]);
+            }
+        }
+
+        FREEUP(jobArrIds);
+        FREEUP(jobArrElemIds);
+        
+        /* Serialize jobStatus array */
+        for (i = 0; i < reply->numJobs; i++) {
+            if (!xdr_int(xdrs, &reply->jobStatus[i])) {
+                return (FALSE);
+            }
+        }
+        
+        /* Serialize errorMsgs array */
+        for (i = 0; i < reply->numJobs; i++) {
+            char *errMsg = NULL;
+            
+            if (xdrs->x_op == XDR_ENCODE) {
+                /* For encoding: point to actual message or empty string */
+                errMsg = reply->errorMsgs[i] ? reply->errorMsgs[i] : "";
+                if (!xdr_string(xdrs, &errMsg, MAX_CMD_DESC_LEN)) {
+                    return (FALSE);
+                }
+            } else {
+                /* For decoding: let xdr_string allocate memory */
+                if (!xdr_string(xdrs, &errMsg, MAX_CMD_DESC_LEN)) {
+                    return (FALSE);
+                }
+                /* xdr_string allocated memory for non-empty strings, or set to NULL/empty */
+                if (errMsg && errMsg[0] != '\0') {
+                    reply->errorMsgs[i] = errMsg;  /* Take ownership of xdr_string's allocation */
+                } else {
+                    reply->errorMsgs[i] = NULL;
+                    FREEUP(errMsg);  /* Free empty string allocated by xdr_string */
+                }
+            }
+        }
+    }
+
+    return (TRUE);
+}
