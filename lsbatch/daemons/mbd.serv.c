@@ -2091,7 +2091,7 @@ doNewJobReply(struct sbdNode *sbdPtr, int exception)
 
             replyBuf->len = LSF_HEADER_LEN;
 
-            if (chanEnqueue_(sbdPtr->chanfd, replyBuf) < 0) {
+            if (chanEnqueue_(sbdPtr->chanfd, replyBuf, 1) < 0) {
                 ls_syslog(LOG_ERR, I18N_FUNC_FAIL_M, fname, "chanEnqueue");
                 chanFreeBuf_(replyBuf);
             } else {

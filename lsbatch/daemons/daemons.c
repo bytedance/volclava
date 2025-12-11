@@ -167,7 +167,7 @@ do_readyOp(XDR *xdrs, int chanfd, struct sockaddr_in *from,
 
     buf->len = XDR_GETPOS(&xdrs2);
 
-    if (chanEnqueue_(chanfd, buf) < 0) {
+    if (chanEnqueue_(chanfd, buf, 1) < 0) {
         ls_syslog(LOG_ERR, I18N_FUNC_FAIL, fname, "chanEnqueue_");
         xdr_destroy(&xdrs2);
         return(-1);

@@ -170,7 +170,7 @@ static int authRequest(struct lsfAuth *, XDR *, struct LSFHeader *,
                        char *, int);
 static int processClient(struct clientNode *, int *);
 
-static void clientIO(struct Masks *);
+static void clientIO();
 static int forkOnRequest(mbdReqType);
 static void shutdownSbdConnections(void);
 static void processSbdNode(struct sbdNode *, int);
@@ -189,11 +189,9 @@ extern int initLimSock_(void);
 int
 main (int argc, char **argv)
 {
-    fd_set readmask;
-    struct Masks sockmask;
-    struct Masks chanmask;
     struct timeval timeout;
-    int nready;
+    int nready = 0;
+    int *readyChans;
     int i;
     int cc;
     int hsKeeping = FALSE;
@@ -329,7 +327,6 @@ main (int argc, char **argv)
         unitForLimits = setUnitForLimits(daemonParams[LSF_UNIT_FOR_LIMITS].paramValue);
 
     }
-
     daemon_doinit();
 
     if ((!debug) && (!lsb_CheckMode))  {
@@ -404,6 +401,7 @@ main (int argc, char **argv)
 
     /* Go go go...
      */
+    chanEpollInit();
     TIMEIT(0, minit(FIRST_START),"minit");
     log_mbdStart();
     ls_syslog(LOG_INFO, "%s: (re-)started", __func__);
@@ -413,11 +411,8 @@ main (int argc, char **argv)
     lastElockTouch = time(0) - msleeptime;
     schedulerInit();
     setJobPriUpdIntvl();
-
     for (;;) {
         int maxfd;
-
-        FD_ZERO(&readmask);
 
         maxfd = sysconf(_SC_OPEN_MAX);
         now = time(0);
@@ -444,14 +439,11 @@ main (int argc, char **argv)
             hsKeeping = FALSE;
             timeout.tv_sec = 0;
         }
-
-        sockmask.rmask = readmask;
-
-        nready = chanSelect_(&sockmask, &chanmask, &timeout);
+        nready = chanEpoll_(&readyChans, &timeout);
         if (nready < 0) {
             if (errno != EINTR)
                 ls_syslog(LOG_ERR, "\
-%s: Ohmygosh.. select() failed %m", __func__);
+%s: Ohmygosh.. epoll() failed %m", __func__);
             continue;
         }
 
@@ -479,11 +471,11 @@ main (int argc, char **argv)
         timeout.tv_sec  = 0;
         timeout.tv_usec = 0;
 
-        if (FD_ISSET(batchSock, &chanmask.rmask)) {
+        if (chanEventsReady(batchSock, EPOLL_EVENTS_READ)) {
             acceptConnection(batchSock);
         }
 
-        clientIO(&chanmask);
+        clientIO();
 
     } /* for (;;) */
 }
@@ -537,7 +529,7 @@ acceptConnection(int socket)
 }
 
 static void
-clientIO(struct Masks *chanmask)
+clientIO()
 {
     struct clientNode *cliPtr;
     struct clientNode *nextClient;
@@ -552,11 +544,9 @@ clientIO(struct Masks *chanmask)
          sbdPtr != &sbdNodeList;
          sbdPtr = nextSbdPtr) {
         nextSbdPtr = sbdPtr->forw;
-
-        if (FD_ISSET(sbdPtr->chanfd, &chanmask->rmask)
-            || FD_ISSET(sbdPtr->chanfd, &chanmask->emask)) {
-
-            if (FD_ISSET(sbdPtr->chanfd, &chanmask->emask))
+        if (chanEventsReady(sbdPtr->chanfd, EPOLL_EVENTS_READ|EPOLL_EVENTS_ERROR))
+        {
+            if (chanEventsReady(sbdPtr->chanfd, EPOLL_EVENTS_ERROR))
                 exception = TRUE;
             else
                 exception = FALSE;
@@ -570,19 +560,19 @@ clientIO(struct Masks *chanmask)
          cliPtr = nextClient) {
         int needFree;
         nextClient = cliPtr->forw;
+        if (chanEventsReady(cliPtr->chanfd, EPOLL_EVENTS_ERROR)) {
 
-        if (FD_ISSET(cliPtr->chanfd, &chanmask->emask)) {
             shutDownClient(cliPtr);
             continue;
         }
         needFree = FALSE;
-        if (FD_ISSET(cliPtr->chanfd, &chanmask->rmask)) {
+        if (chanEventsReady(cliPtr->chanfd, EPOLL_EVENTS_READ)) {
 
             int saveChfd;
             saveChfd = cliPtr->chanfd;
             if (processClient(cliPtr, &needFree) == 0) {
 
-                FD_CLR(saveChfd, &chanmask->rmask);
+                chanQuitReadyEvents(saveChfd, EPOLL_EVENTS_READ);
                 if (needFree == TRUE) {
                     offList((struct listEntry *)cliPtr);
                     FREEUP(cliPtr->fromHost);
@@ -696,6 +686,7 @@ processClient(struct clientNode *client, int *needFree)
             goto endLoop;
         }
 
+        chanCloseEpoll();
         if (debug < 2)
             closeExceptFD(chanSock_(s));
     }
@@ -1028,17 +1019,17 @@ terminate_handler(int sig)
     sigaddset(&newmask, SIGINT);
     sigaddset(&newmask, SIGCHLD);
     sigprocmask(SIG_BLOCK, &newmask, &oldmask);
-
     exit(sig);
 }
 
 void
 child_handler (int sig)
 {
-    int pid;
+    int pid, saveErrno;
     LS_WAIT_T status;
     sigset_t newmask, oldmask;
 
+    saveErrno = errno;
     sigemptyset(&newmask);
     sigaddset(&newmask, SIGTERM);
     sigaddset(&newmask, SIGINT);
@@ -1049,6 +1040,7 @@ child_handler (int sig)
         ;
 
     sigprocmask(SIG_SETMASK, &oldmask, NULL);
+    errno = saveErrno;
 }
 
 
