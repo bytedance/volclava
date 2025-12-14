@@ -113,6 +113,7 @@ int    pendJobSlots = 0;
 struct jData *chkJList;
 
 unitTypes unitForLimits = Megabytes;
+int packSkipErrFlag = FALSE;
 
 struct hTab cpuFactors;
 struct gData *usergroups[MAX_GROUPS];
@@ -329,6 +330,11 @@ main (int argc, char **argv)
 
         unitForLimits = setUnitForLimits(daemonParams[LSF_UNIT_FOR_LIMITS].paramValue);
 
+    }
+
+    if (daemonParams[LSB_PACK_SKIP_ERROR].paramValue != NULL
+        && (strcasecmp(daemonParams[LSB_PACK_SKIP_ERROR].paramValue, "y") == 0)) {
+        packSkipErrFlag = TRUE;
     }
 
     daemon_doinit();
@@ -720,7 +726,7 @@ processClient(struct clientNode *client, int *needFree)
             break;
         
          case BATCH_JOB_SUB_PACK:
-            TIMEIT(0, do_submitPackReq(&xdrs, s, &from, &reqHdr, &auth, &schedule1, dispatch), "do_submitPackReq()");
+            TIMEIT(0, do_submitPackReq(&xdrs, s, &from, client->fromHost, &reqHdr, &auth, &schedule1, dispatch), "do_submitPackReq()");
             statusChanged = 1;
             break;
             

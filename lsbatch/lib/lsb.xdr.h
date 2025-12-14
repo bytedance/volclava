@@ -29,8 +29,20 @@ extern bool_t xdr_submitReq(XDR *,
 			    struct submitReq *, 
 			    struct LSFHeader *);
 
+extern bool_t xdr_submitPackReq(XDR *,
+			    struct submitPackReq *,
+			    struct LSFHeader *);
+
 extern bool_t xdr_submitMbdReply(XDR *, 
 				 struct submitMbdReply *, 
+				 struct LSFHeader *);
+
+extern bool_t xdr_submitMbdEnt(XDR *,
+				 struct submitMbdReply *,
+				 struct LSFHeader *);
+
+extern bool_t xdr_submitMbdPackReply(XDR *,
+				 struct submitMbdPackReply *,
 				 struct LSFHeader *);
 
 extern bool_t xdr_signalReq(XDR *, 
@@ -44,14 +56,6 @@ extern bool_t xdr_lsbMsg(XDR *,
 extern bool_t xdr_controlReq(XDR *,
 			     struct controlReq *, 
 			     struct LSFHeader *);
-
-extern bool_t xdr_packSubmitReq(XDR *,
-				 struct packSubmitReq *,
-				 struct LSFHeader *);
-
-extern bool_t xdr_submitMbdPackReply(XDR *,
-				      struct submitMbdPackReply *,
-				      struct LSFHeader *);
 
 extern bool_t xdr_debugReq (XDR *, 
 			    struct debugReq *,

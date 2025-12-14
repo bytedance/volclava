@@ -936,6 +936,7 @@ extern int                    errno;
 extern int                    nextId;
 extern int                    numRemoteJobsInList;
 extern unitTypes              unitForLimits;
+extern int                    packSkipErrFlag;
 
 
 extern char                   *defaultQueues;
@@ -1214,7 +1215,7 @@ extern int                  do_submitReq(XDR *, int, struct sockaddr_in *,
                                          struct lsfAuth *, int *, int,
                                          struct jData **);
 extern int                  do_submitPackReq(XDR *, int, struct sockaddr_in *,
-                                             struct LSFHeader *,
+                                             char *, struct LSFHeader *,
                                              struct lsfAuth *, int *, int);
 extern int                  do_signalReq(XDR *, int, struct sockaddr_in *,
                                          char *, struct LSFHeader *,

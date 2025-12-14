@@ -564,17 +564,14 @@ struct submitReply {
      char    *pendLimitReason;
      int     badReqIndx;
      int     subTryInterval;
+     int     replyCode;
 };
 
-/* Pack job submission reply - extended info for pack submission */
 struct submitPackReply {
-    char    *queue;
     int     numJobs;
     int     numSuccess;
     int     numFailed;
-    LS_LONG_INT *jobIds;
-    int     *jobStatus;
-    char    **errorMsgs;
+    struct  submitReply *submitReps;
 };
 
 struct submig {
@@ -718,17 +715,6 @@ struct userInfoEnt {
     int    numRESERVE;
 };
 
-/* Pack job submission request */
-struct packSubmitReq {
-    int jobCount;           /* Number of jobs */
-    int options;            /* Pack options: 0x01=streaming response, 0x02=continue on failure */
-    int maxConcurrency;     /* Maximum concurrent processing, 0=unlimited */
-    time_t clientTimestamp; /* Client timestamp */
-    char *sourceFile;       /* Source file path */
-    char *batchName;        /* Pack name, optional */
-    struct submitReq *jobs; /* Job array */
-};
-
 
 #define ALL_QUEUE       0x01
 #define DFT_QUEUE       0x02
@@ -854,8 +840,6 @@ struct hostInfoEnt {
 #define DEF_RUN_JOB_FACTOR  3.0
 #define DEF_HIST_HOURS      5
 
-/* Default maximum number of jobs in a pack submission */
-#define DEF_LSB_MAX_PACK_JOBS    10000
 
 struct parameterInfo {
     char *defaultQueues;
@@ -1547,7 +1531,7 @@ extern struct jobInfoHead *lsb_openjobinfo_a P_((LS_LONG_INT, char *,char *,
 extern struct jobInfoEnt *lsb_readjobinfo P_((int *));
 extern LS_LONG_INT lsb_submit P_((struct submit  *, struct submitReply *));
 
-extern LS_LONG_INT lsb_submit_pack P_((struct submit **, int, struct submitReply *));
+extern LS_LONG_INT lsb_submit_pack P_((struct submit **, int, struct submitPackReply *));
 
 extern void lsb_closejobinfo P_((void));
 

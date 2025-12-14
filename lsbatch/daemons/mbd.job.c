@@ -331,7 +331,7 @@ error_cleanup:
 
 /*
  * newJobWithFile - Create job using pre-read file data
- * For batch job submission, avoid redundant mbdRcvJobFile calls
+ * For pack job submission, avoid redundant mbdRcvJobFile calls
  */
 int
 newJobWithFile (struct submitReq *subReq, struct submitMbdReply *Reply, 
@@ -9084,7 +9084,7 @@ unpackJobFiles(struct lenData *packed, struct lenData **jf_array, int *fileCount
     ls_syslog(LOG_INFO, "%s: Starting to unpack %d job files, packed data size: %d bytes", 
               fname, count, packed->len);
     
-    if (count <= 0 || count > DEF_LSB_MAX_PACK_JOBS) {  /* Reasonableness check */
+    if (count <= 0) {
         ls_syslog(LOG_ERR, "%s: Invalid file count: %d", fname, count);
         return -1;
     }

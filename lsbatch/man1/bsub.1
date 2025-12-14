@@ -8,6 +8,8 @@
 .SH SYNOPSIS
 \fBbsub \fR[\fIoptions\fR] \fIcommand \fR[\fIarguments\fR]
 .br
+\fBbsub \fR-pack \fIjob_submission_file
+.br
 \fBbsub \fR[\fB-h\fR | \fB-V\fR]
 .SH OPTION LIST
 \fB-B\fR
@@ -1262,6 +1264,27 @@ Lava is unable to determine the first command to be spooled in an
 embedded job command.
 
 
+.TP
+\fB-pack \fIjob_submission_file
+\fR
+.IP
+Submit a single pack file, which is a text file with multiple jobs
+definitions in a line-oriented format.
+
+.IP
+This function is also governed by the parameters LSB_MAX_PACK_JOBS
+and LSB_PACK_SKIP_ERROR, which are defined in lsf.conf (see the
+lsf.conf man page for additional details).
+LSB_MAX_PACK_JOBS specifies the maximum number of jobs allowed in
+a pack file; if LSB_MAX_PACK_JOBS is set to 0, the pack function
+will be disabled.
+LSB_PACK_SKIP_ERROR determines whether pack submission continues
+processing until the end of the pack file when submission failures
+occur for some lines.
+
+.IP
+-pack option is conflict with -I/-K options.
+
 .TP 
 \fB-h
 \fR
@@ -1456,6 +1479,22 @@ bsub> CTRL-D
 
 .IP
 The job commands are entered interactively. 
+
+.RE
+.PP
+% \fBbsub -pack pack.txt
+.IP
+where pack.txt contains:
+.IP
+.br
+-q normal sleep 100
+.br
+hostname
+.br
+-R "select[mem>200] rusage[mem=100]" sleep 5
+
+.IP
+The jobs are submitted in a pack file.
 
 .RE
 .SH LIMITATIONS

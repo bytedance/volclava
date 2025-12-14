@@ -142,6 +142,9 @@ static struct lenData ed = {0, NULL};
 
 static LS_LONG_INT  send_batch(struct submitReq *, struct lenData *,
 		       struct submitReply *, struct lsfAuth *);
+static int send_batch_pack(struct submitPackReq *, struct lenData *,
+        int, struct submitPackReply *, struct lsfAuth *);
+
 static int dependCondSyntax(char *);
 int createJobInfoFile(struct submit *, struct lenData *);
 static LS_LONG_INT subRestart(struct submit  *jobSubReq, struct submitReq *submitReq,
@@ -152,6 +155,7 @@ static int getUserInfo(struct submitReq *, struct submit *);
 static char * acctMapGet(int *, char *);
 
 static int xdrSubReqSize(struct submitReq *req);
+static int xdrPackSubReqSize(struct submitPackReq *req);
 static int createNiosSock(struct submitReq *);
 
 int getChkDir(char *, char *);
@@ -294,6 +298,181 @@ lsb_submit(struct submit  *jobSubReq, struct submitReply *submitRep)
 
 }
 
+/*
+ * lsb_submit_pack - Submit multiple jobs in a single pack request
+ * Follows the same processing pattern as lsb_submit()
+ */
+LS_LONG_INT
+lsb_submit_pack(struct submit **jobSubReqs, int jobCount,
+                struct submitPackReply *submitPackRep)
+{
+    static char fname[] = "lsb_submit_pack()";
+    struct submitPackReq packReq;
+    struct lsfAuth auth;
+    struct lenData *jf_array = NULL;
+    char **homeDir = NULL, **resReq = NULL, **cmd = NULL, **cwd = NULL;
+    LSB_SUB_SPOOL_FILE_T subSpoolFiles;
+    int numSubmitJobs = -1;
+    int i, loop;
+
+    if (logclass & (LC_TRACE | LC_EXEC))
+        ls_syslog(LOG_DEBUG, "%s: Entering, jobCount=%d", fname, jobCount);
+
+    if (!jobSubReqs || jobCount <= 0 || !submitPackRep) {
+        lsberrno = LSBE_BAD_ARG;
+        return (-1);
+    }
+
+    lsberrno = LSBE_BAD_ARG;
+
+    /* Allocate buffer arrays for each job */
+    homeDir = (char **) malloc(jobCount * sizeof(char *));
+    resReq = (char **) malloc(jobCount * sizeof(char *));
+    cmd = (char **) malloc(jobCount * sizeof(char *));
+    cwd = (char **) malloc(jobCount * sizeof(char *));
+    jf_array = (struct lenData *) malloc(jobCount * sizeof(struct lenData));
+
+    if (!homeDir || !resReq || !cmd || !cwd || !jf_array)
+        goto cleanup;
+
+    for (i = 0; i < jobCount; i++) {
+        homeDir[i] = (char *) malloc(MAXFILENAMELEN);
+        resReq[i] = (char *) malloc(MAXLINELEN);
+        cmd[i] = (char *) malloc(MAXLINELEN);
+        cwd[i] = (char *) malloc(MAXFILENAMELEN);
+        if (!homeDir[i] || !resReq[i] || !cmd[i] || !cwd[i])
+            goto cleanup;
+    }
+
+    /* 1. Clean newlines for all jobs */
+    for (i = 0; i < jobCount; i++) {
+        subNewLine_(jobSubReqs[i]->resReq);
+        subNewLine_(jobSubReqs[i]->dependCond);
+        subNewLine_(jobSubReqs[i]->preExecCmd);
+        subNewLine_(jobSubReqs[i]->postExecCmd);
+        subNewLine_(jobSubReqs[i]->mailUser);
+        subNewLine_(jobSubReqs[i]->jobName);
+        subNewLine_(jobSubReqs[i]->queue);
+        subNewLine_(jobSubReqs[i]->inFile);
+        subNewLine_(jobSubReqs[i]->outFile);
+        subNewLine_(jobSubReqs[i]->errFile);
+        subNewLine_(jobSubReqs[i]->chkpntDir);
+        subNewLine_(jobSubReqs[i]->projectName);
+        for (loop = 0; loop < jobSubReqs[i]->numAskedHosts; loop++) {
+            subNewLine_(jobSubReqs[i]->askedHosts[loop]);
+        }
+    }
+
+    /* 2. Initialize pack request */
+    memset(&packReq, 0, sizeof(packReq));
+    packReq.jobCount = jobCount;
+    packReq.options = 0;
+    packReq.maxConcurrency = 0;
+    packReq.clientTimestamp = time(NULL);
+    packReq.sourceFile = "pack_file";
+    packReq.jobs = (struct submitReq *) malloc(jobCount * sizeof(struct submitReq));
+    if (!packReq.jobs)
+        goto cleanup;
+
+    /* 3. Environment setup (once for all jobs) */
+    makeCleanToRunEsub();
+
+    if (authTicketTokens_(&auth, NULL) == -1)
+        goto cleanup;
+
+    memset(&subSpoolFiles, 0, sizeof(subSpoolFiles));
+
+    /* 4. Process each job */
+    for (i = 0; i < jobCount; i++) {
+        struct submitReply jobReply;
+        memset(&jobReply, 0, sizeof(jobReply));
+        memset(&packReq.jobs[i], 0, sizeof(struct submitReq));
+
+        /* Setup buffer pointers */
+        packReq.jobs[i].subHomeDir = homeDir[i];
+        packReq.jobs[i].resReq = resReq[i];
+        packReq.jobs[i].command = cmd[i];
+        packReq.jobs[i].cwd = cwd[i];
+
+        /* Get working directory */
+        if (mygetwd_(cwd[i]) == NULL) {
+            ls_syslog(LOG_WARNING, "%s: getcwd failed for job %d", fname, i);
+            strcpy(cwd[i], "/tmp");
+        }
+
+        /* First getCommonParams */
+        if (getCommonParams(jobSubReqs[i], &packReq.jobs[i], &jobReply) < 0) {
+            ls_syslog(LOG_ERR, "%s: getCommonParams failed for job %d", fname, i);
+            goto cleanup;
+        }
+
+        /* getUserInfo (includes esub processing) */
+        if (getUserInfo(&packReq.jobs[i], jobSubReqs[i]) < 0) {
+            ls_syslog(LOG_ERR, "%s: getUserInfo failed for job %d", fname, i);
+            goto cleanup;
+        }
+
+        /* Modify job information */
+        modifyJobInformation(jobSubReqs[i]);
+
+        /* Second getCommonParams */
+        if (getCommonParams(jobSubReqs[i], &packReq.jobs[i], &jobReply) < 0) {
+            ls_syslog(LOG_ERR, "%s: getCommonParams(2nd) failed for job %d", fname, i);
+            goto cleanup;
+        }
+
+        /* Get other parameters */
+        if (getOtherParams(jobSubReqs[i], &packReq.jobs[i], &jobReply,
+                           &auth, &subSpoolFiles) < 0) {
+            ls_syslog(LOG_ERR, "%s: getOtherParams failed for job %d", fname, i);
+            goto cleanup;
+        }
+
+        /* Ensure required string fields are non-NULL */
+        if (!packReq.jobs[i].queue) packReq.jobs[i].queue = "";
+        if (!packReq.jobs[i].dependCond) packReq.jobs[i].dependCond = "";
+        if (!packReq.jobs[i].fromHost) {
+            char *myHost = ls_getmyhostname();
+            packReq.jobs[i].fromHost = myHost ? myHost : "";
+        }
+        if (!packReq.jobs[i].jobFile) packReq.jobs[i].jobFile = "";
+        if (!packReq.jobs[i].inFileSpool) packReq.jobs[i].inFileSpool = "";
+        if (!packReq.jobs[i].commandSpool) packReq.jobs[i].commandSpool = "";
+        if (!packReq.jobs[i].preExecCmd) packReq.jobs[i].preExecCmd = "";
+        if (!packReq.jobs[i].postExecCmd) packReq.jobs[i].postExecCmd = "";
+        if (!packReq.jobs[i].hostSpec) packReq.jobs[i].hostSpec = "";
+        if (!packReq.jobs[i].cwd) packReq.jobs[i].cwd = "";
+        if (!packReq.jobs[i].schedHostType) packReq.jobs[i].schedHostType = "";
+
+        /* Create job info file */
+        if (createJobInfoFile(jobSubReqs[i], &jf_array[i]) == -1) {
+            ls_syslog(LOG_ERR, "%s: createJobInfoFile failed for job %d", fname, i);
+            goto cleanup;
+        }
+    }
+
+    /* 5. Send pack request */
+    numSubmitJobs = send_batch_pack(&packReq, jf_array, jobCount, submitPackRep, &auth);
+
+cleanup:
+    /* Free allocated resources - only jf_array and packReq.jobs need cleanup now */
+    for (i = 0; i < jobCount; i++) {
+        FREEUP(homeDir[i]);
+        FREEUP(resReq[i]);
+        FREEUP(cmd[i]);
+        FREEUP(cwd[i]);
+        if (jf_array) FREEUP(jf_array[i].data);
+    }
+    FREEUP(homeDir);
+    FREEUP(resReq);
+    FREEUP(cmd);
+    FREEUP(cwd);
+    FREEUP(jf_array);
+
+    FREEUP(packReq.jobs);
+
+    return numSubmitJobs;
+}
 
 int
 getCommonParams (struct submit  *jobSubReq, struct submitReq *submitReq,
@@ -815,13 +994,13 @@ send_batch (struct submitReq *submitReqPtr, struct lenData *jf,
 }
 
 /*
- * send_pack - Send pack submission request to mbatchd
+ * send_batch_pack - Send pack submission request to mbatchd
  */
-static LS_LONG_INT
-send_pack(struct packSubmitReq *packReq, struct lenData *jf_array,
-          int jobCount, struct submitReply *submitReply, struct lsfAuth *auth)
+static int
+send_batch_pack(struct submitPackReq *packSubReq, struct lenData *jf_array,
+          int jobCount, struct submitPackReply *submitPackRep, struct lsfAuth *auth)
 {
-    static char fname[] = "send_pack";
+    static char fname[] = "send_batch_pack()";
     XDR xdrs;
     char *request_buf;
     int reqBufSize;
@@ -829,8 +1008,8 @@ send_pack(struct packSubmitReq *packReq, struct lenData *jf_array,
     int cc;
     int i;
     struct LSFHeader hdr;
-    struct submitMbdReply *reply;
-    LS_LONG_INT firstJobId;
+    struct submitMbdPackReply *reply;
+    int numJobs;
     struct lenData packedFiles;
     
     if (logclass & (LC_TRACE | LC_EXEC))
@@ -842,19 +1021,12 @@ send_pack(struct packSubmitReq *packReq, struct lenData *jf_array,
         lsberrno = LSBE_NO_MEM;
         return (-1);
     }
-    
-    /* Calculate buffer size for batch request dynamically
-     * Use precise calculation similar to single job submission */
-    reqBufSize = sizeof(struct packSubmitReq) + 
-                 xdr_lsfAuthSize(auth);
-    
-    /* Add precise size calculation for each job's string data */
-    for (i = 0; i < jobCount; i++) {
-        reqBufSize += xdrSubReqSize(&packReq->jobs[i]);
-    }
-    
-    /* Add 10% margin for XDR encoding overhead and alignment */
-    reqBufSize = (int)(reqBufSize * 1.1);
+
+    reqBufSize = xdrPackSubReqSize(packSubReq);
+    reqBufSize += xdr_lsfAuthSize(auth);
+
+    /* 4-byte alignment */
+    reqBufSize = (int)(((reqBufSize + 3) / 4) * 4);
     if ((request_buf = (char *) malloc(reqBufSize)) == NULL) {
         if (logclass & LC_EXEC)
             ls_syslog(LOG_DEBUG, "%s: request_buf malloc (%d) failed: %m",
@@ -869,7 +1041,7 @@ send_pack(struct packSubmitReq *packReq, struct lenData *jf_array,
     initLSFHeader_(&hdr);
     hdr.opCode = BATCH_JOB_SUB_PACK;
     
-    if (!xdr_encodeMsg(&xdrs, (char *) packReq, &hdr, xdr_packSubmitReq, 0, auth)) {
+    if (!xdr_encodeMsg(&xdrs, (char *) packSubReq, &hdr, xdr_submitPackReq, 0, auth)) {
         xdr_destroy(&xdrs);
         lsberrno = LSBE_XDR;
         FREEUP(request_buf);
@@ -894,293 +1066,66 @@ send_pack(struct packSubmitReq *packReq, struct lenData *jf_array,
     
     lsberrno = hdr.opCode;
     if (cc == 0) {
-        submitReply->badJobId = 0;
-        submitReply->badReqIndx = 0;
-        submitReply->queue = "";
-        submitReply->badJobName = "";
-        submitReply->subTryInterval = DEF_SUB_TRY_INTERVAL;
-        submitReply->pendLimitReason = "";
+        submitPackRep->numJobs = jobCount;
+        submitPackRep->numSuccess = 0;
+        submitPackRep->numFailed = jobCount;
+        submitPackRep->submitReps = NULL;
         if (logclass & (LC_TRACE | LC_EXEC))
             ls_syslog(LOG_DEBUG, "%s: No reply from mbatchd", fname);
         return(-1);
     }
-    
+    if ((reply = (struct submitMbdPackReply *)malloc(sizeof(struct submitMbdPackReply)))
+            == NULL) {
+        lsberrno = LSBE_NO_MEM;
+        FREEUP(reply);
+        return(-1);
+    }
+
     /* Decode reply - use new pack reply structure */
     xdrmem_create(&xdrs, reply_buf, XDR_DECODE_SIZE_(cc), XDR_DECODE);
     
-    struct submitMbdPackReply *packReply;
-    packReply = (struct submitMbdPackReply *)malloc(sizeof(struct submitMbdPackReply));
-    if (!packReply) {
-        lsberrno = LSBE_NO_MEM;
-        xdr_destroy(&xdrs);
-        return (-1);
-    }
-    memset(packReply, 0, sizeof(struct submitMbdPackReply));
-    
-    if (!xdr_submitMbdPackReply(&xdrs, packReply, &hdr)) {
+    if (!xdr_submitMbdPackReply(&xdrs, reply, &hdr)) {
         lsberrno = LSBE_XDR;
-        FREEUP(packReply);
+        FREEUP(reply_buf);
         xdr_destroy(&xdrs);
         return (-1);
     }
-    
+
+    submitPackRep->numJobs = reply->numJobs;
+    submitPackRep->numSuccess = reply->numSuccess;
+    submitPackRep->numFailed = reply->numFailed;
+
+    if (reply->submitMbdReps == NULL) {
+        lsberrno = LSBE_XDR;
+        FREEUP(reply_buf);
+        xdr_destroy(&xdrs);
+        return (-1);
+    }
+
+    submitPackRep->submitReps = (struct submitReply *)calloc(jobCount, sizeof(struct submitReply));
+
+    for (i = 0; i < jobCount; i++) {
+        submitPackRep->submitReps[i].badJobId = reply->submitMbdReps[i].jobId;
+        submitPackRep->submitReps[i].badReqIndx = reply->submitMbdReps[i].badReqIndx;
+        submitPackRep->submitReps[i].subTryInterval = reply->submitMbdReps[i].subTryInterval;
+        submitPackRep->submitReps[i].replyCode = reply->submitMbdReps[i].replyCode;
+        submitPackRep->submitReps[i].badJobName = reply->submitMbdReps[i].badJobName;
+        submitPackRep->submitReps[i].queue = reply->submitMbdReps[i].queue;
+        submitPackRep->submitReps[i].pendLimitReason = reply->submitMbdReps[i].pendLimitReason;
+    }
+
     FREEUP(reply_buf);
     xdr_destroy(&xdrs);
     
-    /* Fill old submitReply for API compatibility */
-    if (packReply->numSuccess > 0 && packReply->jobIds) {
-        submitReply->badJobId = packReply->jobIds[0];
-        firstJobId = packReply->jobIds[0];
-    } else {
-        submitReply->badJobId = 0;
-        firstJobId = -1;
-    }
-    submitReply->badReqIndx = packReply->numSuccess;
-    submitReply->queue = packReply->queue;
-    submitReply->badJobName = "";
-    submitReply->subTryInterval = DEF_SUB_TRY_INTERVAL;
-    submitReply->pendLimitReason = "";
-    
-    /* Print detailed information for failed jobs (same format as single job submission) */
-    if (packReply->numFailed > 0) {
-        fprintf(stderr, "\n--- Failed Jobs Details ---\n");
-        for (i = 0; i < packReply->numJobs; i++) {
-            if (packReply->jobStatus[i] != 0) {
-                /* Set lsberrno so lsb_sysmsg() returns the correct message */
-                int saved_lsberrno = lsberrno;
-                lsberrno = packReply->jobStatus[i];
-                
-                /* Format: similar to sub_perror() - context: error_message */
-                if (packReply->errorMsgs[i] && packReply->errorMsgs[i][0] != '\0') {
-                    /* Has additional context (badJobName or pendLimitReason) */
-                    fprintf(stderr, "  Job index %d: %s: %s\n",
-                           i, packReply->errorMsgs[i], lsb_sysmsg());
-                } else {
-                    /* No additional context - just show standard error message */
-                    fprintf(stderr, "  Job index %d: %s\n",
-                           i, lsb_sysmsg());
-                }
-                
-                lsberrno = saved_lsberrno;
-            }
-        }
-        fprintf(stderr, "---------------------------\n\n");
-    }
-    
-    /* Print successful jobs list (avoids need for client-side status polling) */
-    if (packReply->numSuccess > 0 && packReply->numSuccess < packReply->numJobs) {
-        fprintf(stderr, "--- Successfully Submitted Jobs ---\n");
-        for (i = 0; i < packReply->numJobs; i++) {
-            if (packReply->jobStatus[i] == 0 && packReply->jobIds[i] > 0) {
-                fprintf(stderr, "  Job <%lld> (index %d) submitted to queue <%s>\n",
-                       (long long)packReply->jobIds[i], i, packReply->queue);
-            }
-        }
-        fprintf(stderr, "-----------------------------------\n\n");
-    }
-    
-    /* Log detailed pack reply info for debugging */
-    if (logclass & (LC_TRACE | LC_EXEC)) {
-        ls_syslog(LOG_DEBUG, "%s: Pack submission result: %d/%d jobs succeeded",
-                 fname, packReply->numSuccess, packReply->numJobs);
-        for (i = 0; i < packReply->numJobs; i++) {
-            if (packReply->jobStatus[i] != 0 && packReply->errorMsgs[i]) {
-                ls_syslog(LOG_DEBUG, "%s: Job %d failed: %s",
-                         fname, (int)packReply->jobIds[i], packReply->errorMsgs[i]);
-            }
-        }
-    }
-    
-    /* Clean up packReply arrays */
-    if (packReply) {
-        FREEUP(packReply->jobIds);
-        FREEUP(packReply->jobStatus);
-        if (packReply->errorMsgs) {
-            for (i = 0; i < packReply->numJobs; i++) {
-                FREEUP(packReply->errorMsgs[i]);
-            }
-            FREEUP(packReply->errorMsgs);
-        }
-        FREEUP(packReply);
-    }
-    
-    if (lsberrno == LSBE_NO_ERROR && firstJobId > 0) {
+    if (lsberrno == LSBE_NO_ERROR && submitPackRep->numJobs > 0) {
+        numJobs = submitPackRep->numJobs;
         if (logclass & (LC_TRACE | LC_EXEC))
-            ls_syslog(LOG_DEBUG, "%s: Pack submission successful, first job <%s>",
-                      fname, lsb_jobid2str(firstJobId));
-        return (firstJobId);
+            ls_syslog(LOG_DEBUG, "%s: Pack submission successful, total job <%d>",
+                      fname, numJobs);
+        return (numJobs);
     }
     
     return(-1);
-}
-
-/*
- * lsb_submit_pack - Submit multiple jobs in a single pack request
- * Follows the same processing pattern as lsb_submit()
- */
-LS_LONG_INT
-lsb_submit_pack(struct submit **jobSubReqs, int jobCount,
-                struct submitReply *submitRep)
-{
-    static char fname[] = "lsb_submit_pack";
-    struct packSubmitReq packReq;
-    struct lsfAuth auth;
-    struct lenData *jf_array = NULL;
-    char **homeDir = NULL, **resReq = NULL, **cmd = NULL, **cwd = NULL;
-    LSB_SUB_SPOOL_FILE_T subSpoolFiles;
-    LS_LONG_INT firstJobId = -1;
-    int i, loop;
-    
-    if (logclass & (LC_TRACE | LC_EXEC))
-        ls_syslog(LOG_DEBUG, "%s: Entering, jobCount=%d", fname, jobCount);
-    
-    if (!jobSubReqs || jobCount <= 0 || !submitRep) {
-        lsberrno = LSBE_BAD_ARG;
-        return (-1);
-    }
-    
-    lsberrno = LSBE_BAD_ARG;
-    
-    /* Allocate buffer arrays for each job */
-    homeDir = (char **) malloc(jobCount * sizeof(char *));
-    resReq = (char **) malloc(jobCount * sizeof(char *));
-    cmd = (char **) malloc(jobCount * sizeof(char *));
-    cwd = (char **) malloc(jobCount * sizeof(char *));
-    jf_array = (struct lenData *) malloc(jobCount * sizeof(struct lenData));
-    
-    if (!homeDir || !resReq || !cmd || !cwd || !jf_array)
-        goto cleanup;
-    
-    for (i = 0; i < jobCount; i++) {
-        homeDir[i] = (char *) malloc(MAXFILENAMELEN);
-        resReq[i] = (char *) malloc(MAXLINELEN);
-        cmd[i] = (char *) malloc(MAXLINELEN);
-        cwd[i] = (char *) malloc(MAXFILENAMELEN);
-        if (!homeDir[i] || !resReq[i] || !cmd[i] || !cwd[i])
-            goto cleanup;
-    }
-    
-    /* 1. Clean newlines for all jobs */
-    for (i = 0; i < jobCount; i++) {
-        subNewLine_(jobSubReqs[i]->resReq);
-        subNewLine_(jobSubReqs[i]->dependCond);
-        subNewLine_(jobSubReqs[i]->preExecCmd);
-        subNewLine_(jobSubReqs[i]->postExecCmd);
-        subNewLine_(jobSubReqs[i]->mailUser);
-        subNewLine_(jobSubReqs[i]->jobName);
-        subNewLine_(jobSubReqs[i]->queue);
-        subNewLine_(jobSubReqs[i]->inFile);
-        subNewLine_(jobSubReqs[i]->outFile);
-        subNewLine_(jobSubReqs[i]->errFile);
-        subNewLine_(jobSubReqs[i]->chkpntDir);
-        subNewLine_(jobSubReqs[i]->projectName);
-        for (loop = 0; loop < jobSubReqs[i]->numAskedHosts; loop++) {
-            subNewLine_(jobSubReqs[i]->askedHosts[loop]);
-        }
-    }
-    
-    /* 2. Initialize pack request */
-    memset(&packReq, 0, sizeof(packReq));
-    packReq.jobCount = jobCount;
-    packReq.options = 0;
-    packReq.maxConcurrency = 0;
-    packReq.clientTimestamp = time(NULL);
-    packReq.sourceFile = "pack_file";
-    packReq.batchName = "pack_submit";
-    packReq.jobs = (struct submitReq *) malloc(jobCount * sizeof(struct submitReq));
-    if (!packReq.jobs)
-        goto cleanup;
-    
-    /* 3. Environment setup (once for all jobs) */
-    makeCleanToRunEsub();
-    
-    if (authTicketTokens_(&auth, NULL) == -1)
-        goto cleanup;
-    
-    memset(&subSpoolFiles, 0, sizeof(subSpoolFiles));
-    
-    /* 4. Process each job */
-    for (i = 0; i < jobCount; i++) {
-        struct submitReply jobReply;
-        memset(&jobReply, 0, sizeof(jobReply));
-        memset(&packReq.jobs[i], 0, sizeof(struct submitReq));
-        
-        /* Setup buffer pointers */
-        packReq.jobs[i].subHomeDir = homeDir[i];
-        packReq.jobs[i].resReq = resReq[i];
-        packReq.jobs[i].command = cmd[i];
-        packReq.jobs[i].cwd = cwd[i];
-        
-        /* Get working directory */
-        if (mygetwd_(cwd[i]) == NULL) {
-            ls_syslog(LOG_WARNING, "%s: getcwd failed for job %d", fname, i);
-            strcpy(cwd[i], "/tmp");
-        }
-        
-        /* First getCommonParams */
-        if (getCommonParams(jobSubReqs[i], &packReq.jobs[i], &jobReply) < 0) {
-            ls_syslog(LOG_ERR, "%s: getCommonParams failed for job %d", fname, i);
-            goto cleanup;
-        }
-        
-        /* getUserInfo (includes esub processing) */
-        if (getUserInfo(&packReq.jobs[i], jobSubReqs[i]) < 0) {
-            ls_syslog(LOG_ERR, "%s: getUserInfo failed for job %d", fname, i);
-            goto cleanup;
-        }
-        
-        /* Modify job information */
-        modifyJobInformation(jobSubReqs[i]);
-        
-        /* Second getCommonParams */
-        if (getCommonParams(jobSubReqs[i], &packReq.jobs[i], &jobReply) < 0) {
-            ls_syslog(LOG_ERR, "%s: getCommonParams(2nd) failed for job %d", fname, i);
-            goto cleanup;
-        }
-        
-        /* Get other parameters */
-        if (getOtherParams(jobSubReqs[i], &packReq.jobs[i], &jobReply,
-                          &auth, &subSpoolFiles) < 0) {
-            ls_syslog(LOG_ERR, "%s: getOtherParams failed for job %d", fname, i);
-            goto cleanup;
-        }
-        
-        /* Ensure required string fields are non-NULL */
-        if (!packReq.jobs[i].queue) packReq.jobs[i].queue = "";
-        if (!packReq.jobs[i].dependCond) packReq.jobs[i].dependCond = "";
-        if (!packReq.jobs[i].fromHost) {
-            char *myHost = ls_getmyhostname();
-            packReq.jobs[i].fromHost = myHost ? myHost : "";
-        }
-        if (!packReq.jobs[i].jobFile) packReq.jobs[i].jobFile = "";
-        if (!packReq.jobs[i].inFileSpool) packReq.jobs[i].inFileSpool = "";
-        if (!packReq.jobs[i].commandSpool) packReq.jobs[i].commandSpool = "";
-        if (!packReq.jobs[i].preExecCmd) packReq.jobs[i].preExecCmd = "";
-        if (!packReq.jobs[i].postExecCmd) packReq.jobs[i].postExecCmd = "";
-        if (!packReq.jobs[i].hostSpec) packReq.jobs[i].hostSpec = "";
-        if (!packReq.jobs[i].cwd) packReq.jobs[i].cwd = "";
-        if (!packReq.jobs[i].schedHostType) packReq.jobs[i].schedHostType = "";
-        
-        /* Create job info file */
-        if (createJobInfoFile(jobSubReqs[i], &jf_array[i]) == -1) {
-            ls_syslog(LOG_ERR, "%s: createJobInfoFile failed for job %d", fname, i);
-            goto cleanup;
-        }
-    }
-    
-    /* 5. Send pack request */
-    firstJobId = send_pack(&packReq, jf_array, jobCount, submitRep, &auth);
-    
-cleanup:
-    /* Free allocated resources - only jf_array and packReq.jobs need cleanup now */
-    if (jf_array) {
-        for (i = 0; i < jobCount; i++)
-            FREEUP(jf_array[i].data);
-        FREEUP(jf_array);
-    }
-    FREEUP(packReq.jobs);
-    
-    return firstJobId;
 }
 
 
@@ -2887,6 +2832,21 @@ xdrSubReqSize(struct submitReq *req)
     return (sz);
 }
 
+static int
+xdrPackSubReqSize(struct submitPackReq *req)
+{
+    int i, sz;
+
+    sz = 1024  +
+         ALIGNWORD_(sizeof(struct submitPackReq));
+
+    sz += ALIGNWORD_(strlen(req->sourceFile) + 1) + 4;
+
+    for (i = 0; i < req->jobCount; i++)
+        sz += xdrSubReqSize(&req->jobs[i]);
+
+    return (sz);
+}
 
 static
 int createNiosSock(struct submitReq *submitReq)

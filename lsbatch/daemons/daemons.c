@@ -90,6 +90,7 @@ struct config_param daemonParams[] = {
     {"MBD_DONT_FORK", NULL},
     {"LIM_NO_MIGRANT_HOSTS", NULL},
     {"LSF_UNIT_FOR_LIMITS", NULL},
+    {"LSB_PACK_SKIP_ERROR", NULL},
     {NULL, NULL}
 };
 

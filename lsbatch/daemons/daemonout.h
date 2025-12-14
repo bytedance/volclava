@@ -124,6 +124,16 @@ struct submitReq {
 };
 
 
+/* Pack job submission request */
+struct submitPackReq {
+    int jobCount;           /* Number of jobs */
+    int options;            /* Pack options: 0x01=streaming response, 0x02=continue on failure */
+    int maxConcurrency;     /* Maximum concurrent processing, 0=unlimited */
+    time_t clientTimestamp; /* Client timestamp */
+    char *sourceFile;       /* Source file path */
+    struct submitReq *jobs; /* Job array */
+};
+
 
 #define SHELLLINE "#! /bin/sh\n\n"
 #define CMDSTART "# LSBATCH: User input\n"
@@ -147,20 +157,17 @@ struct submitMbdReply {
     int     subTryInterval;
     char    *badJobName;
     char    *pendLimitReason;
+    int     replyCode;
 };
 
-/* Pack job submission reply - MBD server side */
 struct submitMbdPackReply {
-    char    *queue;
     int     numJobs;
     int     numSuccess;
     int     numFailed;
-    LS_LONG_INT *jobIds;
-    int     *jobStatus;
-    char    **errorMsgs;
+    struct  submitMbdReply *submitMbdReps;
 };
 
-struct modifyReq {                   
+struct modifyReq {
     LS_LONG_INT jobId;                
     char * jobIdStr;             
     int    delOptions;                  

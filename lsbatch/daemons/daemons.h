@@ -158,6 +158,7 @@
 #define MBD_DONT_FORK          54
 #define LIM_NO_MIGRANT_HOSTS   55
 #define LSF_UNIT_FOR_LIMITS    56
+#define LSB_PACK_SKIP_ERROR    57
 #define NOT_LOG  INFINIT_INT
 
 
