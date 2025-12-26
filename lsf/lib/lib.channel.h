@@ -63,11 +63,11 @@ struct Masks {
 };
 
 typedef enum {
-    EPOLL_EVENTS_NONE  = 0,
-    EPOLL_EVENTS_READ  = 1,
-    EPOLL_EVENTS_WRITE = 2,
-    EPOLL_EVENTS_ERROR = 4
-} epoll_events_t;
+    EPOLL_EVENT_NONE  = 0x0,
+    EPOLL_EVENT_READ  = 0x1,
+    EPOLL_EVENT_WRITE = 0x2,
+    EPOLL_EVENT_ERROR = 0x4
+} epoll_event_t;
 struct chanData {
     int  handle;		
     enum chanType type;
@@ -78,7 +78,7 @@ struct chanData {
     struct Buffer *recv;
 
     int listenEvents;
-    epoll_events_t readyEvents;                /*Ready events reported by the channel to the upper layer*/
+    epoll_event_t readyEvents;                /*Ready events reported by the channel to the upper layer*/
 
 };
 
@@ -105,7 +105,7 @@ int chanInit_(void);
 #define chanRecv_  chanDequeue_
 
 int chanOpen_(u_int, u_short, int);
-int chanEnqueue_(int chfd, struct Buffer *buf, int);
+int chanEnqueue_(int chfd, struct Buffer *buf);
 int chanDequeue_(int chfd, struct Buffer **buf);
 
 int chanSelect_(struct Masks *, struct Masks *, struct timeval *timeout);

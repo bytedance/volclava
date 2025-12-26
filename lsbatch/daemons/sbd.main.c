@@ -361,8 +361,6 @@ main (int argc, char **argv)
 
     sigprocmask(SIG_SETMASK, NULL, &oldsigmask);
 
-
-
     sinit();
     ls_syslog(LOG_INFO, (_i18n_msg_get(ls_catd , NL_SETN, 5041, "%s: (re-)started")), fname);        /* catgets 5041 */
 
@@ -441,18 +439,18 @@ main (int argc, char **argv)
             continue;
         }
 
-	if (statusChan >= 0 && (chanEventsReady(statusChan,EPOLL_EVENTS_READ) ||
-				chanEventsReady(statusChan,EPOLL_EVENTS_ERROR))) {
+	if (statusChan >= 0 && (chanEventsReady(statusChan,EPOLL_EVENT_READ) ||
+				chanEventsReady(statusChan,EPOLL_EVENT_ERROR))) {
 
 	    if (logclass & LC_COMM)
 		ls_syslog(LOG_DEBUG,
-			  "main: Exception on statusChan <%d>, EPOLL_EVENTS_READ %s",
-			  statusChan, chanEventsReady(statusChan,EPOLL_EVENTS_READ) ? "yes" : "no");
+			  "main: Exception on statusChan <%d>, EPOLL_EVENT_READ %s",
+			  statusChan, chanEventsReady(statusChan,EPOLL_EVENT_READ) ? "yes" : "no");
 	    chanClose_(statusChan);
 	    statusChan = -1;
 	}
 
-    if (!chanEventsReady(batchSock,EPOLL_EVENTS_READ)) {
+    if (!chanEventsReady(batchSock,EPOLL_EVENT_READ)) {
 	    ls_syslog(LOG_DEBUG,"main: connection already known");
         clientIO();
 	    continue;
@@ -461,7 +459,11 @@ main (int argc, char **argv)
         s = chanAccept_(batchSock, &from);
         if (s == -1) {
             ls_syslog(LOG_ERR, I18N_FUNC_FAIL_MM, fname, "chanAccept_");
-	    continue;
+	        continue;
+        }
+        if(chanRegisterEpoll_(s, EPOLLIN|EPOLLERR) < 0){
+            ls_syslog(LOG_ERR, "%s: chanRegisterEpoll_() failed %m", __func__);
+            continue;
         }
 
 
@@ -503,12 +505,12 @@ clientIO()
 
     for(cliPtr=clientList->forw; cliPtr != clientList; cliPtr=nextClient) {
         nextClient = cliPtr->forw;
-        if (chanEventsReady(cliPtr->chanfd, EPOLL_EVENTS_ERROR)) {
+        if (chanEventsReady(cliPtr->chanfd, EPOLL_EVENT_ERROR)) {
             shutDownClient(cliPtr);
             continue;
         }
 
-        if (chanEventsReady(cliPtr->chanfd, EPOLL_EVENTS_READ)) {
+        if (chanEventsReady(cliPtr->chanfd, EPOLL_EVENT_READ)) {
 	        processMsg(cliPtr);
         }
 
@@ -860,8 +862,6 @@ sinit (void)
     static char fname[] = "sinit";
     struct hostInfo *myinfo;
     char *myhostname;
-
-    chanEpollInit();
     
     if (logclass & (LC_TRACE | LC_HANG))
         ls_syslog(LOG_DEBUG, "sbatchd/%s: Entering this routine...", fname);

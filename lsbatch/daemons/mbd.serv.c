@@ -2091,12 +2091,15 @@ doNewJobReply(struct sbdNode *sbdPtr, int exception)
 
             replyBuf->len = LSF_HEADER_LEN;
 
-            if (chanEnqueue_(sbdPtr->chanfd, replyBuf, 1) < 0) {
+            if (chanEnqueue_(sbdPtr->chanfd, replyBuf) < 0) {
                 ls_syslog(LOG_ERR, I18N_FUNC_FAIL_M, fname, "chanEnqueue");
                 chanFreeBuf_(replyBuf);
             } else {
 
                 sbdPtr->reqCode = MBD_NEW_JOB_KEEP_CHAN;
+                if(chanUpdateListenEvents(sbdPtr->chanfd, EPOLLIN|EPOLLOUT|EPOLLERR) < 0){
+                    ls_syslog(LOG_ERR, "%s: chanUpdateListenEvents() failed %m", __func__);
+                }
             }
         } else {
 

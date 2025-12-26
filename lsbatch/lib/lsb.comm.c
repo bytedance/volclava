@@ -181,10 +181,6 @@ call_server (char * host,
 	    ls_syslog(LOG_ERR, I18N_FUNC_FAIL_MM, "callserver",  "chanSetMode");            CLOSECD(serverSock);
 	    return (-2);
 	}
-    if(chanRegisterEpoll_(serverSock, EPOLLIN|EPOLLERR) < 0){
-        ls_syslog(LOG_ERR, "%s: chanRegisterEpoll_() failed for chfd %d sockfd %d: %m",
-                  __func__, serverSock, chanSock_(serverSock));
-    }
 
 	if (postSndFunc)
 	    tsize += ((struct lenData *)postSndFuncArg)->len + NET_INTSIZE_;
@@ -209,13 +205,20 @@ call_server (char * host,
 		   ((struct lenData *)postSndFuncArg)->len);
 	}
 
-	if (chanEnqueue_(serverSock, sndBuf, 1) < 0) {
+	if (chanEnqueue_(serverSock, sndBuf) < 0) {
 	    ls_syslog(LOG_ERR, I18N_FUNC_FAIL_ENO_D, fname,
 			"chanEnqueue_", cherrno);
 	    chanFreeBuf_(sndBuf);
 	    CLOSECD(serverSock);
 	    return (-2);
 	}
+    /* If the flags contain the CALL_SERVER_ENQUEUE_ONLY flag, epoll needs to monitor the serverSock */
+    if(chanRegisterEpoll_(serverSock, EPOLLIN|EPOLLOUT|EPOLLERR) < 0){
+        ls_syslog(LOG_ERR, "%s: chanRegisterEpoll_() failed %m", __func__);
+        chanFreeBuf_(sndBuf);
+	    CLOSECD(serverSock);
+	    return (-2);
+    }
     } else {
 	cc = chanRpc_(serverSock,
                       &reqbuf,

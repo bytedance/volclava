@@ -199,7 +199,6 @@ Reading configuration from %s/lsf.conf\n", env_dir);
         /* Print my type, model, architecture
          * and CPU factor, even if some are hardcoded.
          */
-        chanEpollInit();
         cc = initAndConfig(lim_CheckMode, &kernelPerm);
         if (cc < 0) {
             ls_syslog(LOG_ERR, "\
@@ -243,7 +242,6 @@ Reading configuration from %s/lsf.conf\n", env_dir);
         daemonize_();
         nice(NICE_LEAST);
     }
-    chanEpollInit();
 
     if (lim_debug < 2)
         chdir("/tmp");
@@ -378,11 +376,11 @@ Reading configuration from %s/lsf.conf\n", env_dir);
             continue;
         }
 
-        if (chanEventsReady(limSock, EPOLL_EVENTS_READ)) {
+        if (chanEventsReady(limSock, EPOLL_EVENT_READ)) {
             processUDPMsg();
         }
 
-        if (chanEventsReady(limTcpSock, EPOLL_EVENTS_READ)) {
+        if (chanEventsReady(limTcpSock, EPOLL_EVENT_READ)) {
             doAcceptConn();
         }
 
@@ -571,6 +569,10 @@ doAcceptConn(void)
         ls_syslog(LOG_ERR, "\
 %s: failed accept() new connection socket %d: %M", __func__, limTcpSock);
         return;
+    }
+    if(chanRegisterEpoll_(ch, EPOLLIN|EPOLLERR) < 0){
+        ls_syslog(LOG_ERR, "%s: chanRegisterEpoll_() failed %m", __func__);
+        return ;
     }
 
     fromHost = findHostbyAddr(&from, "doAcceptConn()");
@@ -879,6 +881,20 @@ initSock(int checkMode)
 
     lim_tcp_port = limTcpSockId.sin_port;
 
+     if (chanEpollInit() < 0) {
+        ls_syslog(LOG_ERR, "%s: chanEpollInit_() failed %m", __func__);
+        return -1;
+    }
+
+    if (chanRegisterEpoll_(limSock, EPOLLIN|EPOLLERR) < 0) {
+        ls_syslog(LOG_ERR, "%s: chanRegisterEpoll_() failed %m", __func__);
+        return -1;
+    }
+
+    if (chanRegisterEpoll_(limTcpSock, EPOLLIN|EPOLLERR) < 0) {
+        ls_syslog(LOG_ERR, "%s: chanRegisterEpoll_() failed %m", __func__);
+        return -1;
+    }
     return 0;
 }
 

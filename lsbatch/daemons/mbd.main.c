@@ -401,7 +401,6 @@ main (int argc, char **argv)
 
     /* Go go go...
      */
-    chanEpollInit();
     TIMEIT(0, minit(FIRST_START),"minit");
     log_mbdStart();
     ls_syslog(LOG_INFO, "%s: (re-)started", __func__);
@@ -471,7 +470,7 @@ main (int argc, char **argv)
         timeout.tv_sec  = 0;
         timeout.tv_usec = 0;
 
-        if (chanEventsReady(batchSock, EPOLL_EVENTS_READ)) {
+        if (chanEventsReady(batchSock, EPOLL_EVENT_READ)) {
             acceptConnection(batchSock);
         }
 
@@ -491,6 +490,10 @@ acceptConnection(int socket)
     s = chanAccept_(socket, (struct sockaddr_in *)&from);
     if (s == -1) {
         ls_syslog(LOG_ERR, "%s Ohmygosh accept() failed... %m", __func__);
+        return;
+    }
+    if(chanRegisterEpoll_(s, EPOLLIN|EPOLLERR) < 0){
+        ls_syslog(LOG_ERR, "%s: chanRegisterEpoll_() failed %m",__func__);
         return;
     }
 
@@ -544,9 +547,9 @@ clientIO()
          sbdPtr != &sbdNodeList;
          sbdPtr = nextSbdPtr) {
         nextSbdPtr = sbdPtr->forw;
-        if (chanEventsReady(sbdPtr->chanfd, EPOLL_EVENTS_READ|EPOLL_EVENTS_ERROR))
+        if (chanEventsReady(sbdPtr->chanfd, EPOLL_EVENT_READ|EPOLL_EVENT_ERROR))
         {
-            if (chanEventsReady(sbdPtr->chanfd, EPOLL_EVENTS_ERROR))
+            if (chanEventsReady(sbdPtr->chanfd, EPOLL_EVENT_ERROR))
                 exception = TRUE;
             else
                 exception = FALSE;
@@ -560,19 +563,19 @@ clientIO()
          cliPtr = nextClient) {
         int needFree;
         nextClient = cliPtr->forw;
-        if (chanEventsReady(cliPtr->chanfd, EPOLL_EVENTS_ERROR)) {
+        if (chanEventsReady(cliPtr->chanfd, EPOLL_EVENT_ERROR)) {
 
             shutDownClient(cliPtr);
             continue;
         }
         needFree = FALSE;
-        if (chanEventsReady(cliPtr->chanfd, EPOLL_EVENTS_READ)) {
+        if (chanEventsReady(cliPtr->chanfd, EPOLL_EVENT_READ)) {
 
             int saveChfd;
             saveChfd = cliPtr->chanfd;
             if (processClient(cliPtr, &needFree) == 0) {
 
-                chanQuitReadyEvents(saveChfd, EPOLL_EVENTS_READ);
+                chanQuitReadyEvents(saveChfd, EPOLL_EVENT_READ);
                 if (needFree == TRUE) {
                     offList((struct listEntry *)cliPtr);
                     FREEUP(cliPtr->fromHost);
