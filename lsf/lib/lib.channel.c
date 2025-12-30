@@ -609,7 +609,7 @@ chanClose_(int chfd)
         return(-1);
     }
    
-    if(epollfd >= 0 ){
+    if(epollfd >= 0){
         chanUnRegisterEpoll_(chfd);
     }
 
@@ -640,7 +640,7 @@ chanClose_(int chfd)
     channels[chfd].handle = INVALID_HANDLE;
     channels[chfd].send  = (struct Buffer *)NULL;
     channels[chfd].recv  = (struct Buffer *)NULL;
-    channels[chfd].readyEvents = 0;
+    channels[chfd].readyEvents = EPOLL_EVENT_NONE;
     return(0);
 }
 
@@ -1588,7 +1588,7 @@ chanUnRegisterEpoll_(int chfd)
         ls_syslog(LOG_ERR, "%s failed for chfd %d socket %d: %m", __func__,chfd, channels[chfd].handle);
         return -1;
     }
-    channels[chfd].readyEvents = 0;
+    channels[chfd].readyEvents = EPOLL_EVENT_NONE;
     return 0;
 }
 
@@ -1616,7 +1616,7 @@ chanResetRevent4Chans()
             ls_syslog(LOG_DEBUG3, "%s: channel %d handle %d state %d type %d events 0x%X",
                     fname, chfd, channels[chfd].handle, channels[chfd].state, channels[chfd].type, channels[chfd].readyEvents);
         }
-        channels[chfd].readyEvents = 0;
+        channels[chfd].readyEvents = EPOLL_EVENT_NONE;
     }
 
     return ;
