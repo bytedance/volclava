@@ -575,7 +575,7 @@ clientIO()
             saveChfd = cliPtr->chanfd;
             if (processClient(cliPtr, &needFree) == 0) {
 
-                chanQuitReadyEvents(saveChfd, EPOLL_EVENT_READ);
+                chanClearReadyEvents(saveChfd, EPOLL_EVENT_READ);
                 if (needFree == TRUE) {
                     offList((struct listEntry *)cliPtr);
                     FREEUP(cliPtr->fromHost);

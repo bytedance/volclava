@@ -32,10 +32,10 @@
 #define NL_SETN   23
 #define EPOLL_EVENT_MAX_SIZE 2048
 
-#define CLOSEIT(i) {                                \                                          
-        CLOSESOCKET(channels[i].handle);            \
-        channels[i].state = CH_DISC;                \   
-        channels[i].readyEvents = 0;                \
+#define CLOSEIT(i) {                                    \                                          
+        CLOSESOCKET(channels[i].handle);                \
+        channels[i].state = CH_DISC;                    \   
+        channels[i].readyEvents = EPOLL_EVENT_NONE;     \
         channels[i].handle = INVALID_HANDLE; }
 
 static struct chanData *channels;
@@ -59,11 +59,11 @@ struct epoll_event *epoll_events;
 static int readyChansNum = 0;                       /* Number of valid elements in the readyChans array */
 static int *readyChans = NULL;                     /* Array storing indices of ready channels */
 
-static void chanClearReadyEvents();
+static void chanResetRevent4Chans();
 static void doreadEpoll(int);
 static void dowriteEpoll(int);
 int chanRegisterEpoll_(int, uint32_t);
-int chanUnRegisterEpoll_(int);
+void chanUnRegisterEpoll_(int);
 int chanUpdateListenEvents(int, uint32_t);
 
 
@@ -80,7 +80,7 @@ chanInit_(void)
     chanMaxSize = sysconf(_SC_OPEN_MAX);
 
     channels = calloc(chanMaxSize, sizeof(struct chanData));
-    
+
     /*readyChans stores the indices of channels that need to notify the upper layer of event occurrences.*/
     readyChans = calloc(EPOLL_EVENT_MAX_SIZE, sizeof(int));
     if (channels == NULL || readyChans == NULL)
@@ -582,6 +582,14 @@ chanOpenSock_(int s, int options)
     return(i);
 }
 
+/*
+ * Close a channel and release associated resources
+ * 1. Unregister the channel from epoll (if epoll is initialized)
+ * 2. Close socket
+ * 3. Reset channel
+ * @param[in] chfd: Index of the channel to close
+ * @return: 0 on success; -1 if chfd is invalid or channel handle is invalid
+ */
 int
 chanClose_(int chfd)
 {
@@ -600,12 +608,9 @@ chanClose_(int chfd)
         cherrno = CHANE_BADCHFD;
         return(-1);
     }
-
-    /*This check ensures that the socket to be unregistered is definitely registered with epoll*/
-    if(epollfd >= 0 && (channels[chfd].send || channels[chfd].recv)){
-        if(chanUnRegisterEpoll_(chfd) < 0){
-            ls_syslog(LOG_ERR, "%s: chanUnRegisterEpoll_() failed for chfd %d socket %d: %m", __func__,chfd, channels[chfd].handle);
-        }
+   
+    if(epollfd >= 0 ){
+        chanUnRegisterEpoll_(chfd);
     }
 
     close(channels[chfd].handle);
@@ -635,7 +640,6 @@ chanClose_(int chfd)
     channels[chfd].handle = INVALID_HANDLE;
     channels[chfd].send  = (struct Buffer *)NULL;
     channels[chfd].recv  = (struct Buffer *)NULL;
-    channels[chfd].listenEvents = 0;
     channels[chfd].readyEvents = 0;
     return(0);
 }
@@ -670,7 +674,7 @@ chanEpoll_(int **readyfds, struct timeval *timeout)
     int timeout_ms = -1;
     int chfd, sockfd;
 
-    chanClearReadyEvents();
+    chanResetRevent4Chans();
     if (timeout != NULL) {
         timeout_ms = timeout->tv_sec * 1000 + timeout->tv_usec / 1000;
     }
@@ -1492,12 +1496,12 @@ findAFreeChannel(void)
     channels[i].send  = NULL;
     channels[i].recv = NULL;
     channels[i].chanerr = CHANE_NOERR;
-
+    channels[i].readyEvents = EPOLL_EVENT_NONE;
     return i;
 }
 
 /*
- * Register a channel for epoll event monitoring (ADD operation).
+ * Register a channel for epoll event monitoring (EPOLL_CTL_ADD).
  * This function adds the channel's file descriptor to epoll with the specified event mask.
  * @param[in] chfd: Channel index to register.
  * @param[in] mask: Event mask (EPOLLIN, EPOLLOUT, etc.) to monitor.
@@ -1527,7 +1531,6 @@ chanRegisterEpoll_(int chfd, uint32_t mask)
         channels[chfd].chanerr = CHANE_EPOLLFAIL;
         return -2;
     }
-    channels[chfd].listenEvents = mask;
 
     return 0;
 }
@@ -1561,41 +1564,42 @@ chanUpdateListenEvents(int chfd, uint32_t mask)
         channels[chfd].chanerr = CHANE_EPOLLFAIL;
         return -2;
     }
-    channels[chfd].listenEvents = mask;
     return 0;
 }
 
 
 /*
- * Unregister a channel from epoll event monitoring (DEL operation).
+ * Unregister a channel from epoll event monitoring (EPOLL_CTL_DEL).
  * This function removes the channel's file descriptor from epoll.
  * @param[in] chfd: Channel index to unregister.
  * @return: 0 on success, -1 if epoll_ctl fails.
  */
-int
+void
 chanUnRegisterEpoll_(int chfd)
 {
     if (logclass & LC_COMM) {
         ls_syslog(LOG_DEBUG, "%s: channel %d handle %d state %d type %d have buffer %s",
                   __func__, chfd, channels[chfd].handle, channels[chfd].state, channels[chfd].type, (channels[chfd].recv||channels[chfd].send) ? "yes" : "no");
     }
-    if (epoll_ctl(epollfd, EPOLL_CTL_DEL, channels[chfd].handle, 0) == -1) {
+     /*errno = ENOENT indicates that an epoll_ctl DEL operation was performed on a socket not registered 
+    in the epoll instance, and this operation has no impact on the system*/
+    if (epoll_ctl(epollfd, EPOLL_CTL_DEL, channels[chfd].handle, NULL) == -1 && errno != ENOENT) {
         channels[chfd].chanerr = CHANE_EPOLLFAIL;
+        ls_syslog(LOG_ERR, "%s failed for chfd %d socket %d: %m", __func__,chfd, channels[chfd].handle);
         return -1;
     }
-    channels[chfd].listenEvents = 0;
     channels[chfd].readyEvents = 0;
     return 0;
 }
 
 /*
- * Static helper: Clear ready events (readyEvents) for all previously ready channels
+ * Static helper: Clear ready events (readyEvents) for all channels in the readyChans array
  * (called before each chanEpoll_ to reset old event status)
  */
 static void
-chanClearReadyEvents()
+chanResetRevent4Chans()
 {
-    static char *fname = "chanClearReadyEvents";
+    static char *fname = "chanResetRevent4Chans";
     int i, chfd;
 
     if (readyChansNum <= 0) {
@@ -1624,9 +1628,9 @@ chanClearReadyEvents()
  * @param[in] events: Events to clear (e.g., EPOLLIN, EPOLLOUT)
  */
 void
-chanQuitReadyEvents(int chfd, int events)
+chanClearReadyEvents(int chfd, int events)
 {   
-    static char *fname = "chanQuitReadyEvents";
+    static char *fname = "chanClearReadyEvents";
     if (chfd < 0 || chfd >= chanMaxSize) {
         channels[chfd].chanerr = CHANE_BADCHFD;
         return ;
@@ -1671,26 +1675,30 @@ int chanEpollInit(){
         }
         readyChansNum = 0;
         for(i = 0; i<chanMaxSize; i++){
-            channels[i].readyEvents = 0;
-            channels[i].listenEvents = 0;
+            channels[i].readyEvents = EPOLL_EVENT_NONE;
         }
         return 0;
     }
     
     first = FALSE;
     epollfd = epoll_create1(EPOLL_CLOEXEC);
+    if(epollfd < 0){
+        return -1;
+    }
     epoll_events = (struct epoll_event *)calloc(EPOLL_EVENT_MAX_SIZE, sizeof(struct epoll_event));
+    if(epoll_events == NULL){
+        return -1;
+    }
     readyChansNum = 0;
     for(i = 0; i<chanMaxSize; i++){
-        channels[i].readyEvents = 0;
-        channels[i].listenEvents = 0;
+        channels[i].readyEvents = EPOLL_EVENT_NONE;
     }
     return 0;
 }
 
 /*Close the epoll file descriptor and reset the epoll state.
 This function should be called to clean up epoll resources when the channel event monitoring is no longer needed.
-It only performs cleanup if epoll resources have been initialized (i.e., chanEpollListenEventUpdateOn is set).
+It only performs cleanup if epoll resources have been initialized(epollfd >= 0).
 
 Note: This function MUST be called before a child process invokes chanClose  to close a socket belonging to the parent process.
 Otherwise, the parent process's socket will no longer be monitored by epoll, because chanClose contains epoll ctl operations.
@@ -1698,6 +1706,8 @@ Epoll ctl operations performed by the child process on the inherited epoll insta
 It is recommended that all child processes that use channels call this function.
 */
 void chanCloseEpoll(){
-    close(epollfd);
-    epollfd = -1;
+    if(epollfd >= 0){
+        close(epollfd);
+        epollfd = -1;
+    }
 }

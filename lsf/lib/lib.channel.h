@@ -77,7 +77,6 @@ struct chanData {
     struct Buffer *send;
     struct Buffer *recv;
 
-    int listenEvents;
     epoll_event_t readyEvents;                /*Ready events reported by the channel to the upper layer*/
 
 };
@@ -135,7 +134,7 @@ int chanOpenSock_(int , int);
 int chanSetMode_(int, int);
 
 int chanEventsReady(int chfd, int events);
-void chanQuitReadyEvents(int chfd, int events);
+void chanClearReadyEvents(int chfd, int events);
 void chanCloseEpoll();
 
 extern int chanIndex;
@@ -144,7 +143,7 @@ extern struct epoll_event *epoll_events;
 extern int chanEpollInit();
 extern int chanRegisterEpoll_(int, uint32_t);
 extern int chanUpdateListenEvents(int, uint32_t);
-extern int chanUnRegisterEpoll_(int);
+extern void chanUnRegisterEpoll_(int);
 
 #endif
 
