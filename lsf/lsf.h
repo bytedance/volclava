@@ -57,7 +57,7 @@
 #if !defined(__CYGWIN__)
 #include <rpcsvc/ypclnt.h>
 #endif
-
+#include <sys/epoll.h>
 typedef long long int LS_LONG_INT;
 typedef unsigned long long LS_UNS_LONG_INT;
 

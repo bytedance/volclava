@@ -212,6 +212,13 @@ call_server (char * host,
 	    CLOSECD(serverSock);
 	    return (-2);
 	}
+    /* If the flags contain the CALL_SERVER_ENQUEUE_ONLY flag, epoll needs to monitor the serverSock */
+    if(chanRegisterEpoll_(serverSock, EPOLLIN|EPOLLOUT|EPOLLERR) < 0){
+        ls_syslog(LOG_ERR, "%s: chanRegisterEpoll_() failed %m", __func__);
+        chanFreeBuf_(sndBuf);
+	    CLOSECD(serverSock);
+	    return (-2);
+    }
     } else {
 	cc = chanRpc_(serverSock,
                       &reqbuf,

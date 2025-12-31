@@ -125,12 +125,10 @@ struct liStruct *li = NULL;
 int
 main(int argc, char **argv)
 {
-    fd_set allMask;
-    struct Masks sockmask;
-    struct Masks chanmask;
     struct timeval timer;
     struct timeval t0;
     struct timeval t1;
+    int *readyChans;
     int    maxfd;
     char   *sp;
     int    showTypeModel;
@@ -313,7 +311,6 @@ Reading configuration from %s/lsf.conf\n", env_dir);
     if (lim_debug < 2)
         chdir("/tmp");
 
-    FD_ZERO(&allMask);
     /* We use seconds based precision timer
      * which is good enough, just make sure
      * that every 5 seconds we read the load
@@ -326,20 +323,19 @@ Reading configuration from %s/lsf.conf\n", env_dir);
     for (;;) {
         sigset_t oldMask;
         sigset_t newMask;
-        int nReady;
+        int nReady = 0;
 
-        sockmask.rmask = allMask;
         if (pimPid == -1)
             startPIM(argc, argv);
 
         ls_syslog(LOG_DEBUG2, "\
 %s: Before select: timer %dsec", __func__, timer.tv_sec);
 
-        nReady = chanSelect_(&sockmask, &chanmask, &timer);
+        nReady = chanEpoll_(&readyChans, &timer);
         if (nReady < 0) {
             if (errno != EINTR)
                 ls_syslog(LOG_ERR, "\
-%s: chanSelect() failed %M", __func__);
+%s: chanEpoll() failed %M", __func__);
             continue;
         }
 
@@ -380,15 +376,15 @@ Reading configuration from %s/lsf.conf\n", env_dir);
             continue;
         }
 
-        if (FD_ISSET(limSock, &chanmask.rmask)) {
+        if (chanEventsReady(limSock, EPOLL_EVENT_READ)) {
             processUDPMsg();
         }
 
-        if (FD_ISSET(limTcpSock, &chanmask.rmask)) {
+        if (chanEventsReady(limTcpSock, EPOLL_EVENT_READ)) {
             doAcceptConn();
         }
 
-        clientIO(&chanmask);
+        clientIO(readyChans, nReady);
 
         sigprocmask(SIG_SETMASK, &oldMask, NULL);
 
@@ -573,6 +569,10 @@ doAcceptConn(void)
         ls_syslog(LOG_ERR, "\
 %s: failed accept() new connection socket %d: %M", __func__, limTcpSock);
         return;
+    }
+    if(chanRegisterEpoll_(ch, EPOLLIN|EPOLLERR) < 0){
+        ls_syslog(LOG_ERR, "%s: chanRegisterEpoll_() failed %m", __func__);
+        return ;
     }
 
     fromHost = findHostbyAddr(&from, "doAcceptConn()");
@@ -881,6 +881,20 @@ initSock(int checkMode)
 
     lim_tcp_port = limTcpSockId.sin_port;
 
+     if (chanEpollInit() < 0) {
+        ls_syslog(LOG_ERR, "%s: chanEpollInit_() failed %m", __func__);
+        return -1;
+    }
+
+    if (chanRegisterEpoll_(limSock, EPOLLIN|EPOLLERR) < 0) {
+        ls_syslog(LOG_ERR, "%s: chanRegisterEpoll_() failed %m", __func__);
+        return -1;
+    }
+
+    if (chanRegisterEpoll_(limTcpSock, EPOLLIN|EPOLLERR) < 0) {
+        ls_syslog(LOG_ERR, "%s: chanRegisterEpoll_() failed %m", __func__);
+        return -1;
+    }
     return 0;
 }
 

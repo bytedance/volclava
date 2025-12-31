@@ -281,6 +281,7 @@ rmDir(char *dir)
 
 void closeBatchSocket (void) 
 {
+    chanCloseEpoll();
     if (batchSock > 0) { 
         chanClose_(batchSock);
         batchSock = -1;
