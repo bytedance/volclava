@@ -221,19 +221,19 @@ int
 rd_epoll_(int rd, struct timeval *timeout)
 {
     int cc = -1;
-    int epollfd;
+    int tmpEpollFd;
     struct epoll_event ev;
     int timeout_ms = -1;
 
-    epollfd = epoll_create1(0);
-    if (epollfd < 0) {
+    tmpEpollFd = epoll_create1(EPOLL_CLOEXEC);
+    if (tmpEpollFd < 0) {
         return -1;
     }
 
     ev.data.fd = rd;
     ev.events = EPOLLIN;
-    if (epoll_ctl(epollfd, EPOLL_CTL_ADD, rd, &ev) < 0) {
-        close(epollfd);
+    if (epoll_ctl(tmpEpollFd, EPOLL_CTL_ADD, rd, &ev) < 0) {
+        close(tmpEpollFd);
         return -1;
     }
     for (;;) {
@@ -246,15 +246,15 @@ rd_epoll_(int rd, struct timeval *timeout)
             timeout_ms = -1;
         }
 
-        cc = epoll_wait(epollfd, &ev, 1, timeout_ms);
+        cc = epoll_wait(tmpEpollFd, &ev, 1, timeout_ms);
 
         if (cc >= 0) {
-            close(epollfd);
+            close(tmpEpollFd);
             return cc;
         }
 
         if (errno != EINTR) {
-            close(epollfd);
+            close(tmpEpollFd);
             return -1;
         }
     }
