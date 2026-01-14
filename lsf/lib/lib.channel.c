@@ -32,9 +32,9 @@
 #define NL_SETN   23
 #define EPOLL_EVENT_MAX_SIZE 2048
 
-#define CLOSEIT(i) {                                    \                                          
+#define CLOSEIT(i) {                                    \                                      
         CLOSESOCKET(channels[i].handle);                \
-        channels[i].state = CH_DISC;                    \   
+        channels[i].state = CH_DISC;                    \
         channels[i].readyEvents = EPOLL_EVENT_NONE;     \
         channels[i].handle = INVALID_HANDLE; }
 
@@ -62,9 +62,6 @@ static int *readyChans = NULL;                     /* Array storing indices of r
 static void chanResetRevent4Chans();
 static void doreadEpoll(int);
 static void dowriteEpoll(int);
-int chanRegisterEpoll_(int, uint32_t);
-void chanUnRegisterEpoll_(int);
-int chanUpdateListenEvents(int, uint32_t);
 
 
 int
@@ -427,7 +424,7 @@ chanRcvDgram_: Receive on chan %d timeout=%d",chfd, timeout);
 
     for (;;) {
 
-        nReady = rd_select_(sock, timep);
+        nReady = rd_epoll_(sock, timep);
         if (nReady < 0) {
             lserrno = LSE_SELECT_SYS;
             return -1;
@@ -1042,7 +1039,7 @@ chanRpc_(int chfd, struct Buffer *in, struct Buffer *out,
         timep = &timeval;
     }
 
-    if ((cc = rd_select_(channels[chfd].handle, timep)) <= 0) {
+    if ((cc = rd_epoll_(channels[chfd].handle, timep)) <= 0) {
         if (cc == 0)
             lserrno = LSE_TIME_OUT;
         else
@@ -1574,7 +1571,7 @@ chanUpdateListenEvents(int chfd, uint32_t mask)
  * @param[in] chfd: Channel index to unregister.
  * @return: 0 on success, -1 if epoll_ctl fails.
  */
-void
+int
 chanUnRegisterEpoll_(int chfd)
 {
     if (logclass & LC_COMM) {
