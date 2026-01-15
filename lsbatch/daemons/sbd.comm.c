@@ -213,7 +213,7 @@ status_job(mbdReqType reqType,
         timeval.tv_sec = 0;
         timeval.tv_usec = 0;
 
-        if (rd_select_(chanSock_(statusChan), &timeval) == 0) {
+        if (rd_epoll_(chanSock_(statusChan), &timeval) == 0) {
             jp->needReportRU = FALSE;
             jp->lastStatusMbdTime = now;
             return 0;
