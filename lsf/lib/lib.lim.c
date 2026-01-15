@@ -350,7 +350,7 @@ callLimUdp_(char *reqbuf,
             do {
                 timeout.tv_sec = 0;
                 timeout.tv_usec = 20000;
-                if (rd_select_(chanSock_(limchans_[UNBOUND]), &timeout) > 0)
+                if (rd_epoll_(chanSock_(limchans_[UNBOUND]), &timeout) > 0)
                     break;
                 host  = getNextWord_(&sp);
                 if (host) {

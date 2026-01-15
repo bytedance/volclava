@@ -330,7 +330,7 @@ extern int b_write_fix(int, char *, int);
 extern int b_write_timeout(int, char *, int, int);
 extern int detectTimeout_(int , int);
 extern int b_connect_(int, struct sockaddr *, int, int);
-extern int rd_select_(int, struct timeval *);
+extern int rd_epoll_(int, struct timeval *);
 extern int b_accept_(int, struct sockaddr *, socklen_t *);
 extern int blockSigs_(int, sigset_t *, sigset_t *);
 

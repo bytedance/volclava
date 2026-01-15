@@ -143,7 +143,7 @@ extern struct epoll_event *epoll_events;
 extern int chanEpollInit();
 extern int chanRegisterEpoll_(int, uint32_t);
 extern int chanUpdateListenEvents(int, uint32_t);
-extern void chanUnRegisterEpoll_(int);
+extern int chanUnRegisterEpoll_(int);
 
 #endif
 
