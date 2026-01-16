@@ -937,8 +937,8 @@ getusr(void)
     timeout.tv_sec  = 0;
     timeout.tv_usec = 5;
 
-    if ( (nfds = rd_select_(fileno(fp), &timeout)) < 0) {
-        ls_syslog(LOG_ERR, I18N_FUNC_FAIL_M, fname, "rd_select_");
+    if ( (nfds = rd_epoll_(fileno(fp), &timeout)) < 0) {
+        ls_syslog(LOG_ERR, I18N_FUNC_FAIL_M, fname, "rd_epoll_");
         lim_pclose(fp);
         fp = NULL;
 
@@ -1041,7 +1041,7 @@ getusr(void)
                     if (timercmp(&timeout, &time0, <)) {
                         timerclear(&timeout);
                     }
-                    scc = rd_select_(fileno(fp), &timeout);
+                    scc = rd_epoll_(fileno(fp), &timeout);
                 }
 
                 if (scanerrno != EAGAIN || scc <= 0) {
