@@ -329,7 +329,7 @@ extern int call_server(char *, ushort, char *, int, char **,
                int *, int);
 
 extern int sndJobFile_(int, struct lenData *); 
-    
+
 #include "../lib/lsb.xdr.h"
 
 extern struct group *mygetgrnam(const char *);
@@ -339,5 +339,5 @@ extern struct group *copyUnixGrp(struct group *);
 extern void freeGroupInfoReply(struct groupInfoReply *reply);
 
 extern void appendEData(struct lenData *jf, struct lenData *ed);
-
+extern char* getUnixSpoolDir(char *);
 #endif

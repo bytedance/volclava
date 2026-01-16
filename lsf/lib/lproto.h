@@ -400,5 +400,6 @@ extern int getLSFUserByUid_(uid_t uid, char *lsfUserName, unsigned int lsfUserNa
 extern int getOSUserName_(const char *lsfUserName,
                           char *osUserName, unsigned int osUserNameSize);
 extern int getOSUid_(const char *lsfUserName, uid_t *uid);
+extern int getNonPrivilegedPorts();
 
 #endif

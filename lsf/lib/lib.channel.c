@@ -32,7 +32,7 @@
 #define NL_SETN   23
 #define EPOLL_EVENT_MAX_SIZE 2048
 
-#define CLOSEIT(i) {                                    \                                      
+#define CLOSEIT(i) {                                    \
         CLOSESOCKET(channels[i].handle);                \
         channels[i].state = CH_DISC;                    \
         channels[i].readyEvents = EPOLL_EVENT_NONE;     \
@@ -62,7 +62,6 @@ static int *readyChans = NULL;                     /* Array storing indices of r
 static void chanResetRevent4Chans();
 static void doreadEpoll(int);
 static void dowriteEpoll(int);
-
 
 int
 chanInit_(void)
@@ -210,9 +209,15 @@ chanClientSocket_(int domain, int type, int options)
         } else
             cliaddr.sin_port = htons(0);
 
-        if (bind(s0, (struct sockaddr *)&cliaddr, sizeof(cliaddr)) == 0)
+        if (bind(s0, (struct sockaddr *)&cliaddr, sizeof(cliaddr)) == 0) {
+            if (logclass & LC_COMM) {
+               ls_syslog(LOG_DEBUG2,"chanClientSocket_(): Create a client socket and bind it to local port %u.", ntohs(cliaddr.sin_port));
+            }
             break;
-
+        }
+        if (logclass & LC_COMM) {
+            ls_syslog(LOG_DEBUG2,"chanClientSocket_(): Failed to bind client socket to local port %u(0 means random port), %m", ntohs(cliaddr.sin_port));
+        }
 
         if (!(options & CHAN_OP_PPORT)) {
 
@@ -1626,8 +1631,7 @@ chanResetRevent4Chans()
  */
 void
 chanClearReadyEvents(int chfd, int events)
-{   
-    static char *fname = "chanClearReadyEvents";
+{
     if (chfd < 0 || chfd >= chanMaxSize) {
         channels[chfd].chanerr = CHANE_BADCHFD;
         return ;
