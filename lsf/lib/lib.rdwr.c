@@ -132,7 +132,7 @@ b_read_fix(int s, char *buf, int len)
 
     return(length);
 } 
-
+
 int
 b_write_fix(int s, char *buf, int len)
 {

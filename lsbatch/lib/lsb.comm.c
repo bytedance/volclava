@@ -66,10 +66,11 @@ serv_connect (char *serv_host, ushort serv_port, int timeout)
            (int)hp->h_length);
     serv_addr.sin_port = serv_port;
 
-    if (geteuid() == 0)
-       options = CHAN_OP_PPORT;
-    else
-       options = 0;
+    if (getNonPrivilegedPorts() == 0 && (geteuid() == 0)) {
+        options = CHAN_OP_PPORT;
+    } else {
+        options = 0;
+    }
 
     chfd = chanClientSocket_(AF_INET, SOCK_STREAM, options);
     if (chfd < 0) {

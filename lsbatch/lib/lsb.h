@@ -19,6 +19,10 @@
  *
  */
 
+/*
+ * This header file is used to declare functions, macros, and other components
+ * that are for use within the lib library.
+ */
 
 #include <stdio.h>
 #include <string.h>
@@ -68,8 +72,7 @@ extern int sig_encode(int);
 #define LSB_MODE 12      
 #define LSB_SHORT_HOSTLIST 13  
 #define LSB_INTERACTIVE_STDERR 14 
-#define LSB_32_PAREN_ESC     15 
-
+#define LSB_32_PAREN_ESC     15
 #define LSB_API_QUOTE_CMD     16
 #define LSB_UNIT_FOR_LIMITS   17
 
@@ -96,7 +99,6 @@ extern char *getNextValue0(char **line, char, char);
 extern int readNextPacket(char **, int, struct LSFHeader *, int);
 extern void closeSession(int);
 extern void upperStr(char *, char *);
-extern char* getUnixSpoolDir(char *);
 extern char* getNTSpoolDir(char *);
 extern char *getMasterName(void);
 extern ushort get_mbd_port (void);

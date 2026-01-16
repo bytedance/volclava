@@ -140,6 +140,13 @@ portok (struct sockaddr_in *from)
     if (debug)
         return TRUE;
 
+    /*When enable LSF_NON_PRIVILEGED_PORTS, that means we don't use privileged port,
+    * here we don't need check whether port is privileged.
+    */
+    if (getNonPrivilegedPorts()) {
+        return TRUE;
+    }
+
     if (  ntohs(from->sin_port) >= IPPORT_RESERVED
         || ntohs(from->sin_port) <  IPPORT_RESERVED/2)
         return FALSE;
