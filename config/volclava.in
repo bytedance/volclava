@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 
 # Start and stop volclava daemons
 # Run by hand or install in /etc/init.d

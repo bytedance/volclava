@@ -51,10 +51,12 @@ static int parseSpan (char *,
 static int resToClassNew(char * ,
                          struct resVal *,
                          struct lsInfo *,
+                         int,
                          int);
 static int resToClassOld(char * ,
                          struct resVal *,
                          struct lsInfo *,
+                         int,
                          int);
 static int setDefaults(struct resVal *,
                        struct lsInfo *,
@@ -534,28 +536,28 @@ parseSelect(char *resReq, struct resVal *resVal, struct lsInfo *lsInfo, bool_t p
     syntax = getSyntax(resReq);
     switch(syntax) {
         case OLD:
-            if ( (cc =resToClassOld(resReq, resVal, lsInfo, unitForLimits)) != PARSE_OK) {
+            if ( (cc =resToClassOld(resReq, resVal, lsInfo, unitForLimits, options)) != PARSE_OK) {
                 resVal->selectStr[0] = '\0';
                 FREEUP(resReq2);
                 return(cc);
             }
             break;
         case NEW:
-            if ( (cc =resToClassNew(resReq, resVal, lsInfo, unitForLimits)) != PARSE_OK) {
+            if ( (cc =resToClassNew(resReq, resVal, lsInfo, unitForLimits, options)) != PARSE_OK) {
                 resVal->selectStr[0] = '\0';
                 FREEUP(resReq2);
                 return (cc);
             }
             break;
         case EITHER:
-            if ((cc =resToClassOld(resReq, resVal, lsInfo, unitForLimits)) != PARSE_OK)  {
+            if ((cc =resToClassOld(resReq, resVal, lsInfo, unitForLimits, options)) != PARSE_OK)  {
 
                 if (cc == PARSE_BAD_NAME || cc == PARSE_BAD_VAL) {
                     resVal->selectStr[0] = '\0';
                     FREEUP(resReq2);
                     return (cc);
                 }
-                if ( (cc =resToClassNew(resReq, resVal, lsInfo, unitForLimits)) != PARSE_OK) {
+                if ( (cc =resToClassNew(resReq, resVal, lsInfo, unitForLimits, options)) != PARSE_OK) {
                     resVal->selectStr[0] = '\0';
                     FREEUP(resReq2);
                     return (cc);
@@ -694,6 +696,10 @@ parseUsage (char *usageReq, struct resVal *resVal, struct lsInfo *lsInfo, int un
         if (entry < 0)
             return(PARSE_BAD_NAME);
 
+        /*slots is not supported in rusage*/
+        if (strcmp(lsInfo->resTable[entry].name, "slots") == 0) {
+            return(PARSE_BAD_NAME);
+        }
 
         if (!(lsInfo->resTable[entry].flags & RESF_DYNAMIC) &&
         (lsInfo->resTable[entry].valueType != LS_NUMERIC)) {
@@ -842,7 +848,8 @@ validValue(char *value, struct lsInfo *lsInfo, int nentry)
 
 
 static int
-resToClassNew(char *resReq, struct resVal *resVal, struct lsInfo *lsInfo, int unitForLimits)
+resToClassNew(char *resReq, struct resVal *resVal,
+              struct lsInfo *lsInfo, int unitForLimits, int options)
 {
     int i, j, s, t, len, entry, hasQuote;
     char res[MAXLSFNAMELEN], val[MAXLSFNAMELEN];
@@ -928,6 +935,13 @@ resToClassNew(char *resReq, struct resVal *resVal, struct lsInfo *lsInfo, int un
                 }
                 return PARSE_BAD_NAME;
             }
+
+            if (lsInfo->resTable[entry].flags & RESF_BATCH) {
+                if (!(options & PR_BATCH)) {
+                    return PARSE_BAD_NAME;
+                }
+            }
+
             switch(lsInfo->resTable[entry].valueType) {
                 case LS_NUMERIC:
                 case LS_BOOLEAN:
@@ -1018,7 +1032,9 @@ resToClassNew(char *resReq, struct resVal *resVal, struct lsInfo *lsInfo, int un
 }
 
 static int
-resToClassOld(char *resReq, struct resVal *resVal, struct lsInfo *lsInfo, int unitForLimits)
+resToClassOld(char *resReq, struct resVal *resVal,
+              struct lsInfo *lsInfo, int unitForLimits,
+              int options)
 {
     int i, j, m, entry;
     char *token;
@@ -1070,6 +1086,11 @@ resToClassOld(char *resReq, struct resVal *resVal, struct lsInfo *lsInfo, int un
         entry = getResEntry(token);
         if (entry < 0)
             return(PARSE_BAD_NAME);
+
+        if (lsInfo->resTable[entry].flags & RESF_BATCH) {
+            if (!(options & PR_BATCH))
+                return(PARSE_BAD_NAME);
+        }
 
         if (lsInfo->resTable[entry].valueType == LS_BOOLEAN) {
             if (negate)

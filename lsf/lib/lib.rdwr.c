@@ -132,7 +132,7 @@ b_read_fix(int s, char *buf, int len)
 
     return(length);
 } 
-
+
 int
 b_write_fix(int s, char *buf, int len)
 {
@@ -213,26 +213,52 @@ b_connect_(int s, struct sockaddr *name, int namelen, int timeout)
     return 0;
 }  
 
+/* 
+ * Replace select with epoll. 
+ * This avoids undefined behavior that occurs when the number of monitored sockets exceeds the FD_SETSIZE limit (1024).
+ */
 int 
-rd_select_(int rd, struct timeval *timeout)
+rd_epoll_(int rd, struct timeval *timeout)
 {
-    int cc;
-    fd_set rmask;
+    int cc = -1;
+    int tmpEpollFd;
+    struct epoll_event ev;
+    int timeout_ms = -1;
 
-    for (;;) {
-	FD_ZERO(&rmask);
-	FD_SET(rd, &rmask);
-
-	cc = select(rd+1, &rmask, (fd_set *)0, (fd_set *)0, timeout);
-	if (cc >= 0)
-	    return cc;
-
-	if (errno == EINTR)
-	    continue;
-	return (-1);
+    tmpEpollFd = epoll_create1(EPOLL_CLOEXEC);
+    if (tmpEpollFd < 0) {
+        return -1;
     }
 
-} 
+    ev.data.fd = rd;
+    ev.events = EPOLLIN;
+    if (epoll_ctl(tmpEpollFd, EPOLL_CTL_ADD, rd, &ev) < 0) {
+        close(tmpEpollFd);
+        return -1;
+    }
+    for (;;) {
+        if (timeout != NULL) {
+            timeout_ms = (int)(timeout->tv_sec * 1000) + (int)(timeout->tv_usec / 1000);
+            if (timeout_ms < 0) {
+                timeout_ms = 0;
+            }
+        } else {
+            timeout_ms = -1;
+        }
+
+        cc = epoll_wait(tmpEpollFd, &ev, 1, timeout_ms);
+
+        if (cc >= 0) {
+            close(tmpEpollFd);
+            return cc;
+        }
+
+        if (errno != EINTR) {
+            close(tmpEpollFd);
+            return -1;
+        }
+    }
+}
 
 /* b_accept_()
  */
@@ -264,7 +290,7 @@ detectTimeout_(int s, int recv_timeout)
         timeval.tv_usec = 0;
         timep = &timeval;
     }
-    ready = rd_select_(s, timep);
+    ready = rd_epoll_(s, timep);
     if (ready < 0) {
         lserrno = LSE_SELECT_SYS;
         return (-1);
@@ -316,7 +342,7 @@ nb_read_timeout(int s, char *buf, int len, int timeout)
     timeval.tv_usec = 0; 
     
     for (;;) {
-        nReady = rd_select_(s, &timeval);
+        nReady = rd_epoll_(s, &timeval);
         if (nReady < 0) {
             lserrno = LSE_SELECT_SYS;
             return(-1);

@@ -1021,6 +1021,7 @@ extern int                     freedSomeReserveSlot;
 
 extern long                    schedSeqNo;
 extern struct controlReq       mbdCtrlReq;
+extern int                     fastUpdHostInfo;
 
 extern void                 pollSbatchds(int);
 extern void                 hStatChange(struct hData *, int status);
@@ -1038,6 +1039,7 @@ extern void                 getTclHostData(struct tclHostData *,
                                            struct hData *, struct hData *);
 extern int                  getLsbHostNames (char ***);
 extern void                 getLsbHostInfo(void);
+extern void                 getLsbAHostInfo(char *);
 extern int                  getLsbHostLoad(void);
 extern int                  getHostsByResReq(struct resVal *, int *,
                                              struct hData **,
@@ -1364,6 +1366,7 @@ extern void                 updQaccount(struct jData *jData, int, int, int,
 extern struct uData *       getUserData(char *user);
 extern struct userAcct *    getUAcct(struct hTab *, struct uData *);
 extern struct hostAcct *    getHAcct(struct hTab  *, struct hData *);
+extern void                 initUserGroup (struct uData *);
 extern struct uData *       addUserData (char *, int, float, int, int, char *, int, int);
 extern int                  checkUsers(struct infoReq *,
                                        struct userInfoReply *);

@@ -30,6 +30,7 @@ typedef struct {
 #define   MAXTMP     (nRes + numIndx + 6)
 #define   CPU_       (nRes + numIndx + 7)
 #define   SERVER     (nRes + numIndx + 8)
+#define   SLOTS      (nRes + numIndx + 9)
 
 #define   HOSTTYPE   1
 #define   HOSTMODEL  2
@@ -64,6 +65,7 @@ struct tclHostData {
     struct resPair *resPairs;
     int      flag;
     int      overRideFromType;
+    int      slots;
 };
 
 struct tclLsInfo {

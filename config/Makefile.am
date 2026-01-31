@@ -21,47 +21,41 @@ INTERACTIVE=@INTERACTIVE@
 install-data-local:
 	mkdir -p $(prefix)/work/logdir
 	mkdir -p $(prefix)/log
-	@if test -d "$(etcdir)"; then \
-		if test "$(INTERACTIVE)" = "1"; then \
-			read -p "Found configuration directory <$(etcdir)>, overwrite existing files? (y/n): " answer; \
-			case "$$answer" in \
-				[Yy]*) \
-					echo "Proceeding with installation..."; \
-					timestamp=$$(date +%Y%m%d%H%M%S); \
-					for file in $(config_files); do \
-						if test -f "$(etcdir)/$$file"; then \
-							echo "Backing up $$file to $$file.old.$$timestamp"; \
-							mv "$(etcdir)/$$file" "$(etcdir)/$$file.old.$$timestamp"; \
-						fi; \
-						if test -f "$(srcdir)/$$file"; then \
-							install -m 644 "$(srcdir)/$$file" "$(etcdir)/"; \
-						fi; \
-					done; \
-					;; \
-				*) \
-					echo "Skipping configuration file installation"; \
-					;; \
-			esac; \
-		else \
-			echo "Non-interactive mode: installing configuration files"; \
-			timestamp=$$(date +%Y%m%d%H%M%S); \
-			for file in $(config_files); do \
-				if test -f "$(srcdir)/$$file"; then \
-					if test -f "$(etcdir)/$$file"; then \
-                                                echo "Install new $$file as $$file.new.$$timestamp"; \
-                                                install -m 644 "$(srcdir)/$$file" "$(etcdir)/$$file.new.$$timestamp"; \
-                                        else \
-						install -m 644 "$(srcdir)/$$file" "$(etcdir)/"; \
-					fi;\
-				fi;\
-			done; \
-		fi; \
-	else \
+	@if test -d "$(etcdir)"; then\
+		exist_files="";\
+		inst_files="";\
+		for file in $(config_files); do\
+			if test -e "$(etcdir)/$$file"; then\
+				exist_files="$$exist_files $$file";\
+			elif test -e "$(srcdir)/$$file"; then\
+				$(INSTALL_DATA) "$(srcdir)/$$file" "$(etcdir)/";\
+				inst_files="$$inst_files $$file";\
+			else\
+				echo "Source file $$file not found in config directory";\
+			fi;\
+		done;\
+                if test -n "$$inst_files"; then\
+                        echo "Installed the following configuration files in $(etcdir):$$inst_files";\
+                fi;\
+                if test -n "$$exist_files"; then\
+			echo "The following configuration files already exist in $(etcdir):$$exist_files";\
+			echo "Installation skipped. To install, please copy them manually from config directory";\
+		fi;\
+	else\
 		mkdir -p $(etcdir);\
-                for file in $(config_files); do \
-			install -m 644 "$(srcdir)/$$file" "$(etcdir)/"; \
-                done; \ 
-	fi
+		inst_files="";\
+                for file in $(config_files); do\
+			if test -e "$(srcdir)/$$file"; then\
+				$(INSTALL_DATA) "$(srcdir)/$$file" "$(etcdir)/";\
+				inst_files="$$inst_files $$file";\
+			else\
+				echo "Source file $$file not found in config directory";\
+			fi;\
+                done;\
+		if test -n "$$inst_files"; then\
+                        echo "Installed the following configuration files in $(etcdir):$$inst_files";\
+                fi;\
+	fi;
 
 clean-local:
 	rm -f lsf.cluster.@volclavacluster@

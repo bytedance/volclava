@@ -22,6 +22,7 @@
 #include "lib.h"
 #include "lproto.h"
 #include "lib.osal.h"
+#include <execinfo.h> 
 
 #define MAXLOOP 3000
 
@@ -29,13 +30,16 @@
 #define INVALID_HANDLE  -1
 
 #define NL_SETN   23
+#define EPOLL_EVENT_MAX_SIZE 2048
 
-#define CLOSEIT(i) {                            \
-        CLOSESOCKET(channels[i].handle);        \
-        channels[i].state = CH_DISC;            \
+#define CLOSEIT(i) {                                    \
+        CLOSESOCKET(channels[i].handle);                \
+        channels[i].state = CH_DISC;                    \
+        channels[i].readyEvents = EPOLL_EVENT_NONE;     \
         channels[i].handle = INVALID_HANDLE; }
 
 static struct chanData *channels;
+
 int cherrno = 0;
 extern int errno;
 int chanIndex;
@@ -50,6 +54,15 @@ static void enqueueTail_(struct Buffer *, struct Buffer *);
 static void dequeue_(struct Buffer *);
 static int findAFreeChannel(void);
 
+int epollfd = -1;
+struct epoll_event *epoll_events;
+static int readyChansNum = 0;                       /* Number of valid elements in the readyChans array */
+static int *readyChans = NULL;                     /* Array storing indices of ready channels */
+
+static void chanResetRevent4Chans();
+static void doreadEpoll(int);
+static void dowriteEpoll(int);
+
 int
 chanInit_(void)
 {
@@ -63,7 +76,10 @@ chanInit_(void)
     chanMaxSize = sysconf(_SC_OPEN_MAX);
 
     channels = calloc(chanMaxSize, sizeof(struct chanData));
-    if (channels == NULL)
+
+    /*readyChans stores the indices of channels that need to notify the upper layer of event occurrences.*/
+    readyChans = calloc(EPOLL_EVENT_MAX_SIZE, sizeof(int));
+    if (channels == NULL || readyChans == NULL)
         return -1;
 
     chanIndex = 0;
@@ -101,6 +117,10 @@ chanServSocket_(int type, u_short port, int backlog, int options)
                    sizeof (int));
     }
 
+    if (options & CHAN_OP_NONBLOCK) {
+        io_nonblock_(s);
+    }
+
     if (bind(s, (struct sockaddr *)&sin, sizeof(sin)) < 0) {
         (void)close(s);
         lserrno = LSE_SOCK_SYS;
@@ -130,7 +150,7 @@ chanClientSocket_(int domain, int type, int options)
     int ch, i, s0;
     int s1;
     static char first=TRUE;
-    static ushort port;
+    static __thread ushort port;
     struct sockaddr_in cliaddr;
 
     if (domain != AF_INET) {
@@ -189,9 +209,15 @@ chanClientSocket_(int domain, int type, int options)
         } else
             cliaddr.sin_port = htons(0);
 
-        if (bind(s0, (struct sockaddr *)&cliaddr, sizeof(cliaddr)) == 0)
+        if (bind(s0, (struct sockaddr *)&cliaddr, sizeof(cliaddr)) == 0) {
+            if (logclass & LC_COMM) {
+               ls_syslog(LOG_DEBUG2,"chanClientSocket_(): Create a client socket and bind it to local port %u.", ntohs(cliaddr.sin_port));
+            }
             break;
-
+        }
+        if (logclass & LC_COMM) {
+            ls_syslog(LOG_DEBUG2,"chanClientSocket_(): Failed to bind client socket to local port %u(0 means random port), %m", ntohs(cliaddr.sin_port));
+        }
 
         if (!(options & CHAN_OP_PPORT)) {
 
@@ -345,6 +371,7 @@ chanSendDgram_(int chfd, char *buf, int len, struct sockaddr_in *peer)
 
     if (SOCK_CALL_FAIL(cc)) {
         lserrno = LSE_MSG_SYS;
+        printf("send or sendto error");
         return(-1);
     }
 
@@ -402,7 +429,7 @@ chanRcvDgram_: Receive on chan %d timeout=%d",chfd, timeout);
 
     for (;;) {
 
-        nReady = rd_select_(sock, timep);
+        nReady = rd_epoll_(sock, timep);
         if (nReady < 0) {
             lserrno = LSE_SELECT_SYS;
             return -1;
@@ -557,6 +584,14 @@ chanOpenSock_(int s, int options)
     return(i);
 }
 
+/*
+ * Close a channel and release associated resources
+ * 1. Unregister the channel from epoll (if epoll is initialized)
+ * 2. Close socket
+ * 3. Reset channel
+ * @param[in] chfd: Index of the channel to close
+ * @return: 0 on success; -1 if chfd is invalid or channel handle is invalid
+ */
 int
 chanClose_(int chfd)
 {
@@ -575,6 +610,11 @@ chanClose_(int chfd)
         cherrno = CHANE_BADCHFD;
         return(-1);
     }
+   
+    if(epollfd >= 0){
+        chanUnRegisterEpoll_(chfd);
+    }
+
     close(channels[chfd].handle);
 
     if (channels[chfd].send
@@ -582,7 +622,8 @@ chanClose_(int chfd)
         for (buf = channels[chfd].send->forw;
              buf != channels[chfd].send; buf = nextbuf) {
             nextbuf = buf->forw;
-            FREEUP(buf->data);
+            if(buf->freeDataAfterSend == TRUE)
+                FREEUP(buf->data);
             FREEUP(buf);
         }
     }
@@ -601,6 +642,7 @@ chanClose_(int chfd)
     channels[chfd].handle = INVALID_HANDLE;
     channels[chfd].send  = (struct Buffer *)NULL;
     channels[chfd].recv  = (struct Buffer *)NULL;
+    channels[chfd].readyEvents = EPOLL_EVENT_NONE;
     return(0);
 }
 
@@ -623,6 +665,131 @@ chanCloseAllBut_(int chfd)
     for (i=0; i < chanIndex;  i++)
         if ((channels[i].state != CH_FREE) && (i != chfd))
             chanClose_(i);
+}
+
+int
+chanEpoll_(int **readyfds, struct timeval *timeout)
+{
+    static char fname[] = "chanEpoll_";
+    int i, nready, addToReady;
+    
+    int timeout_ms = -1;
+    int chfd, sockfd;
+
+    chanResetRevent4Chans();
+    if (timeout != NULL) {
+        timeout_ms = timeout->tv_sec * 1000 + timeout->tv_usec / 1000;
+    }
+
+    nready = epoll_wait(epollfd, epoll_events, EPOLL_EVENT_MAX_SIZE, timeout_ms);
+
+    /*readyChansNum returns the number of ready channels*/
+    readyChansNum = 0;
+    if (nready <= 0) {
+        return nready;
+    }
+
+    if(logclass & (LC_COMM)) {
+        ls_syslog(LOG_DEBUG, "%s: %d channels are ready", fname, nready);
+        for(i = 0; i < nready; i++){
+            sockfd = epoll_events[i].data.fd;
+            ls_syslog(LOG_DEBUG, "\
+                    socket %d event is %s%s%s", sockfd, (epoll_events[i].events & EPOLLIN)?"EPOLLIN":"",(epoll_events[i].events & EPOLLOUT)?"EPOLLOUT":"",(epoll_events[i].events & EPOLLERR)?"EPOLLERR":"");
+        }
+    }
+
+    /* In the original logic, the wmask (EPOLL_EVENT_WRITE) of the channel seems to have no meaning, 
+       and we maintain consistency here */
+    for (i = 0; i < nready; i++) {
+        sockfd = epoll_events[i].data.fd;
+        chfd = epoll_events[i].data.u32;
+
+        /* Flag: Whether to add the current chfd to readyChans (Add when the channel has EPOLL_EVENT_READ or EPOLL_EVENT_ERROR events) */
+        addToReady = 0;
+
+        channels[chfd].chanerr = CHANE_NOERR;
+        channels[chfd].readyEvents = EPOLL_EVENT_NONE;
+
+        if (chfd < 0 || chfd >= chanMaxSize) {
+            ls_syslog(LOG_ERR, "%s: Invalid channel for sockfd %d", fname, sockfd);
+            continue;
+        }
+
+        if (channels[chfd].state == CH_INACTIVE || channels[chfd].handle == INVALID_HANDLE) {
+            ls_syslog(LOG_ERR, "%s: Invalid state or handle for channel %d", fname, chfd);
+            continue;
+        }
+
+        if (channels[chfd].state == CH_FREE) {
+            ls_syslog(LOG_ERR, "%s: channel %d has socket %d but in CH_FREE state", fname,
+                      chfd, channels[chfd].handle);
+            continue;
+        }
+
+        if (logclass & LC_COMM) {
+            ls_syslog(LOG_DEBUG3, "%s: processing channel %d handle %d state %d type %d events 0x%x",
+                    fname, chfd, sockfd, channels[chfd].state, channels[chfd].type, epoll_events[i].events);
+        }
+
+        /* Process various epoll events and set readyEvents */
+        if ((epoll_events[i].events & (EPOLLERR | EPOLLHUP))) {
+            channels[chfd].readyEvents = EPOLL_EVENT_ERROR;
+            addToReady = 1;
+        } else if (channels[chfd].state != CH_PRECONN &&
+                    !channels[chfd].recv && !channels[chfd].send) {
+            /* Handle TCP listening/UDP socket events */
+            if (epoll_events[i].events & EPOLLIN){
+                channels[chfd].readyEvents |= EPOLL_EVENT_READ;
+                addToReady = 1;
+            }
+            if (epoll_events[i].events & EPOLLOUT)
+                channels[chfd].readyEvents |= EPOLL_EVENT_WRITE;
+            if (epoll_events[i].events & (EPOLLERR)){
+                channels[chfd].readyEvents |= EPOLL_EVENT_ERROR;
+                addToReady = 1;
+            }
+        } else if (channels[chfd].state == CH_PRECONN) {
+            /* Handle pre-connection state (currently unused) */
+            if (epoll_events[i].events & EPOLLOUT) {
+                channels[chfd].state = CH_CONN;
+                channels[chfd].send = newBuf();
+                channels[chfd].recv = newBuf();
+                if (!channels[chfd].send || !channels[chfd].recv) {
+                    lserrno = LSE_MALLOC;
+                    channels[chfd].readyEvents |= EPOLL_EVENT_ERROR;
+                    channels[chfd].chanerr = CHANE_MALLOC;
+                    addToReady = 1;
+                } else {
+                    if(chanUpdateListenEvents(chfd, EPOLLIN|EPOLLERR) < 0){
+                        ls_syslog(LOG_ERR, "%s: chanUpdateListenEvents() failed for chfd %d sock %d, %m", 
+                                fname, chfd, channels[chfd].handle);
+                        channels[chfd].readyEvents |= EPOLL_EVENT_ERROR;
+                    }
+                    channels[chfd].readyEvents |= EPOLL_EVENT_WRITE;
+                }
+            }
+        } else {
+            /* Handle connected sockets with buffers, including all accepted sockets and some connected (buffer-allocated) sockets */
+            if (epoll_events[i].events & EPOLLIN) {
+                doreadEpoll(chfd);
+            }
+
+            if (channels[chfd].send && channels[chfd].send->forw != channels[chfd].send &&
+                (epoll_events[i].events & EPOLLOUT)) {
+                dowriteEpoll(chfd);
+            }
+
+            channels[chfd].readyEvents |= EPOLL_EVENT_WRITE;
+            addToReady = chanEventsReady(chfd, EPOLL_EVENT_READ) || chanEventsReady(chfd, EPOLL_EVENT_ERROR);
+        }
+
+        if (addToReady) {
+            readyChans[readyChansNum++] = chfd;
+        }
+    }
+
+    *readyfds = readyChans;
+    return readyChansNum;
 }
 
 int
@@ -759,8 +926,6 @@ int
 chanEnqueue_(int chfd, struct Buffer *msg)
 {
     long maxfds;
-
-    maxfds = sysconf(_SC_OPEN_MAX);
     maxfds = sysconf(_SC_OPEN_MAX);
 
     if (chfd < 0 || chfd > maxfds) {
@@ -879,7 +1044,7 @@ chanRpc_(int chfd, struct Buffer *in, struct Buffer *out,
         timep = &timeval;
     }
 
-    if ((cc = rd_select_(channels[chfd].handle, timep)) <= 0) {
+    if ((cc = rd_epoll_(channels[chfd].handle, timep)) <= 0) {
         if (cc == 0)
             lserrno = LSE_TIME_OUT;
         else
@@ -967,7 +1132,6 @@ chanSetMode_(int chfd, int mode)
             lserrno = LSE_MALLOC;
             return(-1);
         }
-
         return 0;
     }
 
@@ -1071,6 +1235,101 @@ doread(int chfd, struct Masks *chanmask)
     return;
 }
 
+
+static void
+doreadEpoll(int chfd)
+{
+    static char *fname= "doreadEpoll";
+    struct Buffer *rcvbuf;
+    int cc;
+
+    if (channels[chfd].recv->forw == channels[chfd].recv) {
+        rcvbuf = newBuf();
+        if (!rcvbuf) {
+            channels[chfd].readyEvents = EPOLL_EVENT_ERROR;
+            channels[chfd].chanerr = LSE_MALLOC;
+            return;
+        }
+        enqueueTail_(rcvbuf, channels[chfd].recv);
+    } else
+        rcvbuf = channels[chfd].recv->forw;
+
+    if (!rcvbuf->len) {
+        rcvbuf->data =  malloc(LSF_HEADER_LEN);
+        if (!rcvbuf->data) {
+            channels[chfd].readyEvents = EPOLL_EVENT_ERROR;
+            channels[chfd].chanerr = LSE_MALLOC;
+            return;
+        }
+        rcvbuf->len = LSF_HEADER_LEN;
+        rcvbuf->pos = 0;
+    }
+
+    if (rcvbuf->pos == rcvbuf->len) {
+        channels[chfd].readyEvents |= EPOLL_EVENT_READ;
+        return;
+    }
+
+    errno = 0;
+
+    cc = read(channels[chfd].handle, rcvbuf->data + rcvbuf->pos,
+              rcvbuf->len - rcvbuf->pos);
+    if (cc == 0 && errno == EINTR) {
+        ls_syslog(LOG_ERR, "\
+%s: looks like read() has returned EOF when interrupted by a signal",
+                  fname);
+        return;
+    }
+
+    if (cc <= 0) {
+        if (cc == 0 || BAD_IO_ERR(errno)) {
+            channels[chfd].readyEvents = EPOLL_EVENT_ERROR;
+            channels[chfd].chanerr = CHANE_CONNRESET;
+        }
+        return;
+    }
+
+    rcvbuf->pos += cc;
+
+    if ((rcvbuf->len == LSF_HEADER_LEN)
+        && (rcvbuf->pos == rcvbuf->len )) {
+        XDR xdrs;
+        struct LSFHeader hdr;
+        char *newdata;
+
+        xdrmem_create(&xdrs,
+                      rcvbuf->data,
+                      sizeof(struct LSFHeader),
+                      XDR_DECODE);
+        if (!xdr_LSFHeader(&xdrs, &hdr)) {
+            channels[chfd].readyEvents = EPOLL_EVENT_ERROR;
+            channels[chfd].chanerr = CHANE_BADHDR;
+            xdr_destroy(&xdrs);
+            return;
+        }
+
+        if (hdr.length) {
+            rcvbuf->len = hdr.length + LSF_HEADER_LEN;
+            newdata = realloc(rcvbuf->data, rcvbuf->len);
+            if (!newdata) {
+                channels[chfd].readyEvents = EPOLL_EVENT_ERROR;
+                channels[chfd].chanerr = LSE_MALLOC;
+                xdr_destroy(&xdrs);
+                return;
+            }
+            rcvbuf->data = newdata;
+        }
+        xdr_destroy(&xdrs);
+    }
+
+    if (rcvbuf->pos == rcvbuf->len) {
+        channels[chfd].readyEvents |= EPOLL_EVENT_READ;
+    }
+
+    return;
+}
+
+
 static void
 dowrite(int chfd, struct Masks *chanmask)
 {
@@ -1093,10 +1352,54 @@ dowrite(int chfd, struct Masks *chanmask)
     sendbuf->pos += cc;
     if (sendbuf->pos == sendbuf->len) {
         dequeue_(sendbuf);
-        free(sendbuf->data);
+        if(sendbuf->freeDataAfterSend == TRUE)
+            free(sendbuf->data);
         free(sendbuf);
     }
     return;
+}
+
+static void
+dowriteEpoll(int chfd)
+{
+    struct Buffer *sendbuf;
+    int cc;
+
+    if (channels[chfd].send->forw == channels[chfd].send){
+        if(chanUpdateListenEvents(chfd, EPOLLIN|EPOLLERR) < 0){
+            ls_syslog(LOG_ERR, "%s: chanUpdateListenEvents() failed for chfd %d sock %d, %m", 
+                            __func__, chfd, channels[chfd].handle);
+        }
+        return;
+    }
+
+    sendbuf = channels[chfd].send->forw;
+
+    cc = write(channels[chfd].handle,
+               sendbuf->data + sendbuf->pos,
+               sendbuf->len - sendbuf->pos);
+
+    if (cc < 0 && BAD_IO_ERR(errno)) {
+        channels[chfd].chanerr = LSE_MSG_SYS;
+        channels[chfd].readyEvents = EPOLL_EVENT_ERROR;
+        return;
+    }
+
+    sendbuf->pos += cc;
+
+    if (sendbuf->pos == sendbuf->len) {
+        dequeue_(sendbuf);
+        if(sendbuf->freeDataAfterSend)
+            free(sendbuf->data);
+        free(sendbuf);
+    }
+    /*When the sendbuf becomes empty, the listener for the writable event should be removed.*/
+    if (channels[chfd].send->forw == channels[chfd].send){
+        if(chanUpdateListenEvents(chfd, EPOLLIN|EPOLLERR) < 0){
+            ls_syslog(LOG_ERR, "%s: chanUpdateListenEvents() failed for chfd %d sock %d, %m", 
+                            __func__, chfd, channels[chfd].handle);
+        }
+    }
 }
 
 static struct Buffer *
@@ -1111,7 +1414,7 @@ newBuf(void)
     newbuf->len  = newbuf->pos = 0;
     newbuf->data = NULL;
     newbuf->stashed = FALSE;
-
+    newbuf->freeDataAfterSend = TRUE;
     return newbuf;
 }
 
@@ -1137,7 +1440,7 @@ chanFreeBuf_(struct Buffer *buf)
     if (buf) {
         if (buf->stashed) return 0;
 
-        if (buf->data)
+        if (buf->data && buf->freeDataAfterSend)
             free(buf->data);
 
         free(buf);
@@ -1195,6 +1498,217 @@ findAFreeChannel(void)
     channels[i].send  = NULL;
     channels[i].recv = NULL;
     channels[i].chanerr = CHANE_NOERR;
-
+    channels[i].readyEvents = EPOLL_EVENT_NONE;
     return i;
+}
+
+/*
+ * Register a channel for epoll event monitoring (EPOLL_CTL_ADD).
+ * This function adds the channel's file descriptor to epoll with the specified event mask.
+ * @param[in] chfd: Channel index to register.
+ * @param[in] mask: Event mask (EPOLLIN, EPOLLOUT, etc.) to monitor.
+ * @return: 0 on success, -1 if channel handle invalid, -2 if epoll_ctl fails.
+ */
+int
+chanRegisterEpoll_(int chfd, uint32_t mask)
+{
+    if(epollfd < 0) 
+        return 0;
+    struct epoll_event ev = {0};
+
+    if (channels[chfd].handle == INVALID_HANDLE){
+        channels[chfd].chanerr = CHANE_BADCHFD;
+        return -1;
+    }
+
+    ev.events = mask;
+    ev.data.u32 = (uint32_t)chfd;
+
+    if (logclass & LC_COMM) {
+        ls_syslog(LOG_DEBUG, "%s: channel %d handle %d state %d type %d have buffer %s",
+                  __func__, chfd, channels[chfd].handle, channels[chfd].state, channels[chfd].type, (channels[chfd].recv||channels[chfd].send) ? "yes" : "no");
+    }
+
+    if (epoll_ctl(epollfd, EPOLL_CTL_ADD, channels[chfd].handle, &ev) == -1) {
+        channels[chfd].chanerr = CHANE_EPOLLFAIL;
+        return -2;
+    }
+
+    return 0;
+}
+
+/*
+ * Update epoll event mask for an existing channel (MOD operation).
+ * This function modifies the event mask for an already registered channel.
+ * @param[in] chfd: Channel index to update.
+ * @param[in] mask: New event mask to set.
+ * @return: 0 on success, -1 if channel handle invalid, -2 if epoll_ctl fails.
+ */
+int 
+chanUpdateListenEvents(int chfd, uint32_t mask)
+{
+    static char fname[] = "chanUpdateListenEvents";
+    struct epoll_event ev = {0};
+    if(epollfd < 0) 
+        return 0;
+    if (channels[chfd].handle == INVALID_HANDLE) {
+        channels[chfd].chanerr = CHANE_BADCHFD;
+        return -1;
+    }
+    ev.events  = mask;
+    ev.data.u32 = (uint32_t)chfd;
+    if (logclass & LC_COMM) {
+        ls_syslog(LOG_DEBUG, "%s: channel %d handle %d state %d type %d have buffer %s,listenEvent is %d%d",
+                  fname, chfd, channels[chfd].handle, channels[chfd].state, channels[chfd].type, (channels[chfd].recv||channels[chfd].send) ? "yes" : "no", mask&EPOLLIN, mask&EPOLLOUT);
+    }
+
+    if (epoll_ctl(epollfd, EPOLL_CTL_MOD, channels[chfd].handle, &ev) == -1) {
+        channels[chfd].chanerr = CHANE_EPOLLFAIL;
+        return -2;
+    }
+    return 0;
+}
+
+
+/*
+ * Unregister a channel from epoll event monitoring (EPOLL_CTL_DEL).
+ * This function removes the channel's file descriptor from epoll.
+ * @param[in] chfd: Channel index to unregister.
+ * @return: 0 on success, -1 if epoll_ctl fails.
+ */
+int
+chanUnRegisterEpoll_(int chfd)
+{
+    if (logclass & LC_COMM) {
+        ls_syslog(LOG_DEBUG, "%s: channel %d handle %d state %d type %d have buffer %s",
+                  __func__, chfd, channels[chfd].handle, channels[chfd].state, channels[chfd].type, (channels[chfd].recv||channels[chfd].send) ? "yes" : "no");
+    }
+     /*errno = ENOENT indicates that an epoll_ctl DEL operation was performed on a socket not registered 
+    in the epoll instance, and this operation has no impact on the system*/
+    if (epoll_ctl(epollfd, EPOLL_CTL_DEL, channels[chfd].handle, NULL) == -1 && errno != ENOENT) {
+        channels[chfd].chanerr = CHANE_EPOLLFAIL;
+        ls_syslog(LOG_ERR, "%s failed for chfd %d socket %d: %m", __func__,chfd, channels[chfd].handle);
+        return -1;
+    }
+    channels[chfd].readyEvents = EPOLL_EVENT_NONE;
+    return 0;
+}
+
+/*
+ * Static helper: Clear ready events (readyEvents) for all channels in the readyChans array
+ * (called before each chanEpoll_ to reset old event status)
+ */
+static void
+chanResetRevent4Chans()
+{
+    static char *fname = "chanResetRevent4Chans";
+    int i, chfd;
+
+    if (readyChansNum <= 0) {
+        return ;
+    }
+
+    for (i = 0; i < readyChansNum; i++) {
+        chfd = readyChans[i];
+
+        if (chfd < 0 || chfd >= chanMaxSize) {
+            continue;
+        }
+        if (logclass & LC_COMM) {
+            ls_syslog(LOG_DEBUG3, "%s: channel %d handle %d state %d type %d events 0x%X",
+                    fname, chfd, channels[chfd].handle, channels[chfd].state, channels[chfd].type, channels[chfd].readyEvents);
+        }
+        channels[chfd].readyEvents = EPOLL_EVENT_NONE;
+    }
+
+    return ;
+}
+
+/*
+ * Clear specified ready events from a channel's event status
+ * @param[in] chfd: Index of the target channel to modify
+ * @param[in] events: Events to clear (e.g., EPOLLIN, EPOLLOUT)
+ */
+void
+chanClearReadyEvents(int chfd, int events)
+{
+    if (chfd < 0 || chfd >= chanMaxSize) {
+        channels[chfd].chanerr = CHANE_BADCHFD;
+        return ;
+    }
+    channels[chfd].readyEvents &= ~events;
+}
+
+/*
+ * Check if a specific channel has the specified events ready
+ * @param[in] chfd: Index of the target channel to check
+ * @param[in] events: Events to verify
+ * @return: 1 if the specified events are ready, 0 if not ready, -1 if the channel is invalid
+ */
+int
+chanEventsReady(int chfd, int events)
+{
+    if (chfd < 0 || chfd >= chanMaxSize) {
+        channels[chfd].chanerr = CHANE_BADCHFD;
+        return -1;
+    }
+
+    if (channels[chfd].state == CH_FREE || channels[chfd].handle == INVALID_HANDLE) {
+        channels[chfd].chanerr = CHANE_BADCHFD;
+        return -1;
+    }
+
+    return (channels[chfd].readyEvents & events) ? 1 : 0;
+}
+
+/*
+ * Initialize epoll resources for channel event monitoring
+ * Must be called before creating any listening sockets that use epoll
+ * @return: 0 on successful initialization, -1 if memory allocation or epoll creation fails
+ */
+int chanEpollInit(){
+    int i; 
+    static int first = TRUE;
+    if(!first){
+        epollfd = epoll_create1(EPOLL_CLOEXEC);
+        if(epollfd < 0){
+            return -1;
+        }
+        readyChansNum = 0;
+        for(i = 0; i<chanMaxSize; i++){
+            channels[i].readyEvents = EPOLL_EVENT_NONE;
+        }
+        return 0;
+    }
+    
+    first = FALSE;
+    epollfd = epoll_create1(EPOLL_CLOEXEC);
+    if(epollfd < 0){
+        return -1;
+    }
+    epoll_events = (struct epoll_event *)calloc(EPOLL_EVENT_MAX_SIZE, sizeof(struct epoll_event));
+    if(epoll_events == NULL){
+        return -1;
+    }
+    readyChansNum = 0;
+    for(i = 0; i<chanMaxSize; i++){
+        channels[i].readyEvents = EPOLL_EVENT_NONE;
+    }
+    return 0;
+}
+
+/*Close the epoll file descriptor and reset the epoll state.
+This function should be called to clean up epoll resources when the channel event monitoring is no longer needed.
+It only performs cleanup if epoll resources have been initialized(epollfd >= 0).
+
+Note: This function MUST be called before a child process invokes chanClose  to close a socket belonging to the parent process.
+Otherwise, the parent process's socket will no longer be monitored by epoll, because chanClose contains epoll ctl operations.
+Epoll ctl operations performed by the child process on the inherited epoll instance will affect all processes that own this epoll instance.
+It is recommended that all child processes that use channels call this function.
+*/
+void chanCloseEpoll(){
+    if(epollfd >= 0){
+        close(epollfd);
+        epollfd = -1;
+    }
 }

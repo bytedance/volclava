@@ -105,6 +105,12 @@ static int getDispLastItem(char**, int, int);
 static char wflag = FALSE;
 static char fomt[200];
 static int nameToFmt( char *indx);
+static void  insertSlotsToResults(struct hostInfoEnt  *hPtr,
+                                  char **loadvalTotal,
+                                  char **loadvalRsv,
+                                  char **nlp,
+                                  int  *last,
+                                  struct lsInfo *lsInfo);
 
 void
 usage (char *cmd)
@@ -542,32 +548,31 @@ prtLoad (struct hostInfoEnt  *hPtrs, struct lsInfo *lsInfo)
     int start = 0;
     int end;
     int last;
-
-
+    int curLoadNum = lsInfo->numIndx + 1; /*number of load + 'slots'*/
 
     if (!fmt) {
         if(!(fmt=(struct indexFmt *)
-            malloc((lsInfo->numIndx+2)*sizeof (struct indexFmt)))) {
+            malloc((curLoadNum + 2)*sizeof (struct indexFmt)))) {
             lsberrno=LSBE_NO_MEM;
             lsb_perror("print_long");
             exit(-1);
-	}
+        }
         for (i=0; i<NBUILTINDEX+2; i++)
             fmt[i]=fmt1[i];
     }
     if ((nlp = formLINamesList (lsInfo)) == NULL) {
-	fprintf (stderr, "%s\n",
-	    _i18n_msg_get(ls_catd,NL_SETN,1629, "Bad load index name specified")); /* catgets  1629  */
-	exit (-1);
+        fprintf (stderr, "%s\n",
+            _i18n_msg_get(ls_catd,NL_SETN,1629, "Bad load index name specified")); /* catgets  1629  */
+        exit (-1);
     }
 
-    if ((loadval=(char **) malloc((lsInfo->numIndx+1) * sizeof(char *)))
+    if ((loadval=(char **) malloc((curLoadNum + 1) * sizeof(char *)))
 							      == NULL) {
 	lserrno=LSE_MALLOC;
 	lsb_perror(fname);
 	exit(-1);
     }
-    if ((loadval1=(char **) malloc((lsInfo->numIndx+1) * sizeof(char *)))
+    if ((loadval1=(char **) malloc((curLoadNum + 1) * sizeof(char *)))
 							      == NULL) {
 	lserrno=LSE_MALLOC;
 	lsb_perror(fname);
@@ -588,6 +593,8 @@ prtLoad (struct hostInfoEnt  *hPtrs, struct lsInfo *lsInfo)
 
     makeFields(hPtrs, loadval, nlp, TRUE);
     makeFields(hPtrs, loadval1, nlp, FALSE);
+
+    insertSlotsToResults(hPtrs, loadval, loadval1, nlp, &last, lsInfo);
 
     while ((end = getDispLastItem(nlp, start, last)) > start
 	   && start < last) {
@@ -793,7 +800,8 @@ formLINamesList (struct lsInfo *lsInfo)
     char **dispindex = NULL;
 
     if (names == NULL)
-        if ((names=(char **)malloc((lsInfo->numIndx+1)*sizeof(char *)))
+        /*add a space for 'slots'*/
+        if ((names=(char **)malloc((lsInfo->numIndx+1+1)*sizeof(char *)))
 								    == NULL) {
             lserrno = LSE_MALLOC;
             ls_perror(NULL);
@@ -1065,4 +1073,47 @@ makeShareFields(char *hostname, struct lsInfo *lsInfo, char ***nameTable,
     *rsvValues  = rsvTable;
     *formatTable = fmtTable;
     return (nRes);
+}
+
+static void  insertSlotsToResults(struct hostInfoEnt  *hPtr,
+                                  char **loadvalTotal,
+                                  char **loadvalRsv,
+                                  char **nlp,
+                                  int  *last,
+                                  struct lsInfo *lsInfo) {
+    int i, idx, hUsrLoadNum;
+    char tmpfield[MAXFIELDSIZE];
+    char tmpFmt[MAXFIELDSIZE];
+
+    hUsrLoadNum = *last - NBUILTINDEX;
+    for (i = 0; i < hUsrLoadNum; i++) {
+        loadvalTotal[*last - i] = loadvalTotal[*last - 1 - i];
+        loadvalRsv[*last - i] = loadvalRsv[*last - 1 - i];
+        nlp[*last - i] = nlp[*last - 1 - i];
+    }
+
+    /*insert 'slots' value, it will use default format*/
+    *last += 1;
+    idx = NBUILTINDEX;
+    loadvalTotal[idx] = malloc(MAXFIELDSIZE);
+    loadvalRsv[idx] = malloc(MAXFIELDSIZE);
+    nlp[idx] = "slots";
+
+    if (loadvalTotal[idx] == NULL || loadvalRsv[idx] == NULL) {
+        lserrno=LSE_MALLOC;
+        lsb_perror("insertSlotsToResults()");
+        exit(-1);
+    }
+
+    if (hPtr->maxJobs < INFINIT_INT) {
+        sprintf(tmpfield, "%d", (hPtr->maxJobs - hPtr->numJobs));
+        if (strlen(tmpfield) >= fmt[DEFAULT_FMT].dispLen) {
+            sprintf(tmpFmt, "%s%s", fmt[DEFAULT_FMT].ok, fmt[DEFAULT_FMT].expFmt);
+            sprintf(tmpfield, tmpFmt, (float)(hPtr->maxJobs - hPtr->numJobs));
+        }
+        sprintf(loadvalTotal[idx], fmt[DEFAULT_FMT].hdr, tmpfield);
+    } else {
+        sprintf(loadvalTotal[idx], fmt[DEFAULT_FMT].hdr, "-");
+    }
+    sprintf(loadvalRsv[idx], fmt[DEFAULT_FMT].hdr, "-");
 }

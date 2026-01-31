@@ -54,7 +54,7 @@ static int validWindow(char *, char *);
 int builtInRes_ID[] = {
     1300, 1301, 1302, 1303, 1304, 1305, 1306, 1307, 1308, 1309,
     1310, 1311, 1312, 1313, 1314, 1315, 1316, 1317, 1318, 1319,
-    1320, 1321
+    1320, 1321, 1322, 1323
 };
 
 struct builtIn builtInRes[] = {
@@ -148,6 +148,10 @@ struct builtIn builtInRes[] = {
     {"hname",
      "Host name",
      LS_STRING,  NA, TYPE2, 0
+    },
+    {"slots",
+      "Unused slots of host",
+      LS_NUMERIC, DECR, TYPE3, 0    
     },
     { NULL,
       NULL,

@@ -1,3 +1,9 @@
+volclava (2.1-1.20251116) RELEASED; urgency=medium
+
+  * support sorting hosts for job scheduling via order[slots];
+  * enhance mixed-OS deployment installation to maintain compatibility with single-platform mode;
+  * fix volclava script error on Ubuntu
+
 volclava (2.1-0.b.20250912) UNRELEASED; urgency=medium
   
   * support adding comments to badmin operations;

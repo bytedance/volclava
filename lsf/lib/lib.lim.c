@@ -350,7 +350,7 @@ callLimUdp_(char *reqbuf,
             do {
                 timeout.tv_sec = 0;
                 timeout.tv_usec = 20000;
-                if (rd_select_(chanSock_(limchans_[UNBOUND]), &timeout) > 0)
+                if (rd_epoll_(chanSock_(limchans_[UNBOUND]), &timeout) > 0)
                     break;
                 host  = getNextWord_(&sp);
                 if (host) {
@@ -490,7 +490,9 @@ createLimSock_(struct sockaddr_in *connaddr)
 {
     int chfd;
 
-    if (geteuid() == 0)
+    if (genParams_[LSF_NON_PRIVILEGED_PORTS].paramValue 
+        && strcasecmp(genParams_[LSF_NON_PRIVILEGED_PORTS].paramValue, "n") == 0
+        && geteuid() == 0)
         chfd = chanClientSocket_(AF_INET, SOCK_DGRAM, CHAN_OP_PPORT);
     else
         chfd = chanClientSocket_(AF_INET, SOCK_DGRAM, 0);
