@@ -6290,9 +6290,45 @@ static int split_app_list(const char* str, char arr[][MAX_APP_NAME], int max_cou
                         (int)len > 40 ? 40 : (int)len, token, MAX_APP_NAME, MAX_APP_NAME - 1);
             }
         }
-        strncpy(arr[count], token, MAX_APP_NAME-1);
-        arr[count][MAX_APP_NAME-1] = '\0';
-        count++;
+        
+        char normalized_token[MAX_APP_NAME];
+        strncpy(normalized_token, token, MAX_APP_NAME-1);
+        normalized_token[MAX_APP_NAME-1] = '\0';
+        size_t norm_len = strlen(normalized_token);
+        if (norm_len > 0 && (normalized_token[0] == '"' || normalized_token[0] == '\'')) {
+            memmove(normalized_token, normalized_token+1, norm_len);
+            norm_len--;
+        }
+        if (norm_len > 0 && (normalized_token[norm_len-1] == '"' || normalized_token[norm_len-1] == '\'')) {
+            normalized_token[norm_len-1] = '\0';
+        }
+        
+        /* Check for duplicates - compare normalized names */
+        int is_duplicate = 0;
+        int i;
+        for (i = 0; i < count; i++) {
+            char normalized_existing[MAX_APP_NAME];
+            strncpy(normalized_existing, arr[i], MAX_APP_NAME-1);
+            normalized_existing[MAX_APP_NAME-1] = '\0';
+            size_t exist_len = strlen(normalized_existing);
+            if (exist_len > 0 && (normalized_existing[0] == '"' || normalized_existing[0] == '\'')) {
+                memmove(normalized_existing, normalized_existing+1, exist_len);
+                exist_len--;
+            }
+            if (exist_len > 0 && (normalized_existing[exist_len-1] == '"' || normalized_existing[exist_len-1] == '\'')) {
+                normalized_existing[exist_len-1] = '\0';
+            }
+            if (strcmp(normalized_existing, normalized_token) == 0) {
+                is_duplicate = 1;
+                break;
+            }
+        }
+        
+        if (!is_duplicate) {
+            strncpy(arr[count], token, MAX_APP_NAME-1);
+            arr[count][MAX_APP_NAME-1] = '\0';
+            count++;
+        }
         
         if (count >= max_count) {
             /* Check if there are more tokens remaining */
@@ -6329,6 +6365,7 @@ static int split_app_list(const char* str, char arr[][MAX_APP_NAME], int max_cou
     free(tmp);
     return count;
 }
+
 static int is_executable(const char* path) {
     struct stat sbuf;
     return (stat(path, &sbuf) == 0 && (sbuf.st_mode & (S_IXUSR | S_IXGRP | S_IXOTH)));
