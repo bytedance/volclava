@@ -213,7 +213,7 @@ status_job(mbdReqType reqType,
         timeval.tv_sec = 0;
         timeval.tv_usec = 0;
 
-        if (rd_epoll_(chanSock_(statusChan), &timeval) == 0) {
+        if (rd_poll_(chanSock_(statusChan), &timeval) == 0) {
             jp->needReportRU = FALSE;
             jp->lastStatusMbdTime = now;
             return 0;
@@ -222,7 +222,7 @@ status_job(mbdReqType reqType,
         CLOSECD(statusChan);
 
         if (logclass & LC_COMM)
-            ls_syslog(LOG_DEBUG1, "%s: Job <%s> rd_select() failed, assume connection broken", fname, lsb_jobid2str(jp->jobSpecs.jobId));
+            ls_syslog(LOG_DEBUG1, "%s: Job <%s> rd_poll() failed, assume connection broken", fname, lsb_jobid2str(jp->jobSpecs.jobId));
         return(-1);
     }
     reply = hdr.opCode;

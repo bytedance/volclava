@@ -429,7 +429,7 @@ chanRcvDgram_: Receive on chan %d timeout=%d",chfd, timeout);
 
     for (;;) {
 
-        nReady = rd_epoll_(sock, timep);
+        nReady = rd_poll_(sock, timep);
         if (nReady < 0) {
             lserrno = LSE_SELECT_SYS;
             return -1;
@@ -1044,7 +1044,7 @@ chanRpc_(int chfd, struct Buffer *in, struct Buffer *out,
         timep = &timeval;
     }
 
-    if ((cc = rd_epoll_(channels[chfd].handle, timep)) <= 0) {
+    if ((cc = rd_poll_(channels[chfd].handle, timep)) <= 0) {
         if (cc == 0)
             lserrno = LSE_TIME_OUT;
         else

@@ -197,9 +197,9 @@ struct jRusage *getJInfo_(int npgid, int *pgid, int options, int cpgid)
 
 	timeOut.tv_sec = 10;
 	timeOut.tv_usec = 0;
-	if ((cc = rd_epoll_(s, &timeOut)) < 0) {
+	if ((cc = rd_poll_(s, &timeOut)) < 0) {
 	    if (logclass & LC_PIM)
-		ls_syslog(LOG_DEBUG, "%s: rd_epoll_ cc=%d: %m", fname, cc);
+		ls_syslog(LOG_DEBUG, "%s: rd_poll_ cc=%d: %m", fname, cc);
 	    close(s);
 	    return (NULL);
 	}
