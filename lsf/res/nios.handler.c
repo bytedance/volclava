@@ -2720,7 +2720,7 @@ void checkPendingJobStatus(int s)
         selectTimeout.tv_usec = 0;
 
 
-        ready = rd_epoll_(s, &selectTimeout);
+        ready = rd_poll_(s, &selectTimeout);
         if ( (ready == 0)
              && (jobId > 0) ) {
             time_t              now;
