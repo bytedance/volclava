@@ -214,8 +214,16 @@ b_connect_(int s, struct sockaddr *name, int namelen, int timeout)
 }  
 
 /* 
- * Replace select with poll. 
- * This avoids undefined behavior that occurs when the number of monitored sockets exceeds the FD_SETSIZE limit (1024).
+ * Replace select with poll.
+ * Reason for replacement:
+ *  A core dump occurs when excessively large values are set for host MXJ and MAX_SBD_CONNS.
+ *  Root cause analysis shows that the number of sockets exceeds 1024, which makes select unusable (select has a 1024 socket limit).
+ * 
+ * Comparison between epoll and select:
+ *  1. When using epoll in this scenario, it is found that the spin lock consumes a significant amount of time,
+ *     and an additional socket is required to monitor events. Poll can reduce resource overhead in this case.
+ *  2. Consistent with epoll, poll has no limit on the number of sockets (breaking through select's 1024 socket limit).
+ *  3. Poll achieves higher efficiency than both epoll and select in the single socket listening scenario.
  */
 int rd_poll_(int rd, struct timeval *timeout)
 {
