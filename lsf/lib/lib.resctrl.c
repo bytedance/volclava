@@ -52,7 +52,7 @@ ls_rescontrol(char *host, int opCode, int data)
 	FD_SET(s,&connection_ok_);
 
 	
-	cc = rd_epoll_(s, &timeout);
+	cc = rd_poll_(s, &timeout);
 	if (cc <= 0) {
 	    closesocket(s);
 	    _lostconnection_(host);
@@ -86,7 +86,7 @@ ls_rescontrol(char *host, int opCode, int data)
     }
 
     
-    cc = rd_epoll_(s, &timeout);
+    cc = rd_poll_(s, &timeout);
     if (cc <= 0) {
 	closesocket(s);
 	_lostconnection_(host);

@@ -132,7 +132,7 @@ b_read_fix(int s, char *buf, int len)
 
     return(length);
 } 
-
+
 int
 b_write_fix(int s, char *buf, int len)
 {
@@ -214,49 +214,47 @@ b_connect_(int s, struct sockaddr *name, int namelen, int timeout)
 }  
 
 /* 
- * Replace select with epoll. 
- * This avoids undefined behavior that occurs when the number of monitored sockets exceeds the FD_SETSIZE limit (1024).
+ * Replace select with poll.
+ * Reason for replacement:
+ *  A core dump occurs when excessively large values are set for host MXJ and MAX_SBD_CONNS.
+ *  Root cause analysis shows that the number of sockets exceeds 1024, which makes select unusable (select has a 1024 socket limit).
+ * 
+ * Comparison between epoll and select:
+ *  1. When using epoll in this scenario, it is found that the spin lock consumes a significant amount of time,
+ *     and an additional socket is required to monitor events. Poll can reduce resource overhead in this case.
+ *  2. Consistent with epoll, poll has no limit on the number of sockets (breaking through select's 1024 socket limit).
+ *  3. Poll achieves higher efficiency than both epoll and select in the single socket listening scenario.
  */
-int 
-rd_epoll_(int rd, struct timeval *timeout)
+int rd_poll_(int rd, struct timeval *timeout)
 {
-    int cc = -1;
-    int tmpEpollFd;
-    struct epoll_event ev;
-    int timeout_ms = -1;
+    int cc;
+    struct pollfd fds[1];
+    int pollTimeout;
 
-    tmpEpollFd = epoll_create1(EPOLL_CLOEXEC);
-    if (tmpEpollFd < 0) {
-        return -1;
-    }
+    fds[0].fd = rd;
+    fds[0].events = POLLIN; 
 
-    ev.data.fd = rd;
-    ev.events = EPOLLIN;
-    if (epoll_ctl(tmpEpollFd, EPOLL_CTL_ADD, rd, &ev) < 0) {
-        close(tmpEpollFd);
-        return -1;
-    }
-    for (;;) {
-        if (timeout != NULL) {
-            timeout_ms = (int)(timeout->tv_sec * 1000) + (int)(timeout->tv_usec / 1000);
-            if (timeout_ms < 0) {
-                timeout_ms = 0;
-            }
-        } else {
-            timeout_ms = -1;
+    if (timeout == NULL) {
+        pollTimeout = -1;
+    } else {
+        pollTimeout = timeout->tv_sec * 1000 + timeout->tv_usec / 1000;
+        if (pollTimeout < 0) {
+            pollTimeout = 0;
         }
+    }
 
-        cc = epoll_wait(tmpEpollFd, &ev, 1, timeout_ms);
+    for (;;) {
+        fds[0].revents = 0;
+        cc = poll(fds, 1, pollTimeout);
 
         if (cc >= 0) {
-            close(tmpEpollFd);
             return cc;
         }
 
-        if (errno != EINTR) {
-            close(tmpEpollFd);
-            return -1;
+        if (errno == EINTR) {
+            continue;
         }
+        return (-1);
     }
 }
 
@@ -290,7 +288,7 @@ detectTimeout_(int s, int recv_timeout)
         timeval.tv_usec = 0;
         timep = &timeval;
     }
-    ready = rd_epoll_(s, timep);
+    ready = rd_poll_(s, timep);
     if (ready < 0) {
         lserrno = LSE_SELECT_SYS;
         return (-1);
@@ -342,7 +340,7 @@ nb_read_timeout(int s, char *buf, int len, int timeout)
     timeval.tv_usec = 0; 
     
     for (;;) {
-        nReady = rd_epoll_(s, &timeval);
+        nReady = rd_poll_(s, &timeval);
         if (nReady < 0) {
             lserrno = LSE_SELECT_SYS;
             return(-1);

@@ -313,7 +313,7 @@ int yymark(void)
 void idxerror(s)
     register char *s ;
 { extern int idxnerrs ;
-    char sptr[YYLMAX];
+    char sptr[SPTR_BUFLEN];
 
     sptr[0]='\0';
     yywhere(sptr) ;
