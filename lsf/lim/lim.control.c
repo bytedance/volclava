@@ -354,12 +354,14 @@ servAvailReq(XDR *xdrs,
     }
 
     if (! lim_debug) {
-        if (ntohs(from->sin_port) >= IPPORT_RESERVED
-            || ntohs(from->sin_port) < IPPORT_RESERVED/2) {
-            ls_syslog(LOG_WARNING, "\
-%s: Request from non-privileged port: <%d>",
-                      __func__, ntohs(from->sin_port));
-            return;
+        if (!getNonPrivilegedPorts()) {
+            if (ntohs(from->sin_port) >= IPPORT_RESERVED
+                || ntohs(from->sin_port) < IPPORT_RESERVED/2) {
+                ls_syslog(LOG_WARNING, "\
+    %s: Request from non-privileged port: <%d>",
+                        __func__, ntohs(from->sin_port));
+                return;
+            }
         }
     }
 
@@ -402,9 +404,11 @@ limPortOk(struct sockaddr_in *from)
 
 #ifndef INSECURE
     if (! lim_debug) {
-        if (ntohs(from->sin_port) >= IPPORT_RESERVED
-            || ntohs(from->sin_port) < IPPORT_RESERVED/2)
-            return FALSE;
+        if (!getNonPrivilegedPorts()) {
+            if (ntohs(from->sin_port) >= IPPORT_RESERVED
+                || ntohs(from->sin_port) < IPPORT_RESERVED/2)
+                return FALSE;
+        }
     }
 #endif
 

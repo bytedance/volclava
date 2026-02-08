@@ -33,7 +33,6 @@
 #include <sys/wait.h>
 #include <sys/resource.h>
 
-#include "../lib/lsb.h"
 #include "daemonout.h"
 #include "daemons.h"
 #include "../../lsf/lib/lib.rf.h"

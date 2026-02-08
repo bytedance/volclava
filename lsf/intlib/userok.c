@@ -27,6 +27,7 @@
 extern struct config_param genParams_[];
 #define LOOP_ADDR       0x7F000001
 
+extern int getNonPrivilegedPorts();
 
 char *
 auth_user(u_long in, u_short local, u_short remote)
@@ -232,7 +233,8 @@ userok(int s, struct sockaddr_in *from, char *hostname,
     authKind = genParams_[LSF_AUTH].paramValue;
     if (authKind == NULL) {
         if (!debug) {
-            if (remote >= IPPORT_RESERVED || remote < IPPORT_RESERVED/2) {
+            if (!getNonPrivilegedPorts()
+                && (remote >= IPPORT_RESERVED || remote < IPPORT_RESERVED/2)) {
                 ls_syslog(LOG_ERR, "\
 %s: Request from bad port %d, denied", __func__, remote);
                 return (FALSE);

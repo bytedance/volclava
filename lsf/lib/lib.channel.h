@@ -146,4 +146,3 @@ extern int chanUpdateListenEvents(int, uint32_t);
 extern int chanUnRegisterEpoll_(int);
 
 #endif
-
