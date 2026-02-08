@@ -5006,9 +5006,9 @@ char ch, next, *tmp_str=NULL; \
 
 
 
-    sprintf (esub, "%s/%s", lsbParams[LSB_SERVERDIR].paramValue, ESUBNAME);
-    if (stat(esub, &sbuf) < 0)
-	return (0);
+    // sprintf (esub, "%s/%s", lsbParams[LSB_SERVERDIR].paramValue, ESUBNAME);
+    // if (stat(esub, &sbuf) < 0)
+	// return (0);
 
 
     sprintf(parmFile, "%s/.lsbsubparm.%d", LSTMPDIR, (int)getpid());
