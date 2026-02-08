@@ -37,7 +37,7 @@ CreateSock_(int protocol)
     static ushort i;
     static char isroot = FALSE;
 
-    if (geteuid() == 0)
+    if (geteuid() == 0 && !getNonPrivilegedPorts())
     {
         if (! isroot) {
             port = IPPORT_RESERVED -1;
@@ -122,7 +122,7 @@ CreateSockEauth_(int protocol)
     static char isroot = FALSE;
 
 
-    if ((geteuid() == 0) && (genParams_[LSF_AUTH].paramValue == NULL))
+    if ((geteuid() == 0) && (genParams_[LSF_AUTH].paramValue == NULL) && !getNonPrivilegedPorts())
     {
         if (! isroot) {
             port = IPPORT_RESERVED -1;

@@ -48,6 +48,7 @@ struct config_param genParams_[] =
     {"LSF_INTERACTIVE_STDERR", NULL},
     {"HOSTS_FILE", NULL},
     {"LSB_SHAREDIR", NULL},
+    {"LSF_NON_PRIVILEGED_PORTS", NULL},
     {NULL, NULL}
 };
 

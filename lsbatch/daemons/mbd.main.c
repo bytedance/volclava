@@ -155,6 +155,7 @@ long   schedSeqNo;
 int    schedule;
 int    scheRawLoad;
 int lsbModifyAllJobs = FALSE;
+int fastUpdHostInfo = FALSE;
 
 static int schedule1;
 static struct jData *jobData = NULL;
@@ -1004,12 +1005,17 @@ periodicCheck(void)
         }
         last_checkConf = now;
     }
-    if (now - last_hostInfoRefreshTime > 10 * 60) {
+    if ((now - last_hostInfoRefreshTime > 10 * 60) || fastUpdHostInfo) {
         getLsbHostInfo();
         last_hostInfoRefreshTime = now;
+        if (fastUpdHostInfo) {
+            if (logclass & LC_COMM) {
+                 ls_syslog(LOG_DEBUG, "%s: Some hosts need updating their static host information. Fetch it from the LIM.", __func__);
+            }
+        }
+        fastUpdHostInfo = 0;
     }
 }
-
 
 void
 terminate_handler(int sig)
