@@ -169,7 +169,7 @@ static int readOptFile(char *filename, char *childLine);
 static const LSB_SPOOL_INFO_T * chUserCopySpoolFile(const char * srcFile,
 				    spoolOptions_t fileType);
 
-static int split_app_list(const char* str, char arr[][MAX_APP_NAME], int max_count);
+static int splitAppList(const char* str, char arr[][MAX_APP_NAME], int max_count);
 static int is_executable(const char* path);
 
 extern void makeCleanToRunEsub();
@@ -5004,13 +5004,6 @@ char ch, next, *tmp_str=NULL; \
 	    } \
 	}
 
-
-
-    // sprintf (esub, "%s/%s", lsbParams[LSB_SERVERDIR].paramValue, ESUBNAME);
-    // if (stat(esub, &sbuf) < 0)
-	// return (0);
-
-
     sprintf(parmFile, "%s/.lsbsubparm.%d", LSTMPDIR, (int)getpid());
 
     if ((parmfp = fopen(parmFile, "w")) == NULL) {
@@ -5256,7 +5249,7 @@ char ch, next, *tmp_str=NULL; \
 
     if (esub_method && strlen(esub_method) > 0) {
         char app_list[MAX_ESUB_LIST][MAX_APP_NAME];
-        int app_count = split_app_list(esub_method, app_list, MAX_ESUB_LIST);
+        int app_count = splitAppList(esub_method, app_list, MAX_ESUB_LIST);
         int i;
         for (i = 0; i < app_count; ++i) {
             snprintf(esub_path, sizeof(esub_path), "%s/" ESUBNAME ".%s", lsbParams[LSB_SERVERDIR].paramValue, app_list[i]);            
@@ -5275,7 +5268,7 @@ char ch, next, *tmp_str=NULL; \
 
     if (additionEsubInfo && strlen(additionEsubInfo) > 0) {
         char app_list[MAX_ESUB_LIST][MAX_APP_NAME];
-        int app_count = split_app_list(additionEsubInfo, app_list, MAX_ESUB_LIST);
+        int app_count = splitAppList(additionEsubInfo, app_list, MAX_ESUB_LIST);
         int i;
         for (i = 0; i < app_count; ++i) {
             snprintf(esub_path, sizeof(esub_path), "%s/" ESUBNAME ".%s", lsbParams[LSB_SERVERDIR].paramValue, app_list[i]);
@@ -6269,11 +6262,11 @@ static void trimSpaces(char *str)
     }
 }
 
-static int split_app_list(const char* str, char arr[][MAX_APP_NAME], int max_count) {
+static int splitAppList(const char* str, char arr[][MAX_APP_NAME], int max_count) {
     int count = 0;
     char *tmp;
     char *token;
-    int has_long_token = 0;
+    int hasLongToken = 0;
     
     if (!str) return 0;
     tmp = strdup(str);
@@ -6282,49 +6275,51 @@ static int split_app_list(const char* str, char arr[][MAX_APP_NAME], int max_cou
     token = strtok(tmp, " ");
     
     while (token && count < max_count) {
+        char normalizedToken[MAX_APP_NAME];
+        int isDuplicate;
+        
         size_t len = strlen(token);
         if (len > MAX_APP_NAME - 1) {
-            if (!has_long_token) {
-                has_long_token = 1;
+            if (!hasLongToken) {
+                hasLongToken = 1;
                 fprintf(stderr, "Warning: App name '%.*s...' exceeds max length %d, truncated to %d characters\n",
                         (int)len > 40 ? 40 : (int)len, token, MAX_APP_NAME, MAX_APP_NAME - 1);
             }
         }
         
-        char normalized_token[MAX_APP_NAME];
-        strncpy(normalized_token, token, MAX_APP_NAME-1);
-        normalized_token[MAX_APP_NAME-1] = '\0';
-        size_t norm_len = strlen(normalized_token);
-        if (norm_len > 0 && (normalized_token[0] == '"' || normalized_token[0] == '\'')) {
-            memmove(normalized_token, normalized_token+1, norm_len);
-            norm_len--;
+        strncpy(normalizedToken, token, MAX_APP_NAME-1);
+        normalizedToken[MAX_APP_NAME-1] = '\0';
+        size_t normLen = strlen(normalizedToken);
+        if (normLen > 0 && (normalizedToken[0] == '"' || normalizedToken[0] == '\'')) {
+            memmove(normalizedToken, normalizedToken+1, normLen);
+            normLen--;
         }
-        if (norm_len > 0 && (normalized_token[norm_len-1] == '"' || normalized_token[norm_len-1] == '\'')) {
-            normalized_token[norm_len-1] = '\0';
+        if (normLen > 0 && (normalizedToken[normLen-1] == '"' || normalizedToken[normLen-1] == '\'')) {
+            normalizedToken[normLen-1] = '\0';
         }
         
         /* Check for duplicates - compare normalized names */
-        int is_duplicate = 0;
+        isDuplicate = 0;
         int i;
         for (i = 0; i < count; i++) {
-            char normalized_existing[MAX_APP_NAME];
-            strncpy(normalized_existing, arr[i], MAX_APP_NAME-1);
-            normalized_existing[MAX_APP_NAME-1] = '\0';
-            size_t exist_len = strlen(normalized_existing);
-            if (exist_len > 0 && (normalized_existing[0] == '"' || normalized_existing[0] == '\'')) {
-                memmove(normalized_existing, normalized_existing+1, exist_len);
-                exist_len--;
+            char normalizedExisting[MAX_APP_NAME];
+            strncpy(normalizedExisting, arr[i], MAX_APP_NAME-1);
+            normalizedExisting[MAX_APP_NAME-1] = '\0';
+            size_t existLen = strlen(normalizedExisting);
+            if (existLen > 0 && (normalizedExisting[0] == '"' || normalizedExisting[0] == '\'')) {
+                memmove(normalizedExisting, normalizedExisting+1, existLen);
+                existLen--;
             }
-            if (exist_len > 0 && (normalized_existing[exist_len-1] == '"' || normalized_existing[exist_len-1] == '\'')) {
-                normalized_existing[exist_len-1] = '\0';
+            if (existLen > 0 && (normalizedExisting[existLen-1] == '"' || normalizedExisting[existLen-1] == '\'')) {
+                normalizedExisting[existLen-1] = '\0';
             }
-            if (strcmp(normalized_existing, normalized_token) == 0) {
-                is_duplicate = 1;
+            if (strcmp(normalizedExisting, normalizedToken) == 0) {
+                isDuplicate = 1;
                 break;
             }
         }
         
-        if (!is_duplicate) {
+        if (!isDuplicate) {
             strncpy(arr[count], token, MAX_APP_NAME-1);
             arr[count][MAX_APP_NAME-1] = '\0';
             count++;
