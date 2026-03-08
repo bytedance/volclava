@@ -328,7 +328,11 @@ getNextLineD_(FILE *fp, int *LineCount, int confFormat)
             ;
 
     if ((cin != EOF) || (oneChar == 1) || (cin == EOF && lpos > 0)) {
-
+        // If we reached EOF but still have content, this is the last line
+        // which doesn't end with a newline - increment line count
+        if (cin == EOF && lpos > 0) {
+            *LineCount += 1;
+        }
         line[++lpos] = '\0';
         return(line);
     }
