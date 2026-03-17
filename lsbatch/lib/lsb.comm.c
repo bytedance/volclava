@@ -66,10 +66,11 @@ serv_connect (char *serv_host, ushort serv_port, int timeout)
            (int)hp->h_length);
     serv_addr.sin_port = serv_port;
 
-    if (geteuid() == 0)
-       options = CHAN_OP_PPORT;
-    else
-       options = 0;
+    if (getNonPrivilegedPorts() == 0 && (geteuid() == 0)) {
+        options = CHAN_OP_PPORT;
+    } else {
+        options = 0;
+    }
 
     chfd = chanClientSocket_(AF_INET, SOCK_STREAM, options);
     if (chfd < 0) {
@@ -212,6 +213,13 @@ call_server (char * host,
 	    CLOSECD(serverSock);
 	    return (-2);
 	}
+    /* If the flags contain the CALL_SERVER_ENQUEUE_ONLY flag, epoll needs to monitor the serverSock */
+    if(chanRegisterEpoll_(serverSock, EPOLLIN|EPOLLOUT|EPOLLERR) < 0){
+        ls_syslog(LOG_ERR, "%s: chanRegisterEpoll_() failed %m", __func__);
+        chanFreeBuf_(sndBuf);
+	    CLOSECD(serverSock);
+	    return (-2);
+    }
     } else {
 	cc = chanRpc_(serverSock,
                       &reqbuf,

@@ -657,7 +657,13 @@ hStatChange(struct hData *hp, int newStatus)
     // since some start up order issue would cause compute node maxCpus late to sync with master,
     // and then when 'bhost' shows host 'ok' while its MXJ still is 1 due to no maxCpus info.
     // so when update host state, fetch host info again.
-    getLsbHostInfo();
+    if ((hp->maxMem <= 0 || hp->maxMem >= INFINIT_INT) && (newStatus == HOST_STAT_OK)) {
+        getLsbAHostInfo(hp->host);
+        if (logclass & LC_COMM) {
+            ls_syslog(LOG_DEBUG,"\
+%s: host=%s fetch static host information from LIM", __func__, hp->host);
+        }
+    }
 
     hp->pollTime = now;
 
@@ -997,6 +1003,95 @@ getLsbHostInfo(void)
         queueHostsPF(qp, &i);
 }
 
+void
+getLsbAHostInfo(char *hName)
+{
+    struct qData *qp;
+    struct hData *hPtr = NULL;
+    struct hostInfo *hInfo = NULL;
+    int i;
+
+    if (logclass & LC_TRACE) {
+        ls_syslog(LOG_DEBUG, "%s: Entering this routine...", __func__);
+    }
+
+    if (hName == NULL) {
+        ls_syslog(LOG_ERR, "%s: Input hostname is empty.", __func__);
+        return;
+    }
+
+    TIMEIT(0,
+           hInfo = ls_gethostinfo(NULL,
+                                  NULL,
+                                  (char **)&hName,
+                                  1,
+                                  LOCAL_ONLY),
+           __func__);
+
+    for (i = 0; i < 3 && hInfo == NULL
+             && lserrno == LSE_TIME_OUT; i++) {
+        millisleep_(2000);
+        TIMEIT(0, hInfo = ls_gethostinfo(NULL,
+                                         NULL,
+                                         (char **)&hName,
+                                         1,
+                                         LOCAL_ONLY),
+               __func__);
+    }
+
+    if (hInfo == NULL) {
+        ls_syslog(LOG_WARNING, "%s: Failed to connect lim to get host static information. lserrno=%d", __func__, lserrno);
+        return;
+    }
+
+    if ((hPtr = getHostData(hName)) == NULL) {
+
+        /* volclava add batch host with some
+         * reasonable defaults.
+         */
+        addMigrantHost(hInfo);
+    } else {
+        numofprocs -= hPtr->numCPUs;
+
+        hPtr->cpuFactor = hInfo->cpuFactor;
+        if (hInfo->maxCpus <= 0) {
+            hPtr->numCPUs = 1;
+        } else {
+            hPtr->numCPUs = hInfo->maxCpus;
+        }
+
+        if (hPtr->flags & HOST_AUTOCONF_MXJ) {
+            hPtr->maxJobs = hPtr->numCPUs;
+        }
+
+        if (hPtr->maxJobs > 0 && hPtr->maxJobs < INFINIT_INT) {
+            hPtr->numCPUs = hPtr->maxJobs;
+        }
+
+        numofprocs += hPtr->numCPUs;
+        FREEUP (hPtr->hostType);
+        hPtr->hostType = safeSave (hInfo->hostType);
+        FREEUP (hPtr->hostModel);
+        hPtr->hostModel = safeSave (hInfo->hostModel);
+        hPtr->maxMem    = hInfo->maxMem;
+
+        if (hPtr->leftRusageMem == INFINIT_LOAD && hPtr->maxMem != 0)
+            hPtr->leftRusageMem = hPtr->maxMem;
+
+        hPtr->maxSwap = hInfo->maxSwap;
+        hPtr->maxTmp  = hInfo->maxTmp;
+        hPtr->nDisks  = hInfo->nDisks;
+        FREEUP (hPtr->resBitMaps);
+        hPtr->resBitMaps = getResMaps(hInfo->nRes,
+                                      hInfo->resources);
+    }
+
+    i = TRUE;
+    for (qp = qDataList->forw; (qp != qDataList); qp = qp->forw) {
+        queueHostsPF(qp, &i);
+    }
+}
+
 int
 getLsbHostLoad(void)
 {
@@ -1073,6 +1168,23 @@ getLsbHostLoad(void)
 %s: host %s unknown to MBD at this moment.",
                       __func__, hosts[i].hostName);
             continue;
+        }
+
+        if (!update) {
+            /* We'd like to get host static information from lim right now in the following two situation:
+             * 1. batch side host status has HOST_STAT_NO_LIM which means lim is down before, meanwhile
+             *    host status in lim is not UNAVAIL anymore.
+             * 2. host static information hasn't be updated, meanwhle host status in lim is not UNAVAIL anymore.
+             */
+            if ((hPtr->hStatus & HOST_STAT_NO_LIM || hPtr->maxMem <= 0 || hPtr->maxMem >= INFINIT_INT)
+                && (!LS_ISUNAVAIL(hosts[i].status))) {
+                if (logclass & LC_COMM) {
+                    ls_syslog(LOG_DEBUG, "\
+%s: %s LIM host status is ok (%x), but batch host has no static host info yet (%x), let us update it in next periodicCheck().", __func__,
+                            hosts[i].hostName, hosts[i].status[0], hPtr->hStatus);
+                }
+                fastUpdHostInfo = 1;
+            }
         }
 
         if (!LS_ISUNAVAIL(hosts[i].status))
@@ -1257,6 +1369,7 @@ getTclHostData(struct tclHostData *tclHostData,
     tclHostData->numResPairs = hPtr->numInstances;
     tclHostData->resPairs = getResPairs(hPtr);
     tclHostData->flag = TCL_CHECK_EXPRESSION;
+    tclHostData->slots = hPtr->maxJobs - hPtr->numJobs;
 }
 
 static struct resPair *
@@ -1713,7 +1826,7 @@ getLsfHostInfo(int retry)
                                      LOCAL_ONLY),
            __func__);
 
-    for (i = 0; i < 3 && hostList == NULL
+    for (i = 0; i < 3 && LIMhosts == NULL
              && lserrno == LSE_TIME_OUT && retry == TRUE; i++) {
         millisleep_(6000);
         TIMEIT(0, LIMhosts = ls_gethostinfo("-",

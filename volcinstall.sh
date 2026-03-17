@@ -1,5 +1,4 @@
 #!/bin/bash
-
 # Copyright (C) 2021-2025 Bytedance Ltd. and/or its affiliates
 # Description:
 # You can use this script in two ways to install volclava in shared file system:
@@ -26,169 +25,54 @@
 # --startup: Default is N. When set as Y, you also need define "--hosts", then we will startup cluster after
 #          installation. Without "--hosts", volclava fails to startup cluster because of no hosts in cluster.
 # --uid: specify uniform uid for user "volclava". Default is undefined.
+# --file=/path/install.conf: Specify parameters related to cluster configuration in the file; the installer
+#          will read them from the file. If parameters are defined both in the command line and the file,
+#          the command line ones will take effect. The following is a list of parameters supported in the file.
+#          For details of the parameters, please refer to the install.conf.example
+#          VOLC_PREFIX
+#          VOLC_ADMIN
+#          VOLC_CLUSTER_NAME
+#          VOLC_HOSTS
+#          VOLC_MIX_OS_MODE
+#          VOLC_MIX_OS_FOLDER
 
-function usage() {
-    echo "Usage: volcinstall.sh [--help]"
-    echo "                      [--setup=pre [--uid=number]]"
-    echo "                      [--setup=install [--type=code|rpm|deb] [--prefix=/opt/volclava] [--hosts=\"master server1 ...\"|/path/file] [--interactive=Y|y|N|n]]"
-    echo "                      [--setup=post [--env=/volclava_top] [--startup=Y|y|N|n]]"
-    echo "                      [--type=code|rpm|deb|server] [--prefix=/opt/volclava] [--hosts=\"master server1 ...\"|/path/file] [--uid=number] [--startup=Y|y|N|n] [--interactive=Y|y|N|n]"
-}
-
-
+#######################################
+# 1. initialize variables
+#######################################
 #Default values
+source ./libinstall.sh
+
 TYPE="code"
 VERSION="2.1"
 PACKAGE_NAME="volclava-${VERSION}"
+VOLCADMIN="volclava"
+CLUSTERNAME="volclava"
 PREFIX="/opt/${PACKAGE_NAME}"
-setPrefix=0
+MIX_OS_MODE=0
+MIX_OS_FOLDER="exec"
+SET_PREFIX=0
 PHASE="all"
 USRID=""
 HOSTS=""
 STARTUP="N"
-INTERACTIVE="Y"
-
-if test -z "$volclavaadmin"; then
-    VOLCADMIN="volclava"
-else
-    VOLCADMIN=${volclavaadmin}
-fi
-
-if test -z "$volclavacluster"; then
-    CLUSTERNAME="volclava"
-else
-    CLUSTERNAME=$volclavacluster
-fi
+CONF_FILE_EXIST=0
+CLS_FILE_EXIST=0
+VOLC_SH_EXIT=0
+VOLC_CSH_EXIT=0
 
 SCRIPT_PATH="$(realpath "$0")"
 CWD="$(dirname "$(realpath "$0")")"
 
-while [ $# -gt 0 ]; do
-    case $1 in
-        --type=*)
-            TYPE=$(echo $1 | awk -F "=" '{print $2}')
-            if [ -z "$TYPE" ]; then
-                usage
-                exit 1
-            fi
-            if [ "$TYPE" == "rpm" -a $setPrefix -eq 0 ]; then
-                PREFIX="/opt"
-            fi
-            if [ "$TYPE" == "deb" -a $setPrefix -eq 0 ]; then
-                PREFIX="/opt"
-            fi
-            if [ "$TYPE" == "server" -a $PHASE != "all" ]; then
-                usage
-                exit 1
-            fi
-            if [ "$TYPE" == "server" ]; then
-                PHASE="pre-post"
-            fi
-            ;;
-        --prefix=*)
-            PREFIX=$(echo $1 | awk -F "=" '{print $2}')
-            if [ -z "$PREFIX" ]; then
-                usage
-                exit 1
-            fi
-            setPrefix=1
-            ;;
-        --setup=*)
-            PHASE=$(echo $1 | awk -F "=" '{print $2}')
-            if [ -z "$PHASE" ]; then
-                usage
-                exit 1
-            fi
-	    if [ "$PHASE" != "pre" -a "$PHASE" != "post" -a "$PHASE" != "install" ]; then
-		usage
-	        exit 1
-	    fi	
-	    ;;
-        --env=*)
-            PREFIX=$(echo $1 | awk -F "=" '{print $2}')
-            if [ -z "$PREFIX" ]; then
-                usage
-                exit 1
-            fi
-            ;;
-        --uid=*)
-            USRID=$(echo $1 | awk -F "=" '{print $2}')
-            if [ -z "$USRID" ]; then
-                usage
-                exit 1
-            fi
-            ;;
-        --hosts=*)
-            HOSTS=$(echo $1 | awk -F "=" '{print $2}')
-            if [ -z "$HOSTS" ]; then
-                usage
-                exit 1
-            fi
-            ;;
-        --startup=*)
-            STARTUP=$(echo $1 | awk -F "=" '{print $2}')
-            if [ -z "$STARTUP" ]; then
-                usage
-                exit 1
-            fi
-            if [[ "$STARTUP" != "Y" ]] && [[ "$STARTUP" != "y" ]] && [[ "$STARTUP" != "N" ]] && [[ "$STARTUP" != "n" ]]; then
-                usage
-                exit 1
-            fi
-            ;;
-        --interactive=*)
-            INTERACTIVE=$(echo $1 | awk -F "=" '{print $2}')
-            if [ -z "$INTERACTIVE" ]; then
-                usage
-                exit 1
-            fi
-            if [[ "$INTERACTIVE" != "Y" ]] && [[ "$INTERACTIVE" != "y" ]] && [[ "$INTERACTIVE" != "N" ]] && [[ "$INTERACTIVE" != "n" ]]; then
-                usage
-                exit 1
-            fi
-            ;;
-        --help)
-            usage
-            exit 0
-            ;;
-        *)
-            usage
-            exit 1
-            ;;
-    esac
-    shift
-done
-
-if [ "$TYPE" != "code" -a "$TYPE" != "rpm" -a "$TYPE" != "deb" -a "$TYPE" != "server" ]; then
-    usage
-    exit 1
-fi
-
-if [ "$TYPE" = "server" -a  "$PHASE" != "pre-post" ] || [ "$TYPE" != "server" -a "$PHASE" = "pre-post" ]; then
-    usage
-    exit 1
-fi
-
-osType=$(sed -n '/^NAME=/ {s/^NAME="//;s/"$//;p}' /etc/os-release)
-if [ -z "$osType" ]; then
-    echo "Failed to find OS type, please check supported OS from README.md"
-    exit 1
-fi
-
-if [ "$osType" = "Ubuntu" ] && [ "$TYPE" = "rpm" ]; then
-   echo "Ubuntu does not support rpm installation, please install package from source code"
-   exit 1
-fi
-
-if [ "$osType" = "Rocky Linux" ] && [ "$TYPE" = "deb" ]; then
-   echo "Rocky Linux does not support deb installation, please install package from source code"
-   exit 1
-fi
-
-if [ "$osType" = "CentOS Linux" ] && [ "$TYPE" = "deb" ]; then
-   echo "CentOS Linux does not support deb installation, please install package from source code"
-   exit 1
-fi
+#######################################
+# 2. define functions
+#######################################
+function usage() {
+    echo "Usage: volcinstall.sh [--help]"
+    echo "                      [--setup=pre [--uid=number]]"
+    echo "                      [--setup=install [--type=code|rpm|deb] [--prefix=/opt/volclava] [--hosts=\"master server1 ...\"|/path/file] [--file=/path/install.conf]]"
+    echo "                      [--setup=post [--env=/volclava_top] [--startup=Y|y|N|n]]"
+    echo "                      [--type=code|rpm|deb|server] [--prefix=/opt/volclava] [--hosts=\"master server1 ...\"|/path/file] [--uid=number] [--startup=Y|y|N|n] [--file=/path/install.conf]"
+}
 
 function pre_setup() {
     #add user
@@ -200,10 +84,10 @@ function pre_setup() {
     fi
 
     #install compile library
-    if [ "$osType" = "Rocky Linux" ]; then
+    if [ "$OS_NAME" = "rocky" ]; then
         yum install -y ncurses-devel tcl tcl-devel libtirpc libtirpc-devel libnsl2-devel    
         yum groupinstall -y "Development Tools"
-    elif [ "$osType" = "Ubuntu" ]; then
+    elif [ "$OS_NAME" = "ubuntu" ]; then
         apt update
         apt install -y build-essential automake tcl-dev libncurses-dev debhelper
     else #CentOS
@@ -212,38 +96,24 @@ function pre_setup() {
     fi
 
     #close firewall
-    if [ "$osType" != "Ubuntu" ]; then 
+    if [ "$OS_NAME" != "ubuntu" ]; then 
         systemctl stop firewalld
         systemctl disable firewalld
     fi
 }
 
 function post_setup() {
-    #rpm way doesn't need post setup, rpm already setup service and shell environment
-    if [ "$TYPE" = "rpm" -a "$PHASE" = "all" ]; then
-        return
-    fi
+    #rpm/deb way don't need post setup on master, they already setup service and shell environment
 
-    #set up volclava service and shell environment
-    if [ "$TYPE" = "deb" ] && [ $setPrefix -ne 0 ]; then
-        cp --backup=numbered $PREFIX/lib/systemd/system/volclava.service /lib/systemd/system/volclava.service
-        chmod 644 /lib/systemd/system/volclava.service
-        cp --backup=numbered $PREFIX/etc/init.d/volclava /etc/init.d/volclava
-        chmod 755 /etc/init.d/volclava
-
-        systemctl daemon-reload
-
-	ln -sf $PREFIX/etc/profile.d/volclava.csh /etc/profile.d/volclava.csh
-	ln -sf $PREFIX/etc/profile.d/volclava.sh /etc/profile.d/volclava.sh
-    else
+    if [[ "$PHASE" != "all" || ("$PHASE" == "all" && "$TYPE" == "code") ]]; then
         cp --backup=numbered $PREFIX/etc/volclava /etc/init.d/
-	ln -sf $PREFIX/etc/volclava.csh /etc/profile.d/volclava.csh
-	ln -sf $PREFIX/etc/volclava.sh /etc/profile.d/volclava.sh
+        ln -sf $PREFIX/etc/volclava.csh /etc/profile.d/volclava.csh
+        ln -sf $PREFIX/etc/volclava.sh /etc/profile.d/volclava.sh
     fi
-
 
     # configure the lava service to start at boot
-    if [ "$osType" == "Ubuntu" ]; then
+    if [ "$OS_NAME" == "ubuntu" ]; then
+       systemctl daemon-reload
        /lib/systemd/systemd-sysv-install enable volclava
     else
        chkconfig --add volclava
@@ -295,7 +165,7 @@ function addHosts2Cluster() {
             found_place=true
         fi
 
-        if [ "$found_place" == true ]; then
+        if [[ "$found_place" == true ]]; then
             for hostname in "${hostnames[@]}"; do
                 sed -i "${line_number}a\\${hostname}           IntelI5      linux   1      3.5    (cs)" $clusterFile
                 ((line_number++)) 
@@ -313,10 +183,13 @@ function install() {
         # install volclava from source code
 	cd ${CWD}
         #setup automake
-        if [[ "$INTERACTIVE" == "Y" ]] || [[ "$INTERACTIVE" == "y" ]]; then
-            ./bootstrap.sh --prefix=$PREFIX --enable-interactive-install
+        if [[ $MIX_OS_MODE == 1  ]]; then
+            #install in multi-platform mode
+            platform=${OS_NAME}-${OS_VERSION}-${CPU_ARCH}
+            ./bootstrap.sh --prefix=$PREFIX --exec-prefix=${PREFIX}/${MIX_OS_FOLDER}/${platform}
         else
-            ./bootstrap.sh --prefix=$PREFIX --disable-interactive-install
+            #install in single platform mode
+            ./bootstrap.sh --prefix=$PREFIX
         fi
 
         #make and install
@@ -333,12 +206,26 @@ function install() {
             exit 1
         fi
 
+        #After build install, let us modify configuration according to user specification
         chown ${VOLCADMIN}:${VOLCADMIN} -R $PREFIX
         chmod 755 -R $PREFIX
 
         #append hosts into lsf.cluster file
-        if [ ! -z "$HOSTS" ]; then
+        if [[ $CLS_FILE_EXIST == 0 && -n "$HOSTS" ]]; then
             addHosts2Cluster "$HOSTS" ${PREFIX}/etc/lsf.cluster.${CLUSTERNAME}
+        fi
+        #modify volclava.sh,volclava.csh,lsf.conf for multi-platform mode
+        if [[ $MIX_OS_MODE == 1 ]]; then
+            if [[ $VOLC_SH_EXIT == 0 ]]; then
+                sed -i "s/^MIX_OS_FOLDER=.*/MIX_OS_FOLDER=$MIX_OS_FOLDER/" ${PREFIX}/etc/volclava.sh
+            fi
+            if [[ $VOLC_CSH_EXIT == 0  ]];then
+                sed -i "s/^set MIX_OS_FOLDER=.*/set MIX_OS_FOLDER=$MIX_OS_FOLDER/" ${PREFIX}/etc/volclava.csh
+            fi
+            if [[ $CONF_FILE_EXIST == 0 ]]; then
+                sed -i '/^LSF_SERVERDIR=/d' ${PREFIX}/etc/lsf.conf
+                sed -i '/^LSF_BINDIR=/d' ${PREFIX}/etc/lsf.conf
+            fi
         fi
     elif [ "$TYPE" = "deb" ]; then
         #deb way to install volclava
@@ -356,7 +243,7 @@ function install() {
             dpkg -P volclava
         fi
 
-        if [ $setPrefix -ne 0 ]; then
+        if [ $SET_PREFIX -ne 0 ]; then
             #install deb with prefix
             dpkg -x ../volclava_2.1*.deb $PREFIX
             #append hosts into lsf.cluster file
@@ -370,7 +257,7 @@ function install() {
         else
             dpkg -i ../volclava_2.1*.deb
             #append hosts into lsf.cluster file
-            if [ ! -z "$HOSTS" ]; then
+            if [[  $CLS_FILE_EXIST == 0 && -n "$HOSTS" ]]; then
                  addHosts2Cluster  "$HOSTS" /opt/${PACKAGE_NAME}/etc/lsf.cluster.${CLUSTERNAME}
             fi
         fi
@@ -407,12 +294,222 @@ function install() {
         rpm -ivh --prefix $PREFIX volclava-2.1*
 
         #append hosts into lsf.cluster file
-        if [ ! -z "$HOSTS" ]; then
+        if [[ $CLS_FILE_EXIST == 0 && -n "$HOSTS" ]]; then
              addHosts2Cluster  "$HOSTS" ${PREFIX}/${PACKAGE_NAME}/etc/lsf.cluster.${CLUSTERNAME}
         fi
     fi
 }
 
+while [ $# -gt 0 ]; do
+    case $1 in
+        --type=*)
+            TYPE=$(echo $1 | awk -F "=" '{print $2}')
+            if [ -z "$TYPE" ]; then
+                echo "Error: the value of \"--type\" is empty."
+                usage
+                exit 1
+            fi
+            if [ "$TYPE" == "rpm" -a $SET_PREFIX -eq 0 ]; then
+                PREFIX="/opt"
+            fi
+            if [ "$TYPE" == "deb" -a $SET_PREFIX -eq 0 ]; then
+                PREFIX="/opt"
+            fi
+            if [ "$TYPE" == "server" -a $PHASE != "all" ]; then
+                echo "Error: --type=server cannot be used with --setup."
+                usage
+                exit 1
+            fi
+            if [ "$TYPE" == "server" ]; then
+                PHASE="pre-post"
+            fi
+            ;;
+        --prefix=*)
+            PREFIX=$(echo $1 | awk -F "=" '{print $2}')
+            if [ -z "$PREFIX" ]; then
+                echo "Error: the value of \"--prefix\" is empty."
+                usage
+                exit 1
+            fi
+            SET_PREFIX=1
+            ;;
+        --setup=*)
+            PHASE=$(echo $1 | awk -F "=" '{print $2}')
+            if [ -z "$PHASE" ]; then
+                echo "Error: the value of \"--setup\" is empty."
+                usage
+                exit 1
+            fi
+	    if [ "$PHASE" != "pre" -a "$PHASE" != "post" -a "$PHASE" != "install" ]; then
+                echo "Error: The value of \"--setup\" should be 'pre', 'post' or 'install'."
+		usage
+	        exit 1
+	    fi	
+	    ;;
+        --env=*)
+            PREFIX=$(echo $1 | awk -F "=" '{print $2}')
+            if [ -z "$PREFIX" ]; then
+                echo "Error: the value of \"--env\" is empty."
+                usage
+                exit 1
+            fi
+            ;;
+        --uid=*)
+            USRID=$(echo $1 | awk -F "=" '{print $2}')
+            if [ -z "$USRID" ]; then
+                echo "Error: the value of \"--uid\" is empty."
+                usage
+                exit 1
+            fi
+            ;;
+        --hosts=*)
+            HOSTS=$(echo $1 | awk -F "=" '{print $2}')
+            if [ -z "$HOSTS" ]; then
+                echo "Error: the value of \"--hosts\" is empty."
+                usage
+                exit 1
+            fi
+            ;;
+        --startup=*)
+            STARTUP=$(echo $1 | awk -F "=" '{print $2}')
+            if [ -z "$STARTUP" ]; then
+                echo "Error: the value of \"--startup\" is empty."
+                usage
+                exit 1
+            fi
+            if [[ "$STARTUP" != "Y" ]] && [[ "$STARTUP" != "y" ]] && [[ "$STARTUP" != "N" ]] && [[ "$STARTUP" != "n" ]]; then
+                echo "Error: the value of \"--startup\" should be y|Y|n|N."
+                usage
+                exit 1
+            fi
+            ;;
+        --file=*)
+            INSTALL_CONF_FILE=$(echo $1 | awk -F "=" '{print $2}')
+            if [[ -z "$INSTALL_CONF_FILE" || ! -e "$INSTALL_CONF_FILE" || -d "$INSTALL_CONF_FILE" ]]; then
+                echo "Error: the value of \"--file\" should be an existing file with a path."
+                usage
+                exit 1
+            fi
+            ;;
+        --help)
+            usage
+            exit 0
+            ;;
+        *)
+            usage
+            exit 1
+            ;;
+    esac
+    shift
+done
+
+
+#######################################
+# 3. main logic
+#######################################
+# Validate options
+if [[ "$TYPE" != "code" && "$TYPE" != "rpm" && "$TYPE" != "deb" && "$TYPE" != "server" ]]; then
+    echo "Error: the value of \"--type\" is invalid."
+    usage
+    exit 1
+fi
+
+if [[ ("$TYPE" == "server" &&  "$PHASE" != "pre-post") || ("$TYPE" != "server" && "$PHASE" == "pre-post") ]]; then
+    echo "Error: --type=server cannot be used with --setup."
+    usage
+    exit 1
+fi
+
+read OS_NAME OS_VERSION CPU_ARCH <<< "$(get_os_info)"
+if [ "$OS_NAME" == "unknown" ]; then
+    echo "Failed to find OS type, please check supported OS from README.md"
+    exit 1
+fi
+
+if [ "$OS_NAME" = "ubuntu" ] && [ "$TYPE" = "rpm" ]; then
+   echo "Ubuntu does not support rpm installation, please install package from source code"
+   exit 1
+fi
+
+if [ "$OS_NAME" = "rocky" ] && [ "$TYPE" = "deb" ]; then
+   echo "Rocky Linux does not support deb installation, please install package from source code"
+   exit 1
+fi
+
+if [ "$OS_NAME" = "centos" ] && [ "$TYPE" = "deb" ]; then
+   echo "CentOS Linux does not support deb installation, please install package from source code"
+   exit 1
+fi
+
+if [ "$OS_NAME" = "redhat" ] && [ "$TYPE" = "deb" ]; then
+   echo "Redhat Linux does not support deb installation, please install package from source code"
+   exit 1
+fi
+
+#Initialization configration from file or env, order of configuration effectiveness as following:
+#obvious options -> config from specified file -> environment if set -> default value
+if [ -n "$INSTALL_CONF_FILE" ];then
+    . $INSTALL_CONF_FILE
+fi
+
+#PREFIX
+if [[ "$SET_PREFIX" == 0 && -n "$VOLC_PREFIX" ]]; then
+    PREFIX=$VOLC_PREFIX
+    SET_PREFIX=1
+fi
+#VOLCADMIN
+if [ -n "$VOLC_ADMIN" ]; then
+    VOLCADMIN=$VOLC_ADMIN
+    export volclavaadmin=$VOLCADMIN
+elif [ -n "$volclavaadmin" ]; then   
+    VOLCADMIN=$volclavaadmin
+fi
+#CLUSTERNAME
+if [ -n "$VOLC_CLUSTER_NAME" ]; then
+    CLUSTERNAME=$VOLC_CLUSTER_NAME
+    export volclavacluster=$CLUSTERNAME
+elif [ -n "$volclavacluster" ]; then 
+    CLUSTERNAME=$volclavacluster
+fi
+#HOSTS
+if [[ -z "$HOSTS" && -n "$VOLC_HOSTS" ]]; then
+    HOSTS=$VOLC_HOSTS
+fi
+#MIX_OS_MODE
+if [[ "$VOLC_MIX_OS_MODE" == "Y" || "$VOLC_MIX_OS_MODE" == "y" ]]; then
+    MIX_OS_MODE=1
+fi
+
+if [[ "$VOLC_MIX_OS_MODE" == "Y" && ("$TYPE" == "rpm" || "$TYPE" == "deb") ]]; then
+    echo "Volclava does not support multi-platform installation via RPM or DEB packages. Please set VOLC_MIX_OS_MODE=N in install.conf and try again."
+    exit 1    
+fi
+
+if [[ "$TYPE" == "deb" && $SET_PREFIX == 1 ]]; then
+    echo "Currently, installing Volclava via deb package does not support specifying a custom prefix. Please check the prefix settings in the command-line arguments or installation config file."
+    exit 1
+fi
+
+#MIX_OS_FOLDER
+if [ -n "$VOLC_MIX_OS_FOLDER" ]; then
+    MIX_OS_FOLDER=$VOLC_MIX_OS_FOLDER
+fi
+
+#Other internal variables
+if [[ -e $PREFIX/etc/lsf.conf ]]; then
+   CONF_FILE_EXIST=1
+fi
+if [[ -e $PREFIX/etc/lsf.cluster.${CLUSTERNAME} ]]; then
+   CLS_FILE_EXIST=1
+fi
+if [[ -e $PREFIX/etc/volclava.sh ]]; then
+   VOLC_SH_EXIST=1
+fi
+if [[ -e $PREFIX/etc/volclava.csh ]]; then
+   VOLC_CSH_EXIST=1
+fi
+
+#Execute installation
 if [ "$PHASE" == "pre" ]; then
     pre_setup
     echo "Preparation is done. You can use \"volcinstall.sh --setup=install ...\" to install the package"

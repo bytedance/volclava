@@ -124,6 +124,8 @@ numericValue(ClientData clientData,
         runTimeDataQueried = FALSE;
         resultPtr->intValue = (hPtr->hostInactivityCount == -1) ? 0 : 1;
 
+    } else if (*indx == SLOTS) {
+        resultPtr->intValue = hPtr->slots;
     } else {
 
         value = getResValue(*indx - myTclLsInfo->numIndx);
@@ -424,6 +426,7 @@ initTcl(struct tclLsInfo *tclLsInfo)
         {"maxswp", 0},
         {"maxtmp" ,0},
         {"server", 0},
+        {"slots" , 0},
         {NULL, -1}
     };
 
@@ -448,6 +451,7 @@ initTcl(struct tclLsInfo *tclLsInfo)
     attrFuncTable[9].clientData  = MAXSWAP;
     attrFuncTable[10].clientData = MAXTMP;
     attrFuncTable[11].clientData = SERVER;
+    attrFuncTable[12].clientData = SLOTS;
 
     globinterp = Tcl_CreateInterp();
 

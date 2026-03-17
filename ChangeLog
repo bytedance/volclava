@@ -1,3 +1,13 @@
+2025-11-16  Mingze Li <limingze.jiayou@bytedance.com>
+            Nan Qi <qinan.cn@bytedance.com>
+
+	* release volclava 2.1.1.
+
+	* Summary of changes:
+	1. support sorting hosts for job scheduling via order[slots];
+	2. enhance mixed-OS deployment installation to maintain compatibility with single-platform mode;
+	3. fix volclava script error on Ubuntu;
+
 2025-09-12  Mingze Li <limingze.jiayou@bytedance.com>
             Nan Qi <qinan.cn@bytedance.com>
 	

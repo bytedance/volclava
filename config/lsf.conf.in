@@ -3,6 +3,9 @@
 # This file is designed as Bourne Shell rc file 
 # and it is sourced by all volclava components.
 #
+LSF_SERVERDIR=@prefix@/sbin
+LSF_BINDIR=@prefix@/bin
+
 LSB_SHAREDIR=@prefix@/work
 LSF_ENVDIR=@prefix@/etc
 

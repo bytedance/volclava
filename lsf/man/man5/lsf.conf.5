@@ -1,7 +1,7 @@
 .ds ]W %
 .ds ]L
 .nh
-.TH lsf.conf 5 "Lava Version 1.0 - Sept 2007"
+.TH lsf.conf 5 "Volclava Version 2.1.1 - Jan 2026"
 .br
 .SH NAME
 \fBlsf.conf\fR
@@ -81,7 +81,8 @@ not use #if as this is reserved syntax for time-based configuration.
 .PP
 .PP
 \fBLSB_API_CONNTIMEOUT=\fR\fItime_seconds
-\fR.SS Description
+\fR
+.SS Description
 .BR
 .PP
 .PP
@@ -109,7 +110,8 @@ LSB_API_RECVTIMEOUT
 .PP
 .PP
 \fBLSB_API_RECVTIMEOUT=\fR\fItime_seconds
-\fR.SS Description
+\fR
+.SS Description
 .BR
 .PP
 .PP
@@ -137,7 +139,8 @@ LSB_API_CONNTIMEOUT
 .PP
 .PP
 \fBLSB_CMD_LOG_MASK=\fR\fIlog_level
-\fR.SS Description
+\fR
+.SS Description
 .BR
 .PP
 .PP
@@ -214,7 +217,8 @@ LSB_DEBUG_CMD, LSF_TIME_CMD
 .PP
 .PP
 \fBLSB_CMD_LOGDIR=\fR\fIpath
-\fR.SS Description
+\fR
+.SS Description
 .BR
 .PP
 .PP
@@ -240,7 +244,8 @@ LSB_CMD_LOG_MASK, LSF_LOGDIR
 .PP
 .PP
 \fBLSB_CONFDIR=\fR\fIdir
-\fR.SS Description
+\fR
+.SS Description
 .BR
 .PP
 .PP
@@ -283,7 +288,8 @@ LSF_CONFDIR
 .PP
 .PP
 \fBLSB_DEBUG=1\fR | \fB2
-\fR.SS Description
+\fR
+.SS Description
 .BR
 .PP
 .PP
@@ -342,7 +348,8 @@ LSF_LIM_DEBUG, LSF_RES_DEBUG
 .PP
 .PP
 \fBLSB_DEBUG_CMD=\fR\fIlog_class
-\fR.SS Description
+\fR
+.SS Description
 .BR
 .PP
 .PP
@@ -435,7 +442,8 @@ LSB_CMD_LOG_MASK, LSB_CMD_LOGDIR
 .PP
 .PP
 \fBLSB_DEBUG_MBD=\fR\fIlog_class
-\fR.SS Description
+\fR
+.SS Description
 .BR
 .PP
 .PP
@@ -514,7 +522,8 @@ LSB_DEBUG_CMD, LSF_LOG_MASK, LSF_LOGDIR
 .PP
 .PP
 \fBLSB_DEBUG_SBD=\fR\fIlog_class
-\fR.SS Description
+\fR
+.SS Description
 .BR
 .PP
 .PP
@@ -571,7 +580,8 @@ LSB_DEBUG_MBD, LSF_LOG_MASK, LSF_LOGDIR, \fBbadmin
 .PP
 .PP
 \fBLSB_ECHKPNT_METHOD=\fR\fImethod_name
-\fR.SS Description
+\fR
+.SS Description
 .BR
 .PP
 .PP
@@ -636,7 +646,8 @@ LSB_ECHKPNT_METHOD_DIR, LSB_ECHKPNT_KEEP_OUTPUT
 .PP
 .PP
 \fBLSB_ECHKPNT_METHOD_DIR=\fR\fIpath
-\fR.SS Description
+\fR
+.SS Description
 .BR
 .PP
 .PP
@@ -668,7 +679,8 @@ LSB_ECHKPNT_METHOD, LSB_ECHKPNT_KEEP_OUTPUT
 .PP
 .PP
 \fBLSB_ECHKPNT_KEEP_OUTPUT=y\fR|\fBY
-\fR.SS Description
+\fR
+.SS Description
 .BR
 .PP
 .PP
@@ -711,7 +723,8 @@ LSB_ECHKPNT_METHOD, LSB_ECHKPNT_METHOD_DIR
 .PP
 .PP
 \fBLSB_INTERACT_MSG_ENH = y\fR | \fBY
-\fR.SS Description
+\fR
+.SS Description
 .BR
 .PP
 .PP
@@ -737,7 +750,8 @@ LSB_INTERACT_MSG_INTVAL
 .PP
 .PP
 \fBLSB_INTERACT_MSG_INTVAL =\fR \fIseconds
-\fR.SS Description
+\fR
+.SS Description
 .BR
 .PP
 .PP
@@ -769,7 +783,8 @@ lsb.params
 .PP
 .PP
 \fBLSB_JOB_CPULIMIT = y\fR | \fBn
-\fR.SS Description
+\fR
+.SS Description
 .BR
 .PP
 .PP
@@ -874,7 +889,8 @@ lsb.queues, bsub, JOB_TERMINATE_INTERVAL, LSB_MOD_ALL_JOBS
 .PP
 .PP
 \fBLSB_JOB_MEMLIMIT=y\fR | \fBn
-\fR.SS Description
+\fR
+.SS Description
 .BR
 .PP
 .PP
@@ -994,7 +1010,8 @@ JOB_TERMINATE_INTERVAL, LSB_MOD_ALL_JOBS
 .PP
 .PP
 \fBLSB_MAILPROG=\fR\fIfile_name
-\fR.SS Description
+\fR
+.SS Description
 .BR
 .PP
 .PP
@@ -1071,7 +1088,8 @@ LSB_MAILSERVER, LSB_MAILTO
 .PP
 .PP
 \fBLSB_MAILSERVER=\fR\fImail_protocol:mail_server
-\fR.SS Description
+\fR
+.SS Description
 .BR
 .PP
 .PP
@@ -1106,7 +1124,8 @@ LSB_MAILPROG
 .PP
 .PP
 \fBLSB_MAILSIZE_LIMIT=\fR\fIemail_size_in_KB
-\fR.SS Description
+\fR
+.SS Description
 .BR
 .PP
 .PP
@@ -1150,7 +1169,8 @@ LSB_MAILPROG, LSB_MAILTO
 .PP
 .PP
 \fBLSB_MAILTO=\fR\fImail_account
-\fR.SS Description
+\fR
+.SS Description
 .BR
 .PP
 .PP
@@ -1198,34 +1218,50 @@ daemons on all hosts to retrieve the new value.
 .PP
 .PP
 LSB_MAILPROG, LSB_MAILSIZE_LIMIT
-.SH LSB_MIG2PEND
+.SH LSB_MAX_PACK_JOBS
 .BR
 .PP
 .SS Syntax
 .BR
 .PP
 .PP
-\fBLSB_MIG2PEND=0 \fR| \fB1
-\fR.SS Description
+\fBLSB_MAX_PACK_JOBS=\fR\fIinteger\fR
+.SS Description
 .BR
 .PP
 .PP
-Applies only to migrating jobs.
+Applies to job packs only. Enables the job packs feature and
+specifies the maximum number of job submission requests in one
+job pack.
 .PP
-If 1, requeues migrating jobs intead of restarting or rerunning them on 
-the next available host. Requeues the jobs in the PEND state, in order 
-of the original submission time and job priority, unless 
-LSB_REQUEUE_TO_BOTTOM is also defined.
+If the value is 0, job packs are disabled.
 .PP
+If the value is 1, jobs from the file are submitted individually,
+as if submitted directly using the bsub command.
+.PP
+We recommend 100 as the initial pack size. Tune this parameter
+based on cluster performance. The larger the pack size, the
+faster the job submission rate is for all the job requests the
+job submission file. However, while mbatchd is processing a pack,
+mbatchd is blocked from processing other requests, so increasing
+pack size can affect mbatchd response time for other job submissions.
+.PP
+If you change the configuration of this parameter, you must
+restart mbatchd.
+.PP
+Parameters related to job packs are not supported as environment
+variables.
+.SS Valid Values
 .BR
 .PP
 .PP
-Undefined
-.SS See Also 
+Any positive integer or 0.
+.SS Default
 .BR
 .PP
 .PP
-LSB_REQUEUE_TO_BOTTOM
+Set to 300 at time of installation for the configuration template.
+If otherwise undefined, then 0 (disabled).
 .SH LSB_MBD_PORT  
 .BR
 .PP
@@ -1240,14 +1276,15 @@ LSB_SBD_PORT.
 .PP
 .PP
 \fBLSB_MEMLIMIT_ENFORCE=y\fR | \fBn
-\fR.SS Description
+\fR
+.SS Description
 .BR
 .PP
 .PP
 Specify y to enable Lava memory limit enforcement.
 .PP
-If enabled, Lava sends a signal to kill all processes that exceed queue-
-level memory limits set by MEMLIMIT in lsb.queues or job-level 
+If enabled, Lava sends a signal to kill all processes that exceed queue-level memory 
+limits set by MEMLIMIT in lsb.queues or job-level 
 memory limits specified by \fBbsub -M \fR\fImem_limit\fR.
 .PP
 Otherwise, Lava passes memory limit enforcement to the OS. UNIX 
@@ -1264,6 +1301,35 @@ Not defined. Lava passes memory limit enforcement to the OS.
 .PP
 .PP
 lsb.queues
+.SH LSB_MIG2PEND
+.BR
+.PP
+.SS Syntax
+.BR
+.PP
+.PP
+\fBLSB_MIG2PEND=0 \fR| \fB1
+\fR
+.SS Description
+.BR
+.PP
+.PP
+Applies only to migrating jobs.
+.PP
+If 1, requeues migrating jobs intead of restarting or rerunning them on
+the next available host. Requeues the jobs in the PEND state, in order
+of the original submission time and job priority, unless
+LSB_REQUEUE_TO_BOTTOM is also defined.
+.PP
+.BR
+.PP
+.PP
+Undefined
+.SS See Also
+.BR
+.PP
+.PP
+LSB_REQUEUE_TO_BOTTOM
 .SH LSB_MOD_ALL_JOBS
 .BR
 .PP
@@ -1272,7 +1338,8 @@ lsb.queues
 .PP
 .PP
 \fBLSB_MOD_ALL_JOBS=y\fR | \fBY
-\fR.SS Description
+\fR
+.SS Description
 .BR
 .PP
 .PP
@@ -1310,6 +1377,38 @@ Undefined
 .PP
 LSB_JOB_CPULIMIT, LSB_JOB_MEMLIMIT
 .PP
+.SH LSB_PACK_SKIP_ERROR
+.BR
+.PP
+.SS Syntax
+.BR
+.PP
+.PP
+\fBLSB_PACK_SKIP_ERROR=\fR\fIy\fR|\fIY\fR|\fIn\fI|\fBN
+.SS Description
+.BR
+.PP
+.PP
+Applies to job packs only.
+.PP
+If LSB_PACK_SKIP_ERROR=\fBY\fR, all requests in the job submission file
+are submitted, even if some of the job submissions fail. The job
+submission process always continues to the end of the file.
+.PP
+If LSB_PACK_SKIP_ERROR=\fBN\fR, job submission stops if one job submission
+fails. The remaining requests in the job submission file are
+not submitted.
+.PP
+If you change the configuration of this parameter, you must
+restart mbatchd.
+.PP
+Parameters related to job packs are not supported as environment
+variables.
+.SS Default
+.BR
+.PP
+.PP
+\fBN\fR
 .SH LSB_REQUEUE_TO_BOTTOM
 .BR
 .PP
@@ -1318,7 +1417,8 @@ LSB_JOB_CPULIMIT, LSB_JOB_MEMLIMIT
 .PP
 .PP
 \fBLSB_REQUEUE_TO_BOTTOM=0\fR | \fB1
-\fR.SS Description
+\fR
+.SS Description
 .BR
 .PP
 .PP
@@ -1366,7 +1466,8 @@ n
 .PP
 .PP
 \fBLSB_SHAREDIR=\fR\fIdir
-\fR.SS Description
+\fR
+.SS Description
 .BR
 .PP
 .PP
@@ -1402,7 +1503,8 @@ LSB_LOCALDIR
 .PP
 .PP
 \fBLSB_SIGSTOP=\fR\fIsignal_name\fR | \fIsignal_value
-\fR.SS Description
+\fR
+.SS Description
 .BR
 .PP
 .PP
@@ -1453,7 +1555,8 @@ Undefined. Default SUSPEND action in Lava is sent.
 .PP
 .PP
 \fBLSB_SHORT_HOSTLIST=1
-\fR.SS Description
+\fR
+.SS Description
 .BR
 .PP
 .PP
@@ -1489,7 +1592,8 @@ Undefined
 .PP
 .PP
 \fBLSB_TIME_CMD=\fR\fItimimg_level
-\fR.SS Description
+\fR
+.SS Description
 .BR
 .PP
 .PP
@@ -1516,7 +1620,8 @@ LSB_TIME_MBD, LSB_TIME_SBD, LSF_TIME_LIM, LSF_TIME_RES
 .PP
 .PP
 \fBLSB_TIME_MBD=\fR\fItiming_level
-\fR.SS Description
+\fR
+.SS Description
 .BR
 .PP
 .PP
@@ -1543,7 +1648,8 @@ LSB_TIME_CMD, LSB_TIME_SBD, LSF_TIME_LIM, LSF_TIME_RES
 .PP
 .PP
 \fBLSB_TIME_SBD=\fR\fItiming_level
-\fR.SS Description
+\fR
+.SS Description
 .BR
 .PP
 .PP
@@ -1570,7 +1676,8 @@ LSB_TIME_CMD, LSB_TIME_MBD, LSF_TIME_LIM, LSF_TIME_RES
 .PP
 .PP
 \fBLSB_UTMP=y\fR | \fBY
-\fR.SS Description
+\fR
+.SS Description
 .BR
 .PP
 .PP
@@ -1603,7 +1710,8 @@ LSF_SERVERDIR
 .PP
 .PP
 \fBLSF_AM_OPTIONS=AMFIRST\fR | \fBAMNEVER
-\fR.SS Description
+\fR
+.SS Description
 .BR
 .PP
 .PP
@@ -1648,7 +1756,8 @@ Undefined; same as AMFIRST
 .PP
 .PP
 \fBLSF_API_CONNTIMEOUT=\fR\fIseconds
-\fR.SS Description
+\fR
+.SS Description
 .BR
 .PP
 .PP
@@ -1694,7 +1803,8 @@ LSF_API_CONNTIMEOUT
 .PP
 .PP
 \fBLSF_AUTH=eauth\fR | \fBsetuid\fR 
-\fR.SS Description
+\fR
+.SS Description
 .BR
 .PP
 .PP
@@ -1749,7 +1859,8 @@ eauth
 .PP
 .PP
 \fBLSF_AUTH_DAEMONS=\fR\fIany_value
-\fR.SS Description
+\fR
+.SS Description
 .BR
 .PP
 .PP
@@ -1789,7 +1900,8 @@ LSF_MACHDEP/bin
 .PP
 .PP
 \fBLSF_CMD_LOGDIR=\fR\fIpath
-\fR.SS Description
+\fR
+.SS Description
 .BR
 .PP
 .PP
@@ -1817,7 +1929,8 @@ LSB_DEBUG_CMD, LSB_CMD_LOGDIR
 .PP
 .PP
 \fBLSF_CONF_RETRY_INT=\fR\fIseconds
-\fR.SS Description
+\fR
+.SS Description
 .BR
 .PP
 .PP
@@ -1842,7 +1955,8 @@ LSF_CONF_RETRY_MAX
 .PP
 .PP
 \fBLSF_CONF_RETRY_MAX=\fR\fIinteger
-\fR.SS Description
+\fR
+.SS Description
 .BR
 .PP
 .PP
@@ -1899,7 +2013,8 @@ LSB_CONFDIR
 .PP
 .PP
 \fBLSF_DEBUG_LIM=\fR\fIlog_class
-\fR.SS Description
+\fR
+.SS Description
 .BR
 .PP
 .PP
@@ -1981,7 +2096,8 @@ LSF_DEBUG_RES, LSF_LOG_MASK, LSF_LOGDIR
 .PP
 .PP
 \fBLSF_DEBUG_RES=\fR\fIlog_class
-\fR.SS Description
+\fR
+.SS Description
 .BR
 .PP
 .PP
@@ -2041,7 +2157,8 @@ LSF_DEBUG_LIM, LSF_LOG_MASK, LSF_LOGDIR
 .PP
 .PP
 \fBLSF_DEFAULT_INSTALL=y\fR|\fBn
-\fR.SS Description
+\fR
+.SS Description
 .BR
 .PP
 .PP
@@ -2063,7 +2180,8 @@ y | n
 .PP
 .PP
 \fBLSF_ENVDIR=\fR\fIdir
-\fR.SS Description
+\fR
+.SS Description
 .BR
 .PP
 .PP
@@ -2092,7 +2210,8 @@ LSF_CONFDIR.
 .PP
 .PP
 \fBLSF_INCLUDEDIR=\fR\fIdir
-\fR.SS Description
+\fR
+.SS Description
 .BR
 .PP
 .PP
@@ -2119,7 +2238,8 @@ LSF_INDEP
 .PP
 .PP
 \fBLSF_INDEP=\fR\fIdir
-\fR.SS Description
+\fR
+.SS Description
 .BR
 .PP
 .PP
@@ -2167,7 +2287,8 @@ LSF_MANDIR
 .PP
 .PP
 \fBLSF_INTERACTIVE_STDERR=y\fR | \fBn
-\fR.SS Description
+\fR
+.SS Description
 .BR
 .PP
 .PP
@@ -2280,7 +2401,8 @@ LSF_NIOS_DEBUG, LSF_CMD_LOGDIR
 .PP
 .PP
 \fBLSF_LIBDIR=\fR\fIdir
-\fR.SS Description
+\fR
+.SS Description
 .BR
 .PP
 .PP
@@ -2302,7 +2424,8 @@ LSF_MACHDEP/lib
 .PP
 .PP
 \fBLSF_LIM_DEBUG=1\fR | \fB2
-\fR.SS Description
+\fR
+.SS Description
 .BR
 .PP
 .PP
@@ -2354,7 +2477,8 @@ LSF_RES_DEBUG
 .PP
 .PP
 Example: \fBLSF_LIM_PORT=\fR\fIport_number
-\fR.SS Description
+\fR
+.SS Description
 .BR
 .PP
 .PP
@@ -2392,7 +2516,8 @@ Default port number values for Linux are:
 .BR
 .PP
 \fBLSF_LOG_MASK=\fR\fImessage_log_level
-\fR.SS Description
+\fR
+.SS Description
 .BR
 .PP
 .PP
@@ -2470,7 +2595,8 @@ LSB_DEBUG_CMD, LSF_CMD_LOGDIR
 .PP
 .PP
 \fBLSF_LOGDIR=\fR\fIdir
-\fR.SS Description
+\fR
+.SS Description
 .BR
 .PP
 .PP
@@ -2524,7 +2650,8 @@ LSF_LOG_MASK
 .PP
 .PP
 \fBLSF_MACHDEP=\fR\fIdir
-\fR.SS Description
+\fR
+.SS Description
 .BR
 .PP
 .PP
@@ -2568,7 +2695,8 @@ LSF_INDEP
 .PP
 .PP
 \fBLSF_MANDIR=\fR\fIdir
-\fR.SS Description
+\fR
+.SS Description
 .BR
 .PP
 .PP
@@ -2602,7 +2730,8 @@ LSF_INDEP/man
 .PP
 .PP
 \fBLSF_MASTER_LIST="\fR\fIhost_name ...\fR\fB"
-\fR.SS Description
+\fR
+.SS Description
 .BR
 .PP
 .PP
@@ -2630,7 +2759,8 @@ Undefined
 .PP
 .PP
 \fBLSF_MISC=\fR\fIdir
-\fR.SS Description
+\fR
+.SS Description
 .BR
 .PP
 .PP
@@ -2652,7 +2782,8 @@ LSF_CONFDIR/misc
 .PP
 .PP
 \fBLSF_NIOS_DEBUG=1
-\fR.SS Description
+\fR
+.SS Description
 .BR
 .PP
 .PP
@@ -2688,7 +2819,8 @@ LSF_CMD_LOGDIR
 .PP
 .PP
 \fBLSF_NIOS_JOBSTATUS_INTERVAL=\fR\fIminutes
-\fR.SS Description
+\fR
+.SS Description
 .BR
 .PP
 .PP
@@ -2749,7 +2881,8 @@ Environment variable LSF_NIOS_PEND_TIMEOUT
 .PP
 .PP
 \fBLSF_NIOS_RES_HEARTBEAT=\fR\fIminutes
-\fR.SS Description
+\fR
+.SS Description
 .BR
 .PP
 .PP
@@ -2789,10 +2922,34 @@ hours or days. Too low a number may add load to the system.
 .PP
 .PP
 Lava Base, Lava Batch
-.SH  
+.SH LSF_NON_PRIVILEGED_PORTS
 .BR
 .PP
 .PP
+.SS Syntax
+.BR
+.PP
+.PP
+\fBLSF_NON_PRIVILEGED_PORTS=\fR\fIY\fR|\fIy\fR|\fIN\fR|\fIn\fR
+.SS Description
+.BR
+.PP
+.PP
+By default volclava uses non privileged ports for communication and daemons do not check privileged ports for incoming requests to do authentication.
+.BR
+.PP
+To use privileged port communication, change the value of LSF_NON_PRIVILEGED_PORTS to N, then do the following:
+.PP
+1. Shut down the cluster.
+.PP
+2. Change the parameter value.
+.PP
+3. Restart the cluster so the new value takes effect.
+.SS Default
+.BR
+.PP
+.PP
+\fBY\fR
 .SH LSF_PIM_INFODIR
 .BR
 .PP
@@ -2801,7 +2958,8 @@ Lava Base, Lava Batch
 .PP
 .PP
 \fBLSF_PIM_INFODIR=\fR\fIpath
-\fR.SS Description
+\fR
+.SS Description
 .BR
 .PP
 .PP
@@ -2826,7 +2984,8 @@ Undefined. If undefined, the system uses /tmp.
 .PP
 .PP
 \fBLSF_PIM_SLEEPTIME=\fR\fIseconds
-\fR.SS Description
+\fR
+.SS Description
 .BR
 .PP
 .PP
@@ -2851,7 +3010,8 @@ minute update period.
 .PP
 .PP
 \fBLSF_RES_ACCT=\fR\fImilliseconds \fR| \fB0
-\fR.SS Description
+\fR
+.SS Description
 .BR
 .PP
 .PP
@@ -2891,7 +3051,8 @@ LSF_RES_ACCTDIR
 .PP
 .PP
 \fBLSF_RES_ACCTDIR=\fR\fIdir
-\fR.SS Description
+\fR
+.SS Description
 .BR
 .PP
 .PP
@@ -2918,7 +3079,8 @@ LSF_RES_ACCT
 .PP
 .PP
 \fBLSF_RES_DEBUG=1\fR\fI | \fR\fB2
-\fR.SS Description
+\fR
+.SS Description
 .BR
 .PP
 .PP
@@ -2970,7 +3132,8 @@ LSF_LIM_DEBUG
 .PP
 .PP
 \fBLSF_RES_PLUGINDIR=\fR\fIpath
-\fR.SS Description
+\fR
+.SS Description
 .BR
 .PP
 .PP
@@ -2998,7 +3161,8 @@ LSB_SBD_PORT.
 .PP
 .PP
 \fBLSF_RES_RLIMIT_UNLIM=cpu\fR | \fBfsize\fR | \fBdata\fR | \fBstack\fR | \fBcore\fR | \fBvmem
-\fR.SS Description
+\fR
+.SS Description
 .BR
 .PP
 .PP
@@ -3055,7 +3219,8 @@ Timeout when communicating with RES.
 .PP
 .PP
 \fBLSF_SERVER_HOSTS="\fR\fIhost_name\fR ...\fB"
-\fR.SS Description
+\fR
+.SS Description
 .BR
 .PP
 .PP
@@ -3089,7 +3254,8 @@ Undefined
 .PP
 .PP
 \fBLSF_SERVERDIR=\fR\fIdir
-\fR.SS Description
+\fR
+.SS Description
 .BR
 .PP
 .PP
@@ -3167,7 +3333,8 @@ Undefined
 .PP
 .PP
 \fBLSF_TIME_CMD=\fR\fItimimg_level
-\fR.SS Description
+\fR
+.SS Description
 .BR
 .PP
 .PP
@@ -3192,7 +3359,8 @@ LSF_TIME_RES
 .PP
 .PP
 \fBLSF_TIME_LIM=\fR\fItiming_level
-\fR.SS Description
+\fR
+.SS Description
 .BR
 .PP
 .PP
@@ -3217,7 +3385,8 @@ LSB_TIME_CMD, LSB_TIME_MBD, LSB_TIME_SBD, LSF_TIME_RES
 .PP
 .PP
 \fBLSF_TIME_RES=\fR\fItiming_level
-\fR.SS Description
+\fR
+.SS Description
 .BR
 .PP
 .PP
@@ -3242,7 +3411,8 @@ LSB_TIME_CMD, LSB_TIME_MBD, LSB_TIME_SBD, LSF_TIME_LIM
 .PP
 .PP
 \fBLSF_TMPDIR=\fR\fIdir
-\fR.SS Description
+\fR
+.SS Description
 .BR
 .PP
 .PP
@@ -3296,82 +3466,6 @@ follows:
 .RS
 .HP 2
 \(bu On UNIX: $TMPDIR or /tmp
-.SH LSB_MAX_PACK_JOBS
-.BR
-.PP
-.SS Syntax
-.BR
-.PP
-.PP
-\fBLSB_MAX_PACK_JOBS=integer
-.SS Description
-.BR
-.PP
-.PP
-Applies to job packs only. Enables the job packs feature and
-specifies the maximum number of job submission requests in one
-job pack.
-.PP
-If the value is 0, job packs are disabled.
-.PP
-If the value is 1, jobs from the file are submitted individually,
-as if submitted directly using the bsub command.
-.PP
-We recommend 100 as the initial pack size. Tune this parameter
-based on cluster performance. The larger the pack size, the
-faster the job submission rate is for all the job requests the
-job submission file. However, while mbatchd is processing a pack,
-mbatchd is blocked from processing other requests, so increasing
-pack size can affect mbatchd response time for other job submissions.
-.PP
-If you change the configuration of this parameter, you must
-restart mbatchd.
-.PP
-Parameters related to job packs are not supported as environment
-variables.
-.SS Valid Values
-.BR
-.PP
-.PP
-Any positive integer or 0.
-.SS Default
-.BR
-.PP
-.PP
-Set to 300 at time of installation for the configuration template.
-If otherwise undefined, then 0 (disabled).
-.SH LSB_PACK_SKIP_ERROR
-.BR
-.PP
-.SS Syntax
-.BR
-.PP
-.PP
-\fBLSB_PACK_SKIP_ERROR=y\fR|\fBY\fR|\fBn\fR|\fBN
-.SS Description
-.BR
-.PP
-.PP
-Applies to job packs only.
-.PP
-If LSB_PACK_SKIP_ERROR=\fBY\fR, all requests in the job submission file
-are submitted, even if some of the job submissions fail. The job
-submission process always continues to the end of the file.
-.PP
-If LSB_PACK_SKIP_ERROR=\fBN\fR, job submission stops if one job submission
-fails. The remaining requests in the job submission file are
-not submitted.
-.PP
-If you change the configuration of this parameter, you must
-restart mbatchd.
-.PP
-Parameters related to job packs are not supported as environment
-variables.
-.SS Default
-.BR
-.PP
-.PP
-\fBN
 .SH LSF_UNIT_FOR_LIMITS
 .BR
 .PP
@@ -3379,7 +3473,7 @@ variables.
 .BR
 .PP
 .PP
-\fBLSF_UNIT_FOR_LIMITS=M\fR|\fBMB\fR|\fBG\fR|\fBGB\fR|\fBT\fR|\fBTB\fR|\fBP\fR|\fBPB\fR|\fBE\fR|\fBEB
+\fBLSF_UNIT_FOR_LIMITS=\fR\fIM\fR|\fIMB\fR|\fIG\fR|\fIGB\fR|\fIT\fR|\fITB\fR|\fIP\fR|\fIPB\fR|\fIE\fR|\fIEB\fR
 .SS Description
 .BR
 .PP
@@ -3389,5 +3483,4 @@ Enables scaling of large units in the resource usage limits.
 .BR
 .PP
 .PP
-\fBMB
-.RE
+\fBMB\fR

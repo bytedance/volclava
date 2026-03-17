@@ -330,7 +330,7 @@ extern int b_write_fix(int, char *, int);
 extern int b_write_timeout(int, char *, int, int);
 extern int detectTimeout_(int , int);
 extern int b_connect_(int, struct sockaddr *, int, int);
-extern int rd_select_(int, struct timeval *);
+extern int rd_poll_(int, struct timeval *);
 extern int b_accept_(int, struct sockaddr *, socklen_t *);
 extern int blockSigs_(int, sigset_t *, sigset_t *);
 
@@ -400,5 +400,6 @@ extern int getLSFUserByUid_(uid_t uid, char *lsfUserName, unsigned int lsfUserNa
 extern int getOSUserName_(const char *lsfUserName,
                           char *osUserName, unsigned int osUserNameSize);
 extern int getOSUid_(const char *lsfUserName, uid_t *uid);
+extern int getNonPrivilegedPorts();
 
 #endif

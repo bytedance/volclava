@@ -213,26 +213,50 @@ b_connect_(int s, struct sockaddr *name, int namelen, int timeout)
     return 0;
 }  
 
-int 
-rd_select_(int rd, struct timeval *timeout)
+/* 
+ * Replace select with poll.
+ * Reason for replacement:
+ *  A core dump occurs when excessively large values are set for host MXJ and MAX_SBD_CONNS.
+ *  Root cause analysis shows that the number of sockets exceeds 1024, which makes select unusable (select has a 1024 socket limit).
+ * 
+ * Comparison between epoll and select:
+ *  1. When using epoll in this scenario, it is found that the spin lock consumes a significant amount of time,
+ *     and an additional socket is required to monitor events. Poll can reduce resource overhead in this case.
+ *  2. Consistent with epoll, poll has no limit on the number of sockets (breaking through select's 1024 socket limit).
+ *  3. Poll achieves higher efficiency than both epoll and select in the single socket listening scenario.
+ */
+int rd_poll_(int rd, struct timeval *timeout)
 {
     int cc;
-    fd_set rmask;
+    struct pollfd fds[1];
+    int pollTimeout;
 
-    for (;;) {
-	FD_ZERO(&rmask);
-	FD_SET(rd, &rmask);
+    fds[0].fd = rd;
+    fds[0].events = POLLIN; 
 
-	cc = select(rd+1, &rmask, (fd_set *)0, (fd_set *)0, timeout);
-	if (cc >= 0)
-	    return cc;
-
-	if (errno == EINTR)
-	    continue;
-	return (-1);
+    if (timeout == NULL) {
+        pollTimeout = -1;
+    } else {
+        pollTimeout = timeout->tv_sec * 1000 + timeout->tv_usec / 1000;
+        if (pollTimeout < 0) {
+            pollTimeout = 0;
+        }
     }
 
-} 
+    for (;;) {
+        fds[0].revents = 0;
+        cc = poll(fds, 1, pollTimeout);
+
+        if (cc >= 0) {
+            return cc;
+        }
+
+        if (errno == EINTR) {
+            continue;
+        }
+        return (-1);
+    }
+}
 
 /* b_accept_()
  */
@@ -264,7 +288,7 @@ detectTimeout_(int s, int recv_timeout)
         timeval.tv_usec = 0;
         timep = &timeval;
     }
-    ready = rd_select_(s, timep);
+    ready = rd_poll_(s, timep);
     if (ready < 0) {
         lserrno = LSE_SELECT_SYS;
         return (-1);
@@ -316,7 +340,7 @@ nb_read_timeout(int s, char *buf, int len, int timeout)
     timeval.tv_usec = 0; 
     
     for (;;) {
-        nReady = rd_select_(s, &timeval);
+        nReady = rd_poll_(s, &timeval);
         if (nReady < 0) {
             lserrno = LSE_SELECT_SYS;
             return(-1);

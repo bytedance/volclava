@@ -2375,6 +2375,9 @@ doNewJobReply(struct sbdNode *sbdPtr, int exception)
             } else {
 
                 sbdPtr->reqCode = MBD_NEW_JOB_KEEP_CHAN;
+                if(chanUpdateListenEvents(sbdPtr->chanfd, EPOLLIN|EPOLLOUT|EPOLLERR) < 0){
+                    ls_syslog(LOG_ERR, "%s: chanUpdateListenEvents() failed %m", __func__);
+                }
             }
         } else {
 

@@ -775,7 +775,7 @@ int callRes_(int s,
         return (0);
     }
 
-    nready = rd_select_(*rd, timeout);
+    nready = rd_poll_(*rd, timeout);
     if (nready <= 0) {
         if (nready == 0)
             lserrno = LSE_TIME_OUT;

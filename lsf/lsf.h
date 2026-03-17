@@ -57,12 +57,13 @@
 #if !defined(__CYGWIN__)
 #include <rpcsvc/ypclnt.h>
 #endif
-
+#include <sys/epoll.h>
+#include <sys/poll.h>
 typedef long long int LS_LONG_INT;
 typedef unsigned long long LS_UNS_LONG_INT;
 
 #define LS_LONG_FORMAT ("%lld")
-#define _VOLCLAVA_PROJECT_ "volclava project 2.1.0"
+#define _VOLCLAVA_PROJECT_ "volclava project 2.1.1"
 
 /* This is our identifier printed out by all daemons
  * and commands.
@@ -299,6 +300,7 @@ enum orderType {INCR, DECR, NA};
 #define RESF_EXTERNAL    0x10
 #define RESF_RELEASE     0x20
 #define RESF_DEFINED_IN_RESOURCEMAP  0x40
+#define RESF_BATCH       0x80   /*The resouces take effect in batch side*/
 
 struct resItem {
     char name[MAXLSFNAMELEN];

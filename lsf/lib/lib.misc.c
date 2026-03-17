@@ -961,3 +961,13 @@ freeHostEntryLog(struct hostEntryLog **hPtr)
 
     return 0;
 }
+
+/*Reflect the value of the LSF_NON_PRIVILEGED_PORTS configuration*/
+int getNonPrivilegedPorts() {
+    if (genParams_[LSF_NON_PRIVILEGED_PORTS].paramValue != NULL
+        && strcasecmp(genParams_[LSF_NON_PRIVILEGED_PORTS].paramValue, "n") == 0) {
+        return 0;
+    } else {
+        return 1;
+    }
+}

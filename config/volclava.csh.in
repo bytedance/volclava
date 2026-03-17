@@ -4,114 +4,132 @@
 #
 set VOLCLAVA_TOP=@prefix@
 setenv LSF_ENVDIR @prefix@/etc
+set MIX_OS_FOLDER=""
 
-set OS_NAME="unknown"
-set OS_VERSION="unknown"
-set CPU_ARCH="unknown"
-
-#Check OS name and version
-if ( -f /etc/os-release ) then
-    foreach line ("`cat /etc/os-release`")
-        if ( "$line" =~ ID=* ) then
-            set ID=`echo "$line" | sed 's/^ID=//; s/"//g'`
-        endif
-
-        if ( "$line" =~ ID_LIKE=* ) then
-            set ID_LIKE=`echo "$line" | sed 's/^ID_LIKE=//; s/"//g'`
-        endif
-
-        if ( "$line" =~ VERSION_ID=* ) then
-            set VERSION_ID=`echo "$line" | sed 's/^VERSION_ID=//; s/"//g'`
-        endif
-
-        if ( "$line" =~ NAME=* ) then
-            set NAME=`echo "$line" | sed 's/^NAME=//; s/"//g'`
-        endif
-    end
-
-    #check ubuntu
-    if ( "$ID" == "ubuntu" || "$ID_LIKE" == "debian" ) then
-        set OS_NAME="ubuntu"
-        set OS_VERSION=$VERSION_ID
-    
-    #check centos
-    else if ( "$ID" == "centos" ) then
-        set OS_NAME="centos"
-        set OS_VERSION=$VERSION_ID
-    
-    #check rocky
-    else if ( "$ID" == "rocky" ) then
-        set OS_NAME="rocky"
-        set OS_VERSION=$VERSION_ID
-    
-    #check redhat
-    else if ( "$ID" == "rhel" || "$ID_LIKE" == "rhel" || "$NAME" == "Red Hat Enterprise Linux" ) then
-        set OS_NAME="redhat"
-        set OS_VERSION=$VERSION_ID
-    endif
-
-# Compatible with older systems without /etc/os-release
-else
-    if ( -f /etc/redhat-release ) then
-        set RELEASE=`cat /etc/redhat-release`
-        # Check CentOS
-        if ( `echo "$RELEASE" | grep -qi "centos"` == 0 ) then
-            set OS_NAME="centos"
-            set OS_VERSION=`echo "$RELEASE" | awk '{print $4}' | cut -d '.' -f 1`
-        # Check RedHat
-        else if ( `echo "$RELEASE" | grep -qi "red hat"` == 0 ) then
-            set OS_NAME="redhat"
-            set OS_VERSION=`echo "$RELEASE" | awk '{print $7}' | cut -d '.' -f 1`
-        endif
-    else if ( -f /etc/lsb-release ) then
-        source /etc/lsb-release
-        if ( "$DISTRIB_ID" == "Ubuntu" ) then
-            set OS_NAME="ubuntu"
-            set OS_VERSION=$DISTRIB_RELEASE
-        endif
-
-        foreach line ("'cat /etc/lsb-release'")
-            if ( "$line" =~ DISTRIB_ID=* ) then
-                set ID=`echo "$line" | sed 's/^DISTRIB_ID=//; s/"//g'`
-            else if ( "$line" =~ DISTRIB_RELEASE=* ) then
-                set OS_VERSION=`echo "$line" | sed 's/^DISTRIB_RELEASE=//; s/"//g'`
-            endif
-        end
-    endif
-endif
-
-# Check main version
-set OS_VERSION=`echo "$OS_VERSION" | sed -E 's/[^0-9.]//g' | cut -d '.' -f 1`
-
-# Check CPU arch
-set CPU_ARCH=`uname -m`
-
-# Check the binaries directory for current OS platform
-set PLATFORM=""
-set version=$OS_VERSION
-while ( $version >= 1 )
-    set FOLDER_NAME="${OS_NAME}-${version}-${CPU_ARCH}"
-    set FOLDER_PATH="${VOLCLAVA_TOP}/exec/${FOLDER_NAME}"
-    
-    if ( -d "$FOLDER_PATH" ) then
-        set PLATFORM="${OS_NAME}-${version}-${CPU_ARCH}"
-        break
-    endif
-    
-    @ version--
-end
-
-if ( "$PLATFORM" != "" ) then
-    set LSF_SERVERDIR=$VOLCLAVA_TOP/exec/${PLATFORM}/sbin
-    set LSF_BINDIR=$VOLCLAVA_TOP/exec/${PLATFORM}/bin
-    set LSF_LIBDIR=$VOLCLAVA_TOP/exec/${PLATFORM}/lib   
+if ( "$MIX_OS_FOLDER" == "" ) then
+    set LSF_SERVERDIR=$VOLCLAVA_TOP/sbin
+    set LSF_BINDIR=$VOLCLAVA_TOP/bin
+    set LSF_LIBDIR=$VOLCLAVA_TOP/lib   
+    set MANPATH=$VOLCLAVA_TOP/share/man
  
     setenv LSF_ENVDIR $LSF_ENVDIR
     setenv LSF_SERVERDIR $LSF_SERVERDIR
     setenv LSF_BINDIR $LSF_BINDIR
     setenv LSF_LIBDIR $LSF_LIBDIR
-    set path = ($LSF_SERVERDIR $LSF_BINDIR $path)
+    setenv MANPATH $MANPATH
+    setenv PATH "${LSF_SERVERDIR}:${LSF_BINDIR}:$PATH"
 else
-    set PLATFORM="${OS_NAME}-${OS_VERSION}-${CPU_ARCH}"
-    echo "The environment initialization failed for Volclava: The binaries directory <${VOLCLAVA_TOP}/exec/${PLATFORM}> not found for the current OS platform."
+
+    set OS_NAME="unknown"
+    set OS_VERSION="unknown"
+    set CPU_ARCH="unknown"
+
+    #Check OS name and version
+    if ( -f /etc/os-release ) then
+        foreach line ("`cat /etc/os-release`")
+            if ( "$line" =~ ID=* ) then
+                set ID=`echo "$line" | sed 's/^ID=//; s/"//g'`
+            endif
+
+            if ( "$line" =~ ID_LIKE=* ) then
+                set ID_LIKE=`echo "$line" | sed 's/^ID_LIKE=//; s/"//g'`
+            endif
+
+            if ( "$line" =~ VERSION_ID=* ) then
+                set VERSION_ID=`echo "$line" | sed 's/^VERSION_ID=//; s/"//g'`
+            endif
+
+            if ( "$line" =~ NAME=* ) then
+                set NAME=`echo "$line" | sed 's/^NAME=//; s/"//g'`
+            endif
+        end
+
+        #check ubuntu
+        if ( "$ID" == "ubuntu" || "$ID_LIKE" == "debian" ) then
+            set OS_NAME="ubuntu"
+            set OS_VERSION=$VERSION_ID
+        
+        #check centos
+        else if ( "$ID" == "centos" ) then
+            set OS_NAME="centos"
+            set OS_VERSION=$VERSION_ID
+        
+        #check rocky
+        else if ( "$ID" == "rocky" ) then
+            set OS_NAME="rocky"
+            set OS_VERSION=$VERSION_ID
+        
+        #check redhat
+        else if ( "$ID" == "rhel" || "$ID_LIKE" == "rhel" || "$NAME" == "Red Hat Enterprise Linux" ) then
+            set OS_NAME="redhat"
+            set OS_VERSION=$VERSION_ID
+        endif
+
+    # Compatible with older systems without /etc/os-release
+    else
+        if ( -f /etc/redhat-release ) then
+            set RELEASE=`cat /etc/redhat-release`
+            # Check CentOS
+            if ( `echo "$RELEASE" | grep -qi "centos"` == 0 ) then
+                set OS_NAME="centos"
+                set OS_VERSION=`echo "$RELEASE" | awk '{print $4}' | cut -d '.' -f 1`
+            # Check RedHat
+            else if ( `echo "$RELEASE" | grep -qi "red hat"` == 0 ) then
+                set OS_NAME="redhat"
+                set OS_VERSION=`echo "$RELEASE" | awk '{print $7}' | cut -d '.' -f 1`
+            endif
+        else if ( -f /etc/lsb-release ) then
+            source /etc/lsb-release
+            if ( "$DISTRIB_ID" == "Ubuntu" ) then
+                set OS_NAME="ubuntu"
+                set OS_VERSION=$DISTRIB_RELEASE
+            endif
+
+            foreach line ("'cat /etc/lsb-release'")
+                if ( "$line" =~ DISTRIB_ID=* ) then
+                    set ID=`echo "$line" | sed 's/^DISTRIB_ID=//; s/"//g'`
+                else if ( "$line" =~ DISTRIB_RELEASE=* ) then
+                    set OS_VERSION=`echo "$line" | sed 's/^DISTRIB_RELEASE=//; s/"//g'`
+                endif
+            end
+        endif
+    endif
+
+    # Check main version
+    set OS_VERSION=`echo "$OS_VERSION" | sed -E 's/[^0-9.]//g' | cut -d '.' -f 1`
+
+    # Check CPU arch
+    set CPU_ARCH=`uname -m`
+
+    # Check the binaries directory for current OS platform
+    set PLATFORM=""
+    set version=$OS_VERSION
+    while ( $version >= 1 )
+        set FOLDER_NAME="${OS_NAME}-${version}-${CPU_ARCH}"
+        set FOLDER_PATH="${VOLCLAVA_TOP}/${MIX_OS_FOLDER}/${FOLDER_NAME}"
+        
+        if ( -d "$FOLDER_PATH" ) then
+            set PLATFORM="${OS_NAME}-${version}-${CPU_ARCH}"
+            break
+        endif
+        
+        @ version--
+    end
+
+    if ( "$PLATFORM" != "" ) then
+        set LSF_SERVERDIR=$VOLCLAVA_TOP/${MIX_OS_FOLDER}/${PLATFORM}/sbin
+        set LSF_BINDIR=$VOLCLAVA_TOP/${MIX_OS_FOLDER}/${PLATFORM}/bin
+        set LSF_LIBDIR=$VOLCLAVA_TOP/${MIX_OS_FOLDER}/${PLATFORM}/lib
+        set MANPATH=$VOLCLAVA_TOP/share/man:$MANPATH
+    
+        setenv LSF_ENVDIR $LSF_ENVDIR
+        setenv LSF_SERVERDIR $LSF_SERVERDIR
+        setenv LSF_BINDIR $LSF_BINDIR
+        setenv LSF_LIBDIR $LSF_LIBDIR
+        setenv MANPATH $MANPATH
+        setenv PATH "${LSF_SERVERDIR}:${LSF_BINDIR}:$PATH"
+    else
+        set PLATFORM="${OS_NAME}-${OS_VERSION}-${CPU_ARCH}"
+        echo "The environment initialization failed for Volclava: The binaries directory <${VOLCLAVA_TOP}/${MIX_OS_FOLDER}/${PLATFORM}> not found for the current OS platform."
+    endif
 endif

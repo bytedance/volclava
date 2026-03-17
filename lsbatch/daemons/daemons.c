@@ -109,6 +109,15 @@ init_ServSock(u_short port)
 %s: chanServSocket_() failed to get socket %m", __func__);
         return -1;
     }
+    if (chanEpollInit() < 0) {
+        ls_syslog(LOG_ERR, "%s: chanEpollInit_() failed %m", __func__);
+        return -1;
+    }
+    if(chanRegisterEpoll_(ch, EPOLLIN|EPOLLERR) < 0){
+        ls_syslog(LOG_ERR, "%s: chanRegisterEpoll_() failed: %m",
+                  __func__);
+        return -1;
+    }
 
     return ch;
 }
@@ -170,6 +179,11 @@ do_readyOp(XDR *xdrs, int chanfd, struct sockaddr_in *from,
 
     if (chanEnqueue_(chanfd, buf) < 0) {
         ls_syslog(LOG_ERR, I18N_FUNC_FAIL, fname, "chanEnqueue_");
+        xdr_destroy(&xdrs2);
+        return(-1);
+    }
+    if(chanUpdateListenEvents(chanfd, EPOLLIN|EPOLLOUT|EPOLLERR) < 0){
+        ls_syslog(LOG_ERR, "%s: chanUpdateListenEvents() failed %m", __func__);
         xdr_destroy(&xdrs2);
         return(-1);
     }

@@ -1705,6 +1705,7 @@ getTclHostData (struct tclHostData *tclHostData, struct hostNode *hostNode, stru
         tclHostData->flag = TCL_CHECK_SYNTAX;
     else
         tclHostData->flag = TCL_CHECK_EXPRESSION;
+    tclHostData->slots = 0;
 
 }
 
