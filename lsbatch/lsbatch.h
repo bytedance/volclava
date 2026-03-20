@@ -455,7 +455,11 @@
 #define    LSBE_JOB_MAX_PEND        132
 #define    LSBE_SLOTS_MAX_PEND      133
 #define    LSBE_BAD_RLIMIT          134
-#define    LSBE_NUM_ERR             134
+#define    LSBE_CHANGE_BMOD_CKPT    135
+#define    LSBE_NO_CMD              136
+#define    LSBE_EMBED_ZS            137
+#define    LSBE_MAC_LABEL_ERR       138
+#define    LSBE_NUM_ERR             138
 
 #define  SUB_JOB_NAME       0x01
 #define  SUB_QUEUE          0x02

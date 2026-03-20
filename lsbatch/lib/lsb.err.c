@@ -191,6 +191,10 @@ char   *lsb_errmsg[] = {
 /*132*/  "Pending job threshold reached", /* catgets 232 */
 /*133*/  "Pending job slots threshold reached", /* catgets 233 */
 /*134*/  "Bad rlimit specification, valid value 0<= n < 2T with LSF_UNIT_FOR_LIMITS in lsf.conf",			   /* catgets 234 */
+/*135*/  "Checkpoint method cannot be changed with bmod",			   /* catgets 235 */
+/*136*/  "No command is specified",			                           /* catgets 236 */
+/*137*/  "-Zs is not supported for embeded job command",			   /* catgets 237 */
+/*138*/  "Set job mac label failed",			                       /* catgets 238 */
 
 /* when you add a new message here, remember two things: first do not
  * forget to add "," after the error message; second, add its catgets

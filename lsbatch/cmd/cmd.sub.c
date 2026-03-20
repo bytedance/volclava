@@ -389,7 +389,7 @@ LS_LONG_INT do_pack_sub_v2(int option, char **argv, struct submit *req)
 
         optind = 1;
         if (fillReq(packedArgc, packedArgv, CMD_BSUB, &packReq, TRUE) < 0) {
-            sprintf(outputTmp, "Line#%d %s.\n", lineNum,
+            sprintf(outputTmp, "Line#%d %s. %s.\n", lineNum, lsb_sysmsg(),
                     (_i18n_msg_get(ls_catd,NL_SETN,1551, "Job not submitted")));
             pack_outputs[packParsedNum-1]->outputMSG = strdup(outputTmp);
             packParseError++;
@@ -853,6 +853,10 @@ fillReq (int argc, char **argv, int operate, struct submit *req, int isInPackFil
             }
             pCurWord = strstr(pCurChar,"method=");
             if ((pCurWord != NULL) && (pCurWord != pCurChar)){
+                if (isInPackFile == TRUE){
+                    lsberrno = LSBE_CHANGE_BMOD_CKPT;
+                    return(-1);
+                }
                 fprintf(stderr, "%s %s\n",
 	                (_i18n_msg_get(ls_catd,NL_SETN,1580, "Checkpoint method cannot be changed with bmod:")),
                         argv[index+1]); /* catgets  1580  */
@@ -1006,6 +1010,10 @@ fillReq (int argc, char **argv, int operate, struct submit *req, int isInPackFil
         }
 
         if (emptyCmd && !(req->options & SUB_PACK)) {
+            if (isInPackFile == TRUE){
+                lsberrno = LSBE_NO_CMD;
+                return(-1);
+            }
             if (redirect)
                 fprintf(stderr, (_i18n_msg_get(ls_catd,NL_SETN,1559, "No command is specified in the script file"))); /* catgets  1559  */
             else
@@ -1023,7 +1031,10 @@ fillReq (int argc, char **argv, int operate, struct submit *req, int isInPackFil
             return (-1);
 
         if (req->options2 & SUB2_JOB_CMD_SPOOL) {
-
+            if (isInPackFile == TRUE){
+                lsberrno = LSBE_EMBED_ZS;
+                return(-1);
+            }
             fprintf(stderr, (_i18n_msg_get(ls_catd,NL_SETN,1562,
 		    "-Zs is not supported for embeded job command"))); /* catgets  1562  */
             return (-1);
@@ -1039,6 +1050,10 @@ fillReq (int argc, char **argv, int operate, struct submit *req, int isInPackFil
 
     if (operate == CMD_BSUB) {
         if(addLabel2RsrcReq(req) != 0) {
+            if (isInPackFile == TRUE){
+                lsberrno = LSBE_MAC_LABEL_ERR;
+                return(-1);
+            }
             fprintf(stderr, I18N(1581,
                        "Set job mac label failed.")); /* catgets 1581 */
             return(-1);

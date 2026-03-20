@@ -4606,7 +4606,7 @@ subUsage_(int option, char **errMsg)
 	    fprintf(stderr, "\t\t[-sp job_priority]\n");
 	    fprintf(stderr, "\t\t[command [argument ...]]\n");
 
-        fprintf(stderr, "\t\t-pack job_submission_file\n");
+        fprintf(stderr, "\t\t[-pack job_submission_file]\n");
 
         fprintf(stderr, I18N_ESUB_INFO_USAGE);
 	}
