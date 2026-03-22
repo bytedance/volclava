@@ -314,6 +314,8 @@ LS_LONG_INT do_pack_sub_v2(int option, char **argv, struct submit *req)
     int outputTotal = 0;
     int outputError = 0;
 
+    int esubPrintFD = 0;
+
     /* Check if pack submission is enabled */
     if (lsbMaxPackJobs <= DEFAULT_LSB_MAX_PACK_JOBS) {
         fprintf(stderr, "Pack submission disabled by LSB_MAX_PACK_JOBS in lsf.conf. Job not submitted.\n");
@@ -350,6 +352,8 @@ LS_LONG_INT do_pack_sub_v2(int option, char **argv, struct submit *req)
     }
     memset(job_requests, 0, capacity * sizeof(struct submit *));
     memset(pack_outputs, 0, capacity * sizeof(struct packOutputs *));
+
+    esubPrintFD = open(LSDEVNULL, O_RDWR, 0);
 
     while ((line = getNextLineC_(fp, &lineNum, TRUE)) != NULL && job_count < lsbMaxPackJobs) {
         char **packedArgv;
@@ -485,7 +489,7 @@ LS_LONG_INT do_pack_sub_v2(int option, char **argv, struct submit *req)
         memset(&ed, 0, sizeof(ed));
 
         /* Call runBatchEsub to handle environment variables and resource limits */
-        if (runBatchEsub(&ed, &packReq) < 0) {
+        if (runBatchEsub(&ed, &packReq, esubPrintFD) < 0) {
             sprintf(outputTmp, "Line#%d Request aborted by esub. Job not submitted.\n", lineNum);
             pack_outputs[packParsedNum-1]->outputMSG = strdup(outputTmp);
             packParseError++;
@@ -649,6 +653,8 @@ LS_LONG_INT do_pack_sub_v2(int option, char **argv, struct submit *req)
         fprintf(stdout, "%d lines parsed, %d jobs submitted, %d errors found.\n",
                 outputTotal, submitPackRep.numSuccess, outputError);
     }
+
+    close(esubPrintFD);
 
     /* Cleanup memory */
     for (i = 0; i < job_count; i++) {

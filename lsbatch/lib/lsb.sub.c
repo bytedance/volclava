@@ -151,7 +151,7 @@ static LS_LONG_INT subRestart(struct submit  *jobSubReq, struct submitReq *submi
 		      struct submitReply *submitRep, struct lsfAuth *auth);
 static LS_LONG_INT subJob(struct submit  *jobSubReq, struct submitReq *submitReq,
 		  struct submitReply *submitRep, struct lsfAuth *auth);
-static int getUserInfo(struct submitReq *, struct submit *);
+static int getUserInfo(struct submitReq *, struct submit *, int);
 static char * acctMapGet(int *, char *);
 
 static int xdrSubReqSize(struct submitReq *req);
@@ -256,7 +256,7 @@ lsb_submit(struct submit  *jobSubReq, struct submitReply *submitRep)
     makeCleanToRunEsub();
 
 
-    if (getUserInfo(&submitReq, jobSubReq) < 0)
+    if (getUserInfo(&submitReq, jobSubReq, FALSE) < 0)
         return (-1);
 
 
@@ -313,6 +313,7 @@ lsb_submit_pack(struct submit **jobSubReqs, int jobCount,
     char **homeDir = NULL, **resReq = NULL, **cmd = NULL, **cwd = NULL;
     LSB_SUB_SPOOL_FILE_T subSpoolFiles;
     int numSubmitJobs = -1;
+    int esubPrintFD = 0;
     int i, loop;
 
     if (logclass & (LC_TRACE | LC_EXEC))
@@ -324,6 +325,8 @@ lsb_submit_pack(struct submit **jobSubReqs, int jobCount,
     }
 
     lsberrno = LSBE_BAD_ARG;
+
+    esubPrintFD = open(LSDEVNULL, O_RDWR, 0);
 
     /* Allocate buffer arrays for each job */
     homeDir = (char **) malloc(jobCount * sizeof(char *));
@@ -407,7 +410,7 @@ lsb_submit_pack(struct submit **jobSubReqs, int jobCount,
         }
 
         /* getUserInfo (includes esub processing) */
-        if (getUserInfo(&packReq.jobs[i], jobSubReqs[i]) < 0) {
+        if (getUserInfo(&packReq.jobs[i], jobSubReqs[i], esubPrintFD) < 0) {
             ls_syslog(LOG_ERR, "%s: getUserInfo failed for job %d", fname, i);
             goto cleanup;
         }
@@ -455,6 +458,9 @@ lsb_submit_pack(struct submit **jobSubReqs, int jobCount,
     numSubmitJobs = send_batch_pack(&packReq, jf_array, jobCount, submitPackRep, &auth);
 
 cleanup:
+    if (esubPrintFD > 0)
+        close(esubPrintFD);
+
     /* Free allocated resources - only jf_array and packReq.jobs need cleanup now */
     for (i = 0; i < jobCount; i++) {
         FREEUP(homeDir[i]);
@@ -2535,7 +2541,7 @@ acctMapGet(int *fail, char *lsfUserName)
 }
 
 static int
-getUserInfo(struct submitReq *submitReq, struct submit *jobSubReq)
+getUserInfo(struct submitReq *submitReq, struct submit *jobSubReq, int esubPrintFD)
 {
     int childIoFd[2];
     char lsfUserName[MAXLINELEN];
@@ -2726,14 +2732,14 @@ waitforchild:
         exit(-1);
     }
 
-    if (runBatchEsub(&ed, jobSubReq) < 0) {
-	goto errorParent;
+    if (runBatchEsub(&ed, jobSubReq, esubPrintFD) < 0) {
+        goto errorParent;
     } else {
-       err.error = FALSE;
-       if (write(childIoFd[1], (char *) &err, sizeof(err)) != sizeof(err)) {
-           close(childIoFd[1]);
-           exit(-1);
-       }
+        err.error = FALSE;
+        if (write(childIoFd[1], (char *) &err, sizeof(err)) != sizeof(err)) {
+            close(childIoFd[1]);
+            exit(-1);
+        }
     }
 
 
@@ -4767,7 +4773,7 @@ checkLimit(int limit, int factor)
 }
 
 int
-runBatchEsub(struct lenData *ed, struct submit *jobSubReq)
+runBatchEsub(struct lenData *ed, struct submit *jobSubReq, int esubPrintFD)
 {
     static char fname[] = "runBatchEsub";
 
@@ -5104,7 +5110,7 @@ char ch, next, *tmp_str=NULL; \
     putEnv("LSB_SUB_ABORT_VALUE", "97");
     putEnv("LSB_SUB_PARM_FILE", parmFile);
 
-    if ((cc = runEsub_(ed, NULL)) < 0) {
+    if ((cc = runEsub_(ed, NULL, esubPrintFD)) < 0) {
 	if (logclass & LC_TRACE)
 	    ls_syslog(LOG_DEBUG, "%s: runEsub_() failed %d: %M", fname, cc);
 	if (cc == -2) {
