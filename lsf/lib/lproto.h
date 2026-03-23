@@ -286,6 +286,7 @@ extern int writetaskfile_(char *, hTab *, hTab *, hTab *, hTab *);
 extern int expSyntax_(char *);
 
 extern char *getNextLineC_(FILE *, int *, int);
+extern int getTotalLine(char *filepath);
 extern char *getNextLine_(FILE *, int);
 extern char *getNextWord_(char **);
 extern char * getNextWord1_(char **line);

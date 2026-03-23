@@ -362,6 +362,21 @@ getNextLineC_(FILE *fp, int *LineCount, int confFormat)
 
 }
 
+int
+getTotalLine(char *filepath)
+{
+    int lineNum = 0;
+    int LineCount = 0;
+    char *line;
+    FILE *file;
+
+    file = fopen(filepath, "r");
+    while ((line = getNextLineC_(file, &LineCount, TRUE)) != NULL){
+        lineNum++;
+    }
+    fclose(file);
+    return lineNum;
+}
 
 void
 subNewLine_(char* instr) {

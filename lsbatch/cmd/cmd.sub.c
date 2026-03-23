@@ -294,7 +294,7 @@ LS_LONG_INT do_pack_sub_v2(int option, char **argv, struct submit *req)
     static char fname[] = "do_pack_sub_v2()";
     FILE *fp;
     int lineNum;
-    int packParsedNum;          /* Total lines parsed */
+    int packParsedNum, packParsedTotal;
     LS_LONG_INT packSubmit;          /* Successfully submitted jobs */
     int packParseError;      /* Parse/validation errors */
     int parseError = FALSE;
@@ -308,7 +308,6 @@ LS_LONG_INT do_pack_sub_v2(int option, char **argv, struct submit *req)
     char outputTmp[MAXLINELEN];
 
     int job_count = 0;
-    int capacity = 0;
     int i, j;
 
     int outputTotal = 0;
@@ -340,22 +339,27 @@ LS_LONG_INT do_pack_sub_v2(int option, char **argv, struct submit *req)
     packSubmit = 0;
     packParseError = 0;
 
-    /* Allocate initial capacity */
-    capacity = lsbMaxPackJobs;
-    job_requests = malloc(capacity * sizeof(struct submit *));
-    pack_outputs = malloc(capacity * sizeof(struct packOutputs *));
+    packParsedTotal = getTotalLine(req->packFile);
+    /* Check if we've reached the maximum job limit */
+    if (packParsedTotal > lsbMaxPackJobs) {
+        fprintf(stderr, "Warning: The number of valid lines in pack file is %d, exceeds the LSB_MAX_PACK_JOBS=%d "
+                        "defined in lsf.conf.\n", packParsedTotal, lsbMaxPackJobs);
+        packParsedTotal = lsbMaxPackJobs;
+    }
 
-    if (!job_requests ) {
+    job_requests = malloc(packParsedTotal * sizeof(struct submit *));
+    pack_outputs = malloc(packParsedTotal * sizeof(struct packOutputs *));
+    if (!job_requests || !pack_outputs) {
         fprintf(stderr, "Memory allocation failed\n");
         fclose(fp);
         return -1;
     }
-    memset(job_requests, 0, capacity * sizeof(struct submit *));
-    memset(pack_outputs, 0, capacity * sizeof(struct packOutputs *));
+    memset(job_requests, 0, packParsedTotal * sizeof(struct submit *));
+    memset(pack_outputs, 0, packParsedTotal * sizeof(struct packOutputs *));
 
     esubPrintFD = open(LSDEVNULL, O_RDWR, 0);
 
-    while ((line = getNextLineC_(fp, &lineNum, TRUE)) != NULL && job_count < lsbMaxPackJobs) {
+    while ((line = getNextLineC_(fp, &lineNum, TRUE)) != NULL && packParsedNum < lsbMaxPackJobs) {
         char **packedArgv;
         int packedArgc = 0;
         struct submit packReq;
@@ -377,10 +381,10 @@ LS_LONG_INT do_pack_sub_v2(int option, char **argv, struct submit *req)
         pack_outputs[packParsedNum-1]->outputMSG = NULL;
         pack_outputs[packParsedNum-1]->packSubmitIndex = -1;
 
-        sprintf(tmpBuf, "%s %s", argv[0], line);
+        snprintf(tmpBuf, sizeof(tmpBuf), "%s %s", argv[0], line);
         packedArgv = split_commandline(tmpBuf, &packedArgc);
         if (packedArgv == NULL) {
-            sprintf(outputTmp, "Line#%d Failed to parse command line: \"%s\". Job not submitted.\n",
+            snprintf(outputTmp, sizeof(outputTmp), "Line#%d Failed to parse command line: \"%s\". Job not submitted.\n",
                     lineNum, line);
             pack_outputs[packParsedNum-1]->outputMSG = strdup(outputTmp);
             packParseError++;
@@ -393,7 +397,7 @@ LS_LONG_INT do_pack_sub_v2(int option, char **argv, struct submit *req)
 
         optind = 1;
         if (fillReq(packedArgc, packedArgv, CMD_BSUB, &packReq, TRUE) < 0) {
-            sprintf(outputTmp, "Line#%d %s. %s.\n", lineNum, lsb_sysmsg(),
+            snprintf(outputTmp, sizeof(outputTmp), "Line#%d %s. %s.\n", lineNum, lsb_sysmsg(),
                     (_i18n_msg_get(ls_catd,NL_SETN,1551, "Job not submitted")));
             pack_outputs[packParsedNum-1]->outputMSG = strdup(outputTmp);
             packParseError++;
@@ -406,15 +410,18 @@ LS_LONG_INT do_pack_sub_v2(int option, char **argv, struct submit *req)
 
         parseError = FALSE;
         if (packReq.options2 & SUB2_BSUB_BLOCK) {
-            sprintf(outputTmp, "Line#%d Option -K is not supported in -pack job submission file. Job not submitted.\n", lineNum);
+            snprintf(outputTmp, sizeof(outputTmp), "Line#%d Option -K is not supported in -pack job submission "
+                                                   "file. Job not submitted.\n", lineNum);
             pack_outputs[packParsedNum-1]->outputMSG = strdup(outputTmp);
             parseError = TRUE;
         } else if (packReq.options & SUB_INTERACTIVE) {
-            sprintf(outputTmp, "Line#%d Option -I is not supported in -pack job submission file. Job not submitted.\n", lineNum);
+            snprintf(outputTmp, sizeof(outputTmp), "Line#%d Option -I is not supported in -pack job submission "
+                                                   "file. Job not submitted.\n", lineNum);
             pack_outputs[packParsedNum-1]->outputMSG = strdup(outputTmp);
             parseError = TRUE;
         } else if (packReq.options & SUB_PACK) {
-            sprintf(outputTmp, "Line#%d Option -pack is not supported in -pack job submission file. Job not submitted.\n", lineNum);
+            snprintf(outputTmp, sizeof(outputTmp), "Line#%d Option -pack is not supported in -pack job submission "
+                                                   "file. Job not submitted.\n", lineNum);
             pack_outputs[packParsedNum-1]->outputMSG = strdup(outputTmp);
             parseError = TRUE;
         }
@@ -490,7 +497,7 @@ LS_LONG_INT do_pack_sub_v2(int option, char **argv, struct submit *req)
 
         /* Call runBatchEsub to handle environment variables and resource limits */
         if (runBatchEsub(&ed, &packReq, esubPrintFD) < 0) {
-            sprintf(outputTmp, "Line#%d Request aborted by esub. Job not submitted.\n", lineNum);
+            snprintf(outputTmp, sizeof(outputTmp), "Line#%d Request aborted by esub. Job not submitted.\n", lineNum);
             pack_outputs[packParsedNum-1]->outputMSG = strdup(outputTmp);
             packParseError++;
             if (packSkipErrFlag) {
@@ -581,13 +588,6 @@ LS_LONG_INT do_pack_sub_v2(int option, char **argv, struct submit *req)
         pack_outputs[packParsedNum-1]->packSubmitIndex = job_count;
 
         job_count++;
-
-        /* Check if we've reached the maximum job limit */
-        if (job_count >= lsbMaxPackJobs) {
-            fprintf(stderr, "Warning: Reached maximum job limit (%d). Stopping pack file parsing.\n", lsbMaxPackJobs);
-            break;
-        }
-
     }
 
     fclose(fp);
