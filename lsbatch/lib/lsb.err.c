@@ -195,6 +195,7 @@ char   *lsb_errmsg[] = {
 /*136*/  "No command is specified",			                           /* catgets 236 */
 /*137*/  "-Zs is not supported for embeded job command",			   /* catgets 237 */
 /*138*/  "Set job mac label failed",			                       /* catgets 238 */
+/*139*/  "mbatchd did not handled this job",			               /* catgets 239 */
 
 /* when you add a new message here, remember two things: first do not
  * forget to add "," after the error message; second, add its catgets

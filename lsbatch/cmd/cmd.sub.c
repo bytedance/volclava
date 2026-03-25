@@ -298,6 +298,7 @@ LS_LONG_INT do_pack_sub_v2(int option, char **argv, struct submit *req)
     LS_LONG_INT packSubmit;          /* Successfully submitted jobs */
     int packParseError;      /* Parse/validation errors */
     int parseError = FALSE;
+    int mbdHandledError = FALSE;
     char *line;
 
     struct submit **job_requests = NULL;
@@ -370,6 +371,7 @@ LS_LONG_INT do_pack_sub_v2(int option, char **argv, struct submit *req)
         pack_outputs[packParsedNum-1] = malloc(sizeof(struct packOutputs));
         if (!pack_outputs[packParsedNum-1]) {
             fprintf(stderr, "Line#%d Memory allocation failed for job request. Job not submitted.\n", lineNum);
+
             packParseError++;
             if (packSkipErrFlag) {
                 continue;
@@ -514,7 +516,8 @@ LS_LONG_INT do_pack_sub_v2(int option, char **argv, struct submit *req)
         /* Save job request and file data */
         job_requests[job_count] = malloc(sizeof(struct submit));
         if (!job_requests[job_count]) {
-            fprintf(stderr, "Line#%d Memory allocation failed for job request. Job not submitted.\n", lineNum);
+            snprintf(outputTmp, sizeof(outputTmp), "Line#%d Memory allocation failed for job request. Job not submitted.\n", lineNum);
+            pack_outputs[packParsedNum-1]->outputMSG = strdup(outputTmp);
             packParseError++;
             if (packSkipErrFlag) {
                 continue;
@@ -549,7 +552,8 @@ LS_LONG_INT do_pack_sub_v2(int option, char **argv, struct submit *req)
         if (packReq.nxf > 0 && packReq.xf != NULL) {
             job_requests[job_count]->xf = malloc(packReq.nxf * sizeof(struct xFile));
             if (job_requests[job_count]->xf == NULL) {
-                fprintf(stderr, "Line#%d Memory allocation failed for xfiles. Job not submitted.\n", lineNum);
+                snprintf(outputTmp, sizeof(outputTmp), "Line#%d Memory allocation failed for xfiles. Job not submitted.\n", lineNum);
+                pack_outputs[packParsedNum-1]->outputMSG = strdup(outputTmp);
                 packParseError++;
                 if (packSkipErrFlag) {
                     continue;
@@ -606,35 +610,37 @@ LS_LONG_INT do_pack_sub_v2(int option, char **argv, struct submit *req)
     for (i = 0; i < packParsedNum; i++) {
         if (pack_outputs[i]) {
             if(pack_outputs[i]->packSubmitIndex >= 0){
-
+                // submitted to mbatchd
                 int index = pack_outputs[i]->packSubmitIndex;
 
                 if (submitPackRep.submitReps[index].replyCode == LSBE_NO_ERROR) {
-                    // Job submitted successfully
+                    // mbatchd newJob successfully
                     fprintf(stdout, "Line#%d Job <%s> is submitted to queue <%s>.\n",
                             pack_outputs[i]->lineNum,
                             lsb_jobid2str(submitPackRep.submitReps[index].badJobId),
                             submitPackRep.submitReps[index].queue ? submitPackRep.submitReps[index].queue : "normal");
-                } else {
+                } else if (submitPackRep.submitReps[index].replyCode != LSBE_NOT_HANDLED) {
+                    // mbatchd handle this request but newJob failed
                     fprintf(stderr, "Line#%d ", pack_outputs[i]->lineNum);
                     lsberrno = submitPackRep.submitReps[index].replyCode;
                     prtErrMsg (job_requests[index], &submitPackRep.submitReps[index]);
                     fprintf(stderr,  ". %s.\n",
                             (_i18n_msg_get(ls_catd,NL_SETN,1561, "Job not submitted")));
-                    if (packSkipErrFlag == FALSE) {
-                        break;
-                    }
+                    mbdHandledError = TRUE;
+                } else {
+                    // mbatchd skipped this request due to LSB_PACK_SKIP_ERROR
                 }
             } else if (pack_outputs[i]->outputMSG) {
+                // bsub client check submit line failed
+                if(mbdHandledError == TRUE && packSkipErrFlag == FALSE) {
+                    // if mbdHandledError first, not need to display bsub check error behind that index
+                    packParseError--;
+                    continue;
+                }
                 fprintf(stderr, "%s", pack_outputs[i]->outputMSG);
-                if (packSkipErrFlag == FALSE) {
-                    break;
-                }
             } else {
-                fprintf(stderr, "Line#%d Job not submitted.\n", pack_outputs[i]->lineNum);
-                if (packSkipErrFlag == FALSE) {
-                    break;
-                }
+                // bsub client skipped line due to LSB_PACK_SKIP_ERROR
+//                fprintf(stderr, "Line#%d Job not submitted.\n", pack_outputs[i]->lineNum);
             }
         }
     }
@@ -642,13 +648,8 @@ LS_LONG_INT do_pack_sub_v2(int option, char **argv, struct submit *req)
     if (packSubmit < 0) {
         fprintf(stderr, "Pack submission failed\n");
     } else {
-        outputTotal = packParsedNum;
         outputError = packParseError + submitPackRep.numFailed;
-
-        if (packSkipErrFlag == FALSE && outputError > 0 ) {
-            outputTotal = packParsedNum == 0 ? 0 : i+1;
-            outputError = packParsedNum == 0 ? 0 : 1;
-        }
+        outputTotal = outputError + submitPackRep.numSuccess;
 
         fprintf(stdout, "%d lines parsed, %d jobs submitted, %d errors found.\n",
                 outputTotal, submitPackRep.numSuccess, outputError);

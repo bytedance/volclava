@@ -38,8 +38,7 @@ static int packJgrpInfo(struct jgTreeNode *, int, char **, int, int);
 static int packJobInfo(struct jData *, int, char **, int, int, int);
 static void initSubmit(int *, struct submitReq *, struct submitMbdReply *);
 static int sendBack(int, struct submitReq *, struct submitMbdReply *, int);
-static int sendBackPack(int, int, int, struct submitMbdReply *, int,
-        struct lenData *, int, int);
+static int sendBackPack(int, int, int, struct submitMbdReply *, int, int, int);
 static void addPendSigEvent(struct sbdNode *sbdPtr);
 static void freeJobHead (struct jobInfoHead *);
 static void freeJobInfoReply (struct jobInfoReply *);
@@ -155,6 +154,7 @@ do_submitPackReq(XDR *xdrs,
     int                     j, i, reply;
     int                     overallReply = LSBE_NO_ERROR;
     int                     successCount = 0;
+    int                     failedCount = 0;
     int                     firstError = LSBE_NO_ERROR;
 
     if (logclass & (LC_TRACE | LC_EXEC | LC_COMM))
@@ -238,6 +238,7 @@ do_submitPackReq(XDR *xdrs,
         replyArray[i].queue = "";
         strcpy(replyArray[i].badJobName, "");
         strcpy(replyArray[i].pendLimitReason, "");
+        replyArray[i].replyCode = LSBE_NOT_HANDLED;
 
     }
 
@@ -279,7 +280,7 @@ do_submitPackReq(XDR *xdrs,
             submitReply->queue = packReq.jobs[i].queue;
             if (firstError == LSBE_NO_ERROR)
                 firstError = reply;
-
+            failedCount++;
             if (packSkipErrFlag == FALSE) {
                 break;
             }
@@ -288,8 +289,7 @@ do_submitPackReq(XDR *xdrs,
 
 sendback:
     if (sendBackPack(overallReply, successCount, firstError,
-                     replyArray, packReq.jobCount,
-                     jf_array, fileCount, chfd) < 0)
+                     replyArray, packReq.jobCount, failedCount, chfd) < 0)
         return (-1);
 
     for (j = 0; j < fileCount; j++){
@@ -2167,7 +2167,7 @@ sendBack (int reply, struct submitReq *submitReq,
 static int
 sendBackPack(int overallReply, int successCount, int firstError,
              struct submitMbdReply *replyArray, int jobCount,
-             struct lenData *jf_array, int fileCount, int chfd)
+             int failCount, int chfd)
 {
     static char fname[] = "sendBackPack()";
     char *reply_buf = NULL;
@@ -2208,7 +2208,7 @@ sendBackPack(int overallReply, int successCount, int firstError,
 
     packReply.numJobs = jobCount;
     packReply.numSuccess = successCount;
-    packReply.numFailed = jobCount - successCount;
+    packReply.numFailed = failCount;
 
     packReply.submitMbdReps = (struct submitMbdReply *)calloc(jobCount, sizeof(struct submitMbdReply));
 

@@ -459,7 +459,8 @@
 #define    LSBE_NO_CMD              136
 #define    LSBE_EMBED_ZS            137
 #define    LSBE_MAC_LABEL_ERR       138
-#define    LSBE_NUM_ERR             138
+#define    LSBE_NOT_HANDLED         139
+#define    LSBE_NUM_ERR             139
 
 #define  SUB_JOB_NAME       0x01
 #define  SUB_QUEUE          0x02
