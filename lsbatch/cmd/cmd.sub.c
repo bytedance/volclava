@@ -409,6 +409,7 @@ LS_LONG_INT do_pack_sub_v2(int option, char **argv, struct submit *req)
                 break;
             }
         }
+        FREEUP(packedArgv);
 
         subNewLine_(packReq.resReq);
         subNewLine_(packReq.dependCond);
@@ -573,6 +574,11 @@ LS_LONG_INT do_pack_sub_v2(int option, char **argv, struct submit *req)
 
     if (job_count > 0) {
         memset(&submitPackRep, 0, sizeof(submitPackRep));
+        submitPackRep.submitReps = (struct submitReply *)calloc(job_count, sizeof(struct submitReply));
+        if (!submitPackRep.submitReps) {
+            fprintf(stderr, "Memory allocation failed\n");
+            goto cleanup;
+        }
 
         /* Call library function to handle the submission */
         packSubmit = lsb_submit_pack(job_requests, job_count, &submitPackRep);
@@ -626,6 +632,7 @@ LS_LONG_INT do_pack_sub_v2(int option, char **argv, struct submit *req)
                 outputTotal, submitPackRep.numSuccess, outputError);
     }
 
+cleanup:
     close(esubPrintFD);
 
     /* Cleanup memory */
@@ -661,6 +668,7 @@ LS_LONG_INT do_pack_sub_v2(int option, char **argv, struct submit *req)
     }
 
     FREEUP(job_requests);
+    FREEUP(submitPackRep.submitReps);
 
     for (i = 0; i < packParsedNum; i++) {
         if (pack_outputs[i]) {

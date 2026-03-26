@@ -1108,8 +1108,6 @@ send_batch_pack(struct submitPackReq *packSubReq, struct lenData *jf_array,
         return (-1);
     }
 
-    submitPackRep->submitReps = (struct submitReply *)calloc(jobCount, sizeof(struct submitReply));
-
     for (i = 0; i < jobCount; i++) {
         submitPackRep->submitReps[i].badJobId = reply->submitMbdReps[i].jobId;
         submitPackRep->submitReps[i].badReqIndx = reply->submitMbdReps[i].badReqIndx;
@@ -1121,6 +1119,7 @@ send_batch_pack(struct submitPackReq *packSubReq, struct lenData *jf_array,
     }
 
     FREEUP(reply_buf);
+    FREEUP(reply);
     xdr_destroy(&xdrs);
     
     if (lsberrno == LSBE_NO_ERROR && submitPackRep->numJobs > 0) {
