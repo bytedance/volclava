@@ -460,7 +460,12 @@
 #define    LSBE_EMBED_ZS            137
 #define    LSBE_MAC_LABEL_ERR       138
 #define    LSBE_NOT_HANDLED         139
-#define    LSBE_NUM_ERR             139
+#define    LSBE_HELP_IN_PACK        140
+#define    LSBE_VERSION_IN_PACK     141
+#define    LSBE_BLOCK_IN_PACK       142
+#define    LSBE_INTERACTIVE_IN_PACK 143
+#define    LSBE_PACK_IN_PACK        144
+#define    LSBE_NUM_ERR             144
 
 #define  SUB_JOB_NAME       0x01
 #define  SUB_QUEUE          0x02

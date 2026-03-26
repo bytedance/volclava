@@ -35,7 +35,7 @@ extern int sig_decode (int);
 extern int isatty(int);
 
 extern  int setOption_ (int argc, char **argv, char *template,
-                      struct submit *req, int mask, int mask2, char **errMsg);
+                      struct submit *req, int mask, int mask2, char **errMsg, int isInPackFile);
 extern  struct submit * parseOptFile_(char *filename,
 				      struct submit *req, char **errMsg);
 extern void subUsage_(int, char **);
@@ -297,7 +297,6 @@ LS_LONG_INT do_pack_sub_v2(int option, char **argv, struct submit *req)
     int packParsedNum, packParsedTotal;
     LS_LONG_INT packSubmit;          /* Successfully submitted jobs */
     int packParseError;      /* Parse/validation errors */
-    int parseError = FALSE;
     int mbdHandledError = FALSE;
     char *line;
 
@@ -365,6 +364,7 @@ LS_LONG_INT do_pack_sub_v2(int option, char **argv, struct submit *req)
         int packedArgc = 0;
         struct submit packReq;
         char tmpBuf[MAXLINELEN];
+        struct lenData ed;
 
         packParsedNum++;
 
@@ -402,33 +402,6 @@ LS_LONG_INT do_pack_sub_v2(int option, char **argv, struct submit *req)
             snprintf(outputTmp, sizeof(outputTmp), "Line#%d %s. %s.\n", lineNum, lsb_sysmsg(),
                     (_i18n_msg_get(ls_catd,NL_SETN,1551, "Job not submitted")));
             pack_outputs[packParsedNum-1]->outputMSG = strdup(outputTmp);
-            packParseError++;
-            if (packSkipErrFlag) {
-                continue;
-            } else {
-                break;
-            }
-        }
-
-        parseError = FALSE;
-        if (packReq.options2 & SUB2_BSUB_BLOCK) {
-            snprintf(outputTmp, sizeof(outputTmp), "Line#%d Option -K is not supported in -pack job submission "
-                                                   "file. Job not submitted.\n", lineNum);
-            pack_outputs[packParsedNum-1]->outputMSG = strdup(outputTmp);
-            parseError = TRUE;
-        } else if (packReq.options & SUB_INTERACTIVE) {
-            snprintf(outputTmp, sizeof(outputTmp), "Line#%d Option -I is not supported in -pack job submission "
-                                                   "file. Job not submitted.\n", lineNum);
-            pack_outputs[packParsedNum-1]->outputMSG = strdup(outputTmp);
-            parseError = TRUE;
-        } else if (packReq.options & SUB_PACK) {
-            snprintf(outputTmp, sizeof(outputTmp), "Line#%d Option -pack is not supported in -pack job submission "
-                                                   "file. Job not submitted.\n", lineNum);
-            pack_outputs[packParsedNum-1]->outputMSG = strdup(outputTmp);
-            parseError = TRUE;
-        }
-
-        if (parseError) {
             packParseError++;
             if (packSkipErrFlag) {
                 continue;
@@ -493,8 +466,6 @@ LS_LONG_INT do_pack_sub_v2(int option, char **argv, struct submit *req)
             }
         }
 
-        /* Initialize edata structure, simulate single job flow */
-        struct lenData ed;
         memset(&ed, 0, sizeof(ed));
 
         /* Call runBatchEsub to handle environment variables and resource limits */
@@ -956,7 +927,7 @@ fillReq (int argc, char **argv, int operate, struct submit *req, int isInPackFil
 
     }
 
-    if (setOption_ (argc, argv, template, req, ~0, ~0, NULL) == -1)
+    if (setOption_ (argc, argv, template, req, ~0, ~0, NULL, isInPackFile) == -1)
         return (-1);
 
     if (operate == CMD_BSUB && (req->options & SUB_INTERACTIVE)
@@ -1034,7 +1005,7 @@ fillReq (int argc, char **argv, int operate, struct submit *req, int isInPackFil
         optind = 1;
 
         if (setOption_ (embedArgc, embedArgv, template, req,
-			~req->options, ~req->options2, NULL) == -1)
+			~req->options, ~req->options2, NULL, isInPackFile) == -1)
             return (-1);
 
         if (req->options2 & SUB2_JOB_CMD_SPOOL) {

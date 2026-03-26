@@ -3077,7 +3077,7 @@ gettimefor (char *toptarg, time_t *tTime)
 
 int
 setOption_ (int argc, char **argv, char *template, struct submit *req,
-	    int mask, int mask2, char **errMsg)
+	    int mask, int mask2, char **errMsg, int isInPackFile)
 {
     int eflag = 0, oflag = 0;
     int badIdx, v1, v2;
@@ -3387,7 +3387,12 @@ setOption_ (int argc, char **argv, char *template, struct submit *req,
                 return (-1);
             }
 
-	    if (!strcmp(optName, "I")) {
+        if (isInPackFile) {
+            lsberrno = LSBE_INTERACTIVE_IN_PACK;
+            return (-1);
+        }
+
+        if (!strcmp(optName, "I")) {
 		req->options |= SUB_INTERACTIVE;
                 flagI++;
 	    } else if (!strcmp(optName, "Ip")) {
@@ -3425,6 +3430,10 @@ setOption_ (int argc, char **argv, char *template, struct submit *req,
             }
             flagK++;
             req->options2 |= SUB2_BSUB_BLOCK;
+            if (isInPackFile) {
+                lsberrno = LSBE_BLOCK_IN_PACK;
+                return (-1);
+            }
             break;
 	case 'r':
         if (flagPack) {
@@ -3457,8 +3466,11 @@ setOption_ (int argc, char **argv, char *template, struct submit *req,
 
 	case 'h':
         myArgs.argc = req->options;
+        if (isInPackFile) {
+            lsberrno = LSBE_HELP_IN_PACK;
+            return (-1);
+        }
         lsb_throw("LSB_BAD_BSUBARGS", &myArgs);
-
 	    return (-1);
 
 	case 'm':
@@ -4134,6 +4146,10 @@ setOption_ (int argc, char **argv, char *template, struct submit *req,
 
                 return (-1);
             }
+            if (isInPackFile) {
+                lsberrno = LSBE_PACK_IN_PACK;
+                return (-1);
+            }
 
             flagPack ++;
             req->options |= SUB_PACK;
@@ -4288,8 +4304,12 @@ setOption_ (int argc, char **argv, char *template, struct submit *req,
 		additionEsubInfo=putstr_(optarg);
 		break;
 	case 'V':
-	    fputs(_LS_VERSION_, stdout);
-	    exit(0);
+        if (isInPackFile) {
+            lsberrno = LSBE_VERSION_IN_PACK;
+            return (-1);
+        }
+        fputs(_LS_VERSION_, stdout);
+        exit(0);
 
 	default:
             myArgs.argc = req->options;
@@ -4517,7 +4537,7 @@ childExit:
 
         optind = 1;
         if (setOption_ (optArgc, optArgv, template, req,
-			~req->options, ~req->options2, errMsg) == -1)
+			~req->options, ~req->options2, errMsg, FALSE) == -1)
 	    goto parentErr;
     }
     close(childIoFd[0]);
