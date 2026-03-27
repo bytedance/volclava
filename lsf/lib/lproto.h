@@ -204,9 +204,9 @@ extern void freeupMasterCandidate_(int);
 extern char *resetLSFUsreDomain(char *);
 
 
-extern int runEsub_(struct lenData *, char *);
+extern int runEsub_(struct lenData *, char *, int);
 extern int runEexec_(char *, int, struct lenData *, char *);
-extern int runEClient_(struct lenData *, char **);
+extern int runEClient_(struct lenData *, char **, int);
 extern char *runEGroup_(char *, char *);
 
 extern int getAuth_(struct lsfAuth *, char *);
@@ -286,6 +286,7 @@ extern int writetaskfile_(char *, hTab *, hTab *, hTab *, hTab *);
 extern int expSyntax_(char *);
 
 extern char *getNextLineC_(FILE *, int *, int);
+extern int getTotalLine(char *filepath);
 extern char *getNextLine_(FILE *, int);
 extern char *getNextWord_(char **);
 extern char * getNextWord1_(char **line);

@@ -106,7 +106,7 @@ ls_connect(char *host)
 	return (-1);
     }
 
-    runEsub_(&connReq.eexec, NULL);
+    runEsub_(&connReq.eexec, NULL, FALSE);
 
     size = sizeof(struct LSFHeader) + sizeof(connReq) +
 	   sizeof(struct lsfAuth) +

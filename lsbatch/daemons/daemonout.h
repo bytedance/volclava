@@ -73,7 +73,8 @@ typedef enum {
     BATCH_STATUS_CHUNK   = 40,       
     BATCH_SET_JOB_ATTR   = 90,
     READY_FOR_OP         = 1023,
-    PREPARE_FOR_OP       = 1024
+    PREPARE_FOR_OP       = 1024,
+    BATCH_JOB_SUB_PACK    = 41
 } mbdReqType;
 
 #define SUB_RLIMIT_UNIT_IS_KB 0x80000000
@@ -123,6 +124,16 @@ struct submitReq {
 };
 
 
+/* Pack job submission request */
+struct submitPackReq {
+    int jobCount;           /* Number of jobs */
+    int options;            /* Pack options: 0x01=streaming response, 0x02=continue on failure */
+    int maxConcurrency;     /* Maximum concurrent processing, 0=unlimited */
+    time_t clientTimestamp; /* Client timestamp */
+    char *sourceFile;       /* Source file path */
+    struct submitReq *jobs; /* Job array */
+};
+
 
 #define SHELLLINE "#! /bin/sh\n\n"
 #define CMDSTART "# LSBATCH: User input\n"
@@ -146,9 +157,17 @@ struct submitMbdReply {
     int     subTryInterval;
     char    *badJobName;
     char    *pendLimitReason;
+    int     replyCode;
 };
 
-struct modifyReq {                   
+struct submitMbdPackReply {
+    int     numJobs;
+    int     numSuccess;
+    int     numFailed;
+    struct  submitMbdReply *submitMbdReps;
+};
+
+struct modifyReq {
     LS_LONG_INT jobId;                
     char * jobIdStr;             
     int    delOptions;                  

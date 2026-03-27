@@ -141,3 +141,10 @@ extern int searchEventFile(struct histReq *, int *);
 extern int bmsg(int, char **);
 
 extern void bmove (int, char **, int);
+
+/* Structure for bsub -pack output information */
+struct packOutputs {
+    int lineNum;               /* Line number in the pack file */
+    char *outputMSG;           /* Output message for this line */
+    int packSubmitIndex;       /* Index of the packed submission */
+};

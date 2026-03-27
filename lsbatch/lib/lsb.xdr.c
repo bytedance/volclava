@@ -235,6 +235,107 @@ xdr_submitReq (XDR *xdrs, struct submitReq *submitReq, struct LSFHeader *hdr)
 }
 
 bool_t
+xdr_submitPackReq(XDR *xdrs, struct submitPackReq *packReq, struct LSFHeader *hdr)
+{
+
+    int i;
+    static int numJobs = 0;
+    static struct submitReq *jobs = NULL;
+    static char *sourceFile = NULL;
+
+    if (xdrs->x_op == XDR_DECODE) {
+        if (numJobs > 0 && jobs) {
+            for (i = 0; i < numJobs; i++) {
+                XDR freeXdr;
+                xdrmem_create(&freeXdr, NULL, 0, XDR_FREE);
+                xdr_submitReq(&freeXdr, &jobs[i], hdr);
+                xdr_destroy(&freeXdr);
+            }
+            FREEUP(jobs);
+        }
+        numJobs = 0;
+        jobs = NULL;
+        FREEUP(sourceFile);
+        packReq->sourceFile = NULL;
+        packReq->jobs = NULL;
+    }
+
+    if (xdrs->x_op == XDR_FREE) {
+        if (packReq->jobs && packReq->jobCount > 0) {
+            for (i = 0; i < packReq->jobCount; i++) {
+                XDR freeXdr;
+                xdrmem_create(&freeXdr, NULL, 0, XDR_FREE);
+                xdr_submitReq(&freeXdr, &packReq->jobs[i], hdr);
+                xdr_destroy(&freeXdr);
+            }
+        }
+        FREEUP(packReq->jobs);
+        FREEUP(packReq->sourceFile);
+        return TRUE;
+    }
+
+    if (!(xdr_int(xdrs, &packReq->jobCount) &&
+          xdr_int(xdrs, &packReq->options) &&
+          xdr_int(xdrs, &packReq->maxConcurrency) &&
+          xdr_time_t(xdrs, &packReq->clientTimestamp)))
+        return (FALSE);
+
+    if (xdrs->x_op == XDR_DECODE && packReq->jobCount <= 0) {
+            return (FALSE);
+    }
+
+    if (!(xdr_var_string(xdrs, &packReq->sourceFile)))
+        return (FALSE);
+
+    if (xdrs->x_op == XDR_DECODE && packReq->jobCount > 0) {
+        packReq->jobs = (struct submitReq *)
+                calloc(packReq->jobCount, sizeof(struct submitReq));
+        if (packReq->jobs == NULL)
+            return (FALSE);
+        for (i = 0; i < packReq->jobCount; i++) {
+            memset(&packReq->jobs[i], 0, sizeof(struct submitReq));
+            packReq->jobs[i].fromHost = (char *)malloc(MAXHOSTNAMELEN);
+            packReq->jobs[i].jobFile = (char *)malloc(MAXFILENAMELEN);
+            packReq->jobs[i].inFile = (char *)malloc(MAXFILENAMELEN);
+            packReq->jobs[i].outFile = (char *)malloc(MAXFILENAMELEN);
+            packReq->jobs[i].errFile = (char *)malloc(MAXFILENAMELEN);
+            packReq->jobs[i].inFileSpool = (char *)malloc(MAXFILENAMELEN);
+            packReq->jobs[i].commandSpool = (char *)malloc(MAXFILENAMELEN);
+            packReq->jobs[i].cwd = (char *)malloc(MAXFILENAMELEN);
+            packReq->jobs[i].subHomeDir = (char *)malloc(MAXFILENAMELEN);
+            packReq->jobs[i].chkpntDir = (char *)malloc(MAXFILENAMELEN);
+            packReq->jobs[i].hostSpec = (char *)malloc(MAXHOSTNAMELEN);
+            if (!packReq->jobs[i].fromHost || !packReq->jobs[i].jobFile ||
+                !packReq->jobs[i].inFile || !packReq->jobs[i].outFile ||
+                !packReq->jobs[i].errFile || !packReq->jobs[i].cwd)
+                goto Error0;
+        }
+    }
+
+    for (i = 0; i < packReq->jobCount; i++) {
+        if (!xdr_arrayElement(xdrs, (char *) &(packReq->jobs[i]), hdr, xdr_submitReq, NULL)) {
+            packReq->jobCount = i;
+            goto Error0;
+        }
+    }
+
+    if (xdrs->x_op == XDR_DECODE) {
+        numJobs = packReq->jobCount;
+        jobs = packReq->jobs;
+        sourceFile = packReq->sourceFile;
+    }
+    return (TRUE);
+
+    Error0:
+    if (xdrs->x_op == XDR_DECODE) {
+        FREEUP(packReq->jobs);
+        FREEUP(packReq->sourceFile);
+        packReq->jobCount = 0;
+    }
+    return (FALSE);
+}
+
+bool_t
 xdr_modifyReq (XDR *xdrs, struct  modifyReq *modifyReq, struct LSFHeader *hdr)
 {
     int jobArrId, jobArrElemId;
@@ -416,6 +517,7 @@ xdr_submitMbdReply (XDR *xdrs, struct submitMbdReply *reply, struct LSFHeader *h
     if (!(xdr_int(xdrs,&(jobArrId)) &&
     xdr_int(xdrs,&(reply->badReqIndx)) &&
     xdr_int(xdrs,&(reply->subTryInterval)) &&
+    xdr_int(xdrs,&(reply->replyCode)) &&
     xdr_string(xdrs, &reply->queue, MAX_LSB_NAME_LEN) &&
     xdr_string(xdrs, &reply->pendLimitReason, MAX_CMD_DESC_LEN) &&
     xdr_string(xdrs, &reply->badJobName, MAX_CMD_DESC_LEN))){
@@ -430,6 +532,110 @@ xdr_submitMbdReply (XDR *xdrs, struct submitMbdReply *reply, struct LSFHeader *h
         jobId32To64(&reply->jobId,jobArrId,jobArrElemId);
     }
     return(TRUE);
+}
+
+bool_t
+xdr_submitMbdEnt (XDR *xdrs, struct submitMbdReply *reply, struct LSFHeader *hdr)
+{
+    char *queueName;
+    char *jobName;
+    char *pendLimitReason;
+    int jobArrId, jobArrElemId;
+
+    queueName = reply->queue;
+    jobName = reply->badJobName;
+    pendLimitReason = reply->pendLimitReason;
+
+    if (xdrs->x_op == XDR_DECODE) {
+        queueName[0] = '\0';
+        jobName[0] = '\0';
+        pendLimitReason[0] = '\0';
+    }
+
+    if (xdrs->x_op == XDR_ENCODE) {
+        jobId64To32(reply->jobId, &jobArrId, &jobArrElemId);
+    }
+    if (!(xdr_int(xdrs,&(jobArrId)) &&
+          xdr_int(xdrs,&(reply->badReqIndx)) &&
+          xdr_int(xdrs,&(reply->subTryInterval)) &&
+          xdr_int(xdrs,&(reply->replyCode)) &&
+          xdr_string(xdrs, &queueName, MAX_LSB_NAME_LEN) &&
+          xdr_string(xdrs, &pendLimitReason, MAX_CMD_DESC_LEN) &&
+          xdr_string(xdrs, &jobName, MAX_CMD_DESC_LEN))){
+        return (FALSE);
+    }
+
+    if (!xdr_int(xdrs, &jobArrElemId)) {
+        return (FALSE);
+    }
+
+    if (xdrs->x_op == XDR_DECODE) {
+        jobId32To64(&reply->jobId,jobArrId,jobArrElemId);
+    }
+    return(TRUE);
+}
+
+bool_t
+xdr_submitMbdPackReply(XDR *xdrs, struct submitMbdPackReply *submitMbdPackRep,
+        struct LSFHeader *hdr)
+{
+    int i;
+    struct submitMbdReply *submitMbdRepTmp;
+    char *sp;
+
+    static struct submitMbdReply *submitMbdRep = NULL;
+    static int curNumRep = 0;
+    static char *mem = NULL;
+
+    if (!xdr_int(xdrs, &submitMbdPackRep->numJobs) ||
+        !xdr_int(xdrs, &submitMbdPackRep->numSuccess) ||
+        !xdr_int(xdrs, &submitMbdPackRep->numFailed)) {
+        return (FALSE);
+    }
+
+    if (xdrs->x_op == XDR_DECODE) {
+        if (curNumRep < submitMbdPackRep->numJobs) {
+            submitMbdRepTmp = (struct submitMbdReply *) calloc(submitMbdPackRep->numJobs,
+                    sizeof(struct submitMbdReply));
+            if (submitMbdRepTmp == NULL) {
+                lsberrno = LSBE_NO_MEM;
+                return(FALSE);
+            }
+            if (!(sp = malloc(submitMbdPackRep->numJobs *
+                    (MAX_LSB_NAME_LEN + MAX_CMD_DESC_LEN + MAX_CMD_DESC_LEN)))) {
+                FREEUP(submitMbdRepTmp);
+                lsberrno = LSBE_NO_MEM;
+                return(FALSE);
+            }
+            if (submitMbdRep != NULL){
+                FREEUP(mem);
+                FREEUP(submitMbdRep);
+            }
+            submitMbdRep = submitMbdRepTmp;
+            curNumRep = submitMbdPackRep->numJobs;
+            mem = sp;
+            for ( i = 0; i < submitMbdPackRep->numJobs; i++ ){
+                submitMbdRep[i].queue = sp;
+                sp += MAX_LSB_NAME_LEN;
+
+                submitMbdRep[i].badJobName = sp;
+                sp += MAX_CMD_DESC_LEN;
+
+                submitMbdRep[i].pendLimitReason = sp;
+                sp += MAX_CMD_DESC_LEN;
+            }
+        }
+        submitMbdPackRep->submitMbdReps = submitMbdRep;
+    }
+
+    for (i = 0; i < submitMbdPackRep->numJobs; i++ ){
+        if (!xdr_arrayElement(xdrs, (char *)&(submitMbdPackRep->submitMbdReps[i]), hdr,
+                              xdr_submitMbdEnt)) {
+            return (FALSE);
+        }
+    }
+
+    return (TRUE);
 }
 
 bool_t

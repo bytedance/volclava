@@ -19,6 +19,7 @@
 
 #include "mbd.h"
 #include "mbd.fairshare.h"
+#include <pthread.h>
 
 #define NL_SETN         10
 
@@ -109,7 +110,7 @@ static void jobRequeueTimeUpdate(struct jData *, time_t);
 static bool_t clusterAdminFlag;
 static void setClusterAdmin(bool_t admin);
 static bool_t requestByClusterAdmin( );
-static int    mbdRcvJobFile(int, struct lenData *);
+int    mbdRcvJobFile(int, struct lenData *);
 
 static void closeSbdConnect4ZombieJob(struct jData *);
 extern int glMigToPendFlag;
@@ -326,6 +327,178 @@ error_cleanup:
     return(returnErr);
 }
 
+
+/*
+ * newJobWithFile - Create job using pre-read file data
+ * For pack job submission, avoid redundant mbdRcvJobFile calls
+ */
+int
+newJobWithFile (struct submitReq *subReq, struct submitMbdReply *Reply, 
+                struct lenData *jf, struct lsfAuth *auth, int *schedule, 
+                int dispatch, struct jData **jobData, int preAllocatedJobId)
+{
+    static char fname[] = "newJobWithFile";
+    static struct jData *newjob;
+    int returnErr;
+    LS_LONG_INT nextId;
+    char jobIdStr[20];
+    struct hData *hData;
+    struct hostInfo *hinfo;
+    char hostType[MAXHOSTNAMELEN];
+
+    struct idxList *idxList;
+    int    maxJLimit = 0;
+    int    arraySize = 1;
+    static char pendLimitReason[MAX_CMD_DESC_LEN];
+
+    pendLimitReason[0] = '\0';
+
+    if (logclass & (LC_TRACE | LC_EXEC))
+        ls_syslog(LOG_DEBUG1, "%s: Entering this routine...", fname);
+
+    /* Use pre-allocated jobId if provided, otherwise allocate dynamically */
+    if (preAllocatedJobId > 0) {
+        nextId = preAllocatedJobId;
+        if (logclass & (LC_TRACE | LC_EXEC))
+            ls_syslog(LOG_DEBUG1, "%s: Using pre-allocated jobId %d", fname, preAllocatedJobId);
+    } else {
+        if ((nextId = getNextJobId()) < 0)
+            return (LSBE_NO_JOBID);
+    }
+
+    hData = getHostData (subReq->fromHost);
+    if (hData == NULL) {
+
+        if ((hinfo = getLsfHostData (subReq->fromHost)) == NULL) {
+            getLsfHostInfo(FALSE);
+            hinfo = getLsfHostData (subReq->fromHost);
+        }
+        if (hinfo == NULL) {
+            if (!(subReq->options & SUB_RESTART)) {
+                ls_syslog(LOG_ERR, _i18n_msg_get(ls_catd , NL_SETN, 6500,
+                                                 "%s: Host <%s> is not used by LSF"),
+                          fname, subReq->fromHost);
+                return (LSBE_MBATCHD);
+            }
+            if (getHostByType (subReq->schedHostType) == NULL) {
+                ls_syslog(LOG_ERR, "\
+%s: Can not find restarted job's submission host %s and type %s",
+                          __func__, subReq->fromHost,
+                          subReq->schedHostType);
+                return LSBE_BAD_SUBMISSION_HOST;
+            }
+            strcpy (hostType, subReq->schedHostType);
+        } else
+            strcpy (hostType, hinfo->hostType);
+
+    } else {
+        strcpy (hostType, hData->hostType);
+    }
+
+    subReq->options2 &= ~(SUB2_HOST_NT | SUB2_HOST_UX);
+
+    if (auth->options == AUTH_HOST_NT)
+        subReq->options2 |= SUB2_HOST_NT;
+    else if (auth->options == AUTH_HOST_UX)
+        subReq->options2 |= SUB2_HOST_UX;
+
+    newjob = initJData((struct jShared *) my_calloc(1, sizeof(struct jShared), fname));
+    newjob->jobId = nextId;
+    returnErr = checkJobParams (newjob, subReq, Reply, auth);
+
+    if (returnErr == LSBE_NO_ERROR) {
+
+        if ( !(subReq->options & SUB_CHKPNT_DIR) ){
+            struct qData  *qp = getQueueData(subReq->queue);
+            if ( qp && (qp->qAttrib & Q_ATTRIB_CHKPNT) ) {
+                subReq->options  |= SUB_CHKPNTABLE;
+                subReq->options2 |= SUB2_QUEUE_CHKPNT;
+                FREEUP(subReq->chkpntDir);
+                subReq->chkpntDir = safeSave(qp->chkpntDir);
+                subReq->chkpntPeriod = qp->chkpntPeriod;
+            }
+        }
+
+        if ( !(subReq->options & SUB_RERUNNABLE ) ) {
+            struct qData  *qp = getQueueData(subReq->queue);
+            if ( qp && (qp->qAttrib & Q_ATTRIB_RERUNNABLE )) {
+                subReq->options  |= SUB_RERUNNABLE;
+                subReq->options2 |= SUB2_QUEUE_RERUNNABLE;
+            }
+        }
+
+
+        if ((subReq->options & SUB_CHKPNT_DIR)
+            && (!(subReq->options & SUB_RESTART))) {
+            char dir[MAXLINELEN];
+            sprintf(jobIdStr, "/%s", lsb_jobidinstr(nextId));
+            strcpy(dir, subReq->chkpntDir);
+            strcat(dir, jobIdStr);
+            FREEUP(subReq->chkpntDir);
+            subReq->chkpntDir = safeSave(dir);
+        }
+
+    }
+
+    /* Key difference: use passed-in file data instead of calling mbdRcvJobFile */
+    if (returnErr != LSBE_NO_ERROR) {
+        freeNewJob (newjob);
+        return (returnErr);
+    }
+
+
+    copyJobBill (subReq, &newjob->shared->jobBill, newjob->jobId);
+    newjob->restartPid = newjob->shared->jobBill.restartPid;
+    newjob->chkpntPeriod = newjob->shared->jobBill.chkpntPeriod;
+
+    newjob->schedHost = safeSave (hostType);
+
+    /* Follow original newJob logic: always call handleNewJob unless it is a job array */
+    if ((newjob->shared->jobBill.options & SUB_RESTART) ||
+        (idxList = parseJobArrayIndex(newjob->shared->jobBill.jobName,
+                                      &returnErr, &maxJLimit)) == NULL) {
+        arraySize = 1;
+        returnErr = checkJobPendLimit(newjob, auth, pendLimitReason, arraySize);
+        if (returnErr == LSBE_NO_ERROR) {
+            handleNewJob (newjob, JOB_NEW, LOG_IT);
+        }
+        else {
+            goto error_cleanup;
+        }
+    }
+    else {
+        arraySize = (idxList->end - idxList->start)/idxList->step + 1;
+        returnErr = checkJobPendLimit(newjob, auth, pendLimitReason, arraySize);
+        if (returnErr == LSBE_NO_ERROR) {
+            handleNewJobArray(newjob, idxList, maxJLimit);
+            freeIdxList(idxList);
+        }
+        else {
+            goto error_cleanup;
+        }
+
+    }
+
+    Reply->jobId = newjob->jobId;
+    *jobData = newjob;
+
+    if (logclass & (LC_TRACE | LC_EXEC | LC_SCHED))
+        ls_syslog(LOG_DEBUG1, "%s: New job <%s> submitted to queue <%s>",
+                  fname, lsb_jobid2str(newjob->jobId), newjob->qPtr->queue);
+
+    logJobInfo(subReq, newjob, jf);
+
+    return(LSBE_NO_ERROR);
+
+error_cleanup:
+    FREEUP(Reply->badJobName);
+    freeIdxList(idxList);
+    Reply->badJobName = safeSave(newjob->shared->jobBill.jobName);
+    strncpy(Reply->pendLimitReason, pendLimitReason, MAX_CMD_DESC_LEN);
+    freeJData(newjob);
+    return(returnErr);
+}
+
 struct hData *
 getHostByType(char *hostType)
 {
@@ -342,6 +515,90 @@ getHostByType(char *hostType)
     }
 
     return NULL;
+}
+
+/* Global mutex for jobId allocation */
+static pthread_mutex_t jobIdMutex = PTHREAD_MUTEX_INITIALIZER;
+
+/* Batch allocate consecutive job IDs for pack submission
+ * Parameters:
+ *   count: number of IDs to allocate
+ *   allocatedIds: output array to store allocated IDs (must be pre-allocated)
+ * Returns:
+ *   first jobId on success, -1 on failure
+ */
+int
+batchAllocateJobIds(int count, int *allocatedIds)
+{
+    static char fname[] = "batchAllocateJobIds()";
+    int i;
+    int firstJobId;
+    int candidateId;
+    int skipCount;
+    
+    if (count <= 0 || count > 10000) {
+        ls_syslog(LOG_ERR, "%s: Invalid count %d", fname, count);
+        return -1;
+    }
+    
+    if (!allocatedIds) {
+        ls_syslog(LOG_ERR, "%s: NULL allocatedIds array", fname);
+        return -1;
+    }
+    
+    /* Lock to ensure thread safety */
+    pthread_mutex_lock(&jobIdMutex);
+    
+    /* Ensure nextJobId is in valid range */
+    nextJobId = (nextJobId < maxJobId) ? nextJobId : 1;
+    firstJobId = nextJobId;
+    
+    /* Optimized pre-allocation: minimize getJobData() calls
+     * Instead of checking each ID individually for each job,
+     * we use a simpler strategy for batch allocation */
+    candidateId = nextJobId;
+    for (i = 0; i < count; i++) {
+        skipCount = 0;
+        
+        /* Find next available ID */
+        while (getJobData(candidateId) != NULL) {
+            candidateId++;
+            skipCount++;
+            
+            if (candidateId >= maxJobId) {
+                candidateId = 1;
+            }
+            
+            /* Prevent infinite loop if all IDs are occupied */
+            if (skipCount >= maxJobId) {
+                ls_syslog(LOG_ERR, "%s: Cannot allocate job ID at position %d (all occupied)",
+                         fname, i);
+                pthread_mutex_unlock(&jobIdMutex);
+                return -1;
+            }
+        }
+        
+        /* Allocate this ID */
+        allocatedIds[i] = candidateId;
+        
+        /* Move to next candidate (may skip a few for next iteration) */
+        candidateId++;
+        if (candidateId >= maxJobId) {
+            candidateId = 1;
+        }
+    }
+    
+    /* Update nextJobId to continue from where we left off */
+    nextJobId = candidateId;
+    
+    pthread_mutex_unlock(&jobIdMutex);
+    
+    if (logclass & LC_COMM) {
+        ls_syslog(LOG_DEBUG, "%s: Allocated %d job IDs from %d to %d",
+                 fname, count, allocatedIds[0], allocatedIds[count-1]);
+    }
+    
+    return firstJobId;
 }
 
 
@@ -8794,6 +9051,103 @@ mbdRcvJobFile(int chfd, struct lenData *jf)
     }
 
     return (0);
+}
+
+/*
+ * Unpack batch job file data
+ * Input: packed lenData (format: [file_count][file1_length][file1_data][file2_length][file2_data]...)
+ * Output: unpacked file array and file count
+ */
+int
+unpackJobFiles(struct lenData *packed, struct lenData **jf_array, int *fileCount)
+{
+    static char fname[] = "unpackJobFiles";
+    char *p = packed->data;
+    char *endp = packed->data + packed->len;
+    int count;
+    int i,j;
+    
+    if (!packed || !packed->data || packed->len < NET_INTSIZE_) {
+        ls_syslog(LOG_ERR, "%s: Invalid packed data", fname);
+        return -1;
+    }
+    
+    /* Read file count */
+    if (p + NET_INTSIZE_ > endp) {
+        ls_syslog(LOG_ERR, "%s: Buffer overflow reading file count", fname);
+        return -1;
+    }
+    count = ntohl(*(int*)p);
+    p += NET_INTSIZE_;
+    
+    ls_syslog(LOG_INFO, "%s: Starting to unpack %d job files, packed data size: %d bytes", 
+              fname, count, packed->len);
+    
+    if (count <= 0) {
+        ls_syslog(LOG_ERR, "%s: Invalid file count: %d", fname, count);
+        return -1;
+    }
+    
+    /* Allocate file array */
+    *jf_array = (struct lenData *)my_calloc(count, sizeof(struct lenData), fname);
+    if (!*jf_array) {
+        ls_syslog(LOG_ERR, "%s: Failed to allocate memory for %d files", fname, count);
+        return -1;
+    }
+    
+    /* Unpack each file */
+    for (i = 0; i < count; i++) {
+        int fileLen;
+        
+        /* Read file length */
+        if (p + NET_INTSIZE_ > endp) {
+            ls_syslog(LOG_ERR, "%s: Buffer overflow reading file %d length", fname, i);
+            goto error;
+        }
+        fileLen = ntohl(*(int*)p);
+        p += NET_INTSIZE_;
+        
+        /* Validate file length */
+        if (fileLen < 0 || p + fileLen > endp) {
+            ls_syslog(LOG_ERR, "%s: Invalid file %d length: %d (remaining: %ld)", 
+                      fname, i, fileLen, endp - p);
+            goto error;
+        }
+        
+        /* Allocate and copy file data */
+        (*jf_array)[i].len = fileLen;
+        if (fileLen > 0) {
+            (*jf_array)[i].data = my_calloc(1, fileLen, fname);
+            if (!(*jf_array)[i].data) {
+                ls_syslog(LOG_ERR, "%s: Failed to allocate memory for file %d", fname, i);
+                goto error;
+            }
+            memcpy((*jf_array)[i].data, p, fileLen);
+            p += fileLen;
+            
+            ls_syslog(LOG_INFO, "%s: Successfully unpacked job %d file (%d bytes)", 
+                      fname, i, fileLen);
+        } else {
+            (*jf_array)[i].data = NULL;
+            ls_syslog(LOG_INFO, "%s: Job %d file length is 0", fname, i);
+        }
+    }
+    
+    *fileCount = count;
+    ls_syslog(LOG_INFO, "%s: Successfully unpacked all %d job files", fname, count);
+    return 0;
+    
+error:
+    /* Cleanup allocated memory */
+    if (*jf_array) {
+        for (j = 0; j < i; j++) {
+            if ((*jf_array)[j].data) {
+                FREEUP((*jf_array)[j].data);
+            }
+        }
+        FREEUP(*jf_array);
+    }
+    return -1;
 }
 
 float
