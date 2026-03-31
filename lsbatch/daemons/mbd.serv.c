@@ -38,6 +38,7 @@ static int packJgrpInfo(struct jgTreeNode *, int, char **, int, int);
 static int packJobInfo(struct jData *, int, char **, int, int, int);
 static void initSubmit(int *, struct submitReq *, struct submitMbdReply *);
 static int sendBack(int, struct submitReq *, struct submitMbdReply *, int);
+static int sendBackPack(int, int, int, struct submitMbdReply *, int, int, int);
 static void addPendSigEvent(struct sbdNode *sbdPtr);
 static void freeJobHead (struct jobInfoHead *);
 static void freeJobInfoReply (struct jobInfoReply *);
@@ -127,6 +128,184 @@ sendback:
     return (0);
 
 }
+
+
+int
+do_submitPackReq(XDR *xdrs,
+                 int chfd,
+                 struct sockaddr_in *from,
+                 char *hostName,
+                 struct LSFHeader *reqHdr,
+                 struct lsfAuth *auth,
+                 int *schedule,
+                 int dispatch)
+{
+    static char             fname[] = "do_submitPackReq";
+    struct submitPackReq    packReq;
+    struct lenData          packedFiles;
+    struct lenData          *jf_array = NULL;
+    struct submitMbdReply   *replyArray = NULL;
+    struct submitMbdReply   *submitReply;
+    struct jData            *jobData;
+    char                    *savedFromHost, *savedCommand, *savedJobName;
+    char                    *savedQueue, *savedResReq;
+    int                     savedMaxNumProcessors, savedNumProcessors;
+    int                     fileCount = 0;
+    int                     j, i, reply;
+    int                     overallReply = LSBE_NO_ERROR;
+    int                     successCount = 0;
+    int                     failedCount = 0;
+    int                     firstError = LSBE_NO_ERROR;
+
+    if (logclass & (LC_TRACE | LC_EXEC | LC_COMM))
+        ls_syslog(LOG_DEBUG, "%s: Entering this routine...; host=%s, socket=%d", fname, hostName, chanSock_(chfd));
+
+    if (!xdr_submitPackReq(xdrs, &packReq, reqHdr)) {
+        overallReply = LSBE_XDR;
+        ls_syslog(LOG_ERR, I18N_FUNC_FAIL, fname, "xdr_submitPackReq");
+        goto sendback;
+    }
+    if (logclass & LC_COMM)
+        ls_syslog(LOG_DEBUG, "%s: Processing %d jobs from %s",
+                 fname, packReq.jobCount, sockAdd2Str_(from));
+
+    if (mbdRcvJobFile(chfd, &packedFiles) == -1) {
+        overallReply = LSBE_EOF;
+        ls_syslog(LOG_ERR, "%s: Failed to receive files from %s",
+                 fname, sockAdd2Str_(from));
+        goto sendback;
+    }
+    if (unpackJobFiles(&packedFiles, &jf_array, &fileCount) == -1) {
+        overallReply = LSBE_EOF;
+        ls_syslog(LOG_ERR, "%s: Failed to unpack files from %s",
+                 fname, sockAdd2Str_(from));
+        FREEUP(packedFiles.data);
+        goto sendback;
+    }
+    FREEUP(packedFiles.data);
+    if (fileCount != packReq.jobCount) {
+        overallReply = LSBE_BAD_ARG;
+        ls_syslog(LOG_ERR, "%s: File count mismatch: expected %d, got %d",
+                 fname, packReq.jobCount, fileCount);
+        if (jf_array) {
+            for (j = 0; j < fileCount; j++)
+                FREEUP(jf_array[j].data);
+            FREEUP(jf_array);
+        }
+        goto sendback;
+    }
+
+    /* Note: We use traditional getNextJobId() for each job instead of batch allocation
+     * to avoid introducing thread lock complexity. batchAllocateJobIds() is kept
+     * in mbd.job.c for future optimization if needed. */
+
+    replyArray = (struct submitMbdReply *)
+        calloc(packReq.jobCount, sizeof(struct submitMbdReply));
+    if (!replyArray) {
+        overallReply = LSBE_NO_MEM;
+        ls_syslog(LOG_ERR, "%s: Failed to allocate reply array", fname);
+        if (jf_array) {
+            for (j = 0; j < fileCount; j++)
+                FREEUP(jf_array[j].data);
+            FREEUP(jf_array);
+        }
+        goto sendback;
+    }
+    
+    /* Pre-allocate badJobName and pendLimitReason buffers to avoid malloc in loop */
+    for (i = 0; i < packReq.jobCount; i++) {
+        replyArray[i].badJobName = (char *) my_malloc(MAX_CMD_DESC_LEN, fname);
+        replyArray[i].pendLimitReason = (char *) my_malloc(MAX_CMD_DESC_LEN, fname);
+        if (!replyArray[i].badJobName || !replyArray[i].pendLimitReason) {
+            overallReply = LSBE_NO_MEM;
+            ls_syslog(LOG_ERR, "%s: Failed to allocate error buffers", fname);
+            /* Clean up already allocated buffers */
+            for (j = 0; j <= i; j++) {
+                FREEUP(replyArray[j].badJobName);
+                FREEUP(replyArray[j].pendLimitReason);
+            }
+            FREEUP(replyArray);
+            if (jf_array) {
+                for (j = 0; j < fileCount; j++)
+                    FREEUP(jf_array[j].data);
+                FREEUP(jf_array);
+            }
+            goto sendback;
+        }
+
+        replyArray[i].jobId = 0;
+        replyArray[i].subTryInterval = subTryInterval;
+        replyArray[i].queue = "";
+        strcpy(replyArray[i].badJobName, "");
+        strcpy(replyArray[i].pendLimitReason, "");
+        replyArray[i].replyCode = LSBE_NOT_HANDLED;
+
+    }
+
+    if (logclass & LC_COMM)
+        ls_syslog(LOG_DEBUG, "%s: Processing %d jobs", fname, packReq.jobCount);
+
+    for (i = 0; i < packReq.jobCount; i++) {
+        submitReply = &replyArray[i];
+        jobData = NULL;
+
+        /* Ensure processors are set to valid values */
+        if (packReq.jobs[i].maxNumProcessors <= 0)
+            packReq.jobs[i].maxNumProcessors = 1;
+        if (packReq.jobs[i].numProcessors <= 0)
+            packReq.jobs[i].numProcessors = 1;
+
+        if (!(packReq.jobs[i].options & SUB_RLIMIT_UNIT_IS_KB))
+            convertRLimit(packReq.jobs[i].rLimits, 1);
+
+        reply = newJobWithFile(&packReq.jobs[i], submitReply, &jf_array[i],
+                              auth, schedule, dispatch, &jobData,
+                              0);  /* Use 0 to trigger traditional getNextJobId() */
+        submitReply->replyCode = reply;
+        if (reply == LSBE_NO_ERROR) {
+            if (logclass & LC_COMM)
+                ls_syslog(LOG_DEBUG, "%s: Job %d created, jobId=%lld",
+                         fname, i, submitReply->jobId);
+            setNextSchedTimeUponNewJob(jobData);
+            successCount++;
+        } else {
+            if (logclass & (LC_TRACE | LC_EXEC))
+                ls_syslog(LOG_DEBUG, "Job %d failed: reason <%d> JobName<%s> queue <%s> resReq <%s> hostSpec <%s> "
+                                     "command <%s> fromHost <%s> cwd <%s>, LSB_PACK_SKIP_ERROR = %d.",
+                         i, reply, packReq.jobs[i].jobName, packReq.jobs[i].queue,
+                         packReq.jobs[i].resReq, packReq.jobs[i].hostSpec,
+                         packReq.jobs[i].command, packReq.jobs[i].fromHost,
+                         packReq.jobs[i].cwd, packSkipErrFlag);
+            submitReply->jobId = 0;
+            submitReply->queue = packReq.jobs[i].queue;
+            if (firstError == LSBE_NO_ERROR)
+                firstError = reply;
+            failedCount++;
+            if (packSkipErrFlag == FALSE) {
+                break;
+            }
+        }
+    }
+
+sendback:
+    if (sendBackPack(overallReply, successCount, firstError,
+                     replyArray, packReq.jobCount, failedCount, chfd) < 0)
+        return (-1);
+
+    for (j = 0; j < fileCount; j++){
+        FREEUP(replyArray[j].badJobName);
+        FREEUP(replyArray[j].pendLimitReason);
+        if(jf_array) FREEUP(jf_array[j].data);
+    }
+    FREEUP(jf_array);
+    FREEUP(replyArray);
+
+    if (logclass & LC_COMM)
+        ls_syslog(LOG_DEBUG, "%s: Completed processing %d jobs from %s",
+                 fname, packReq.jobCount, sockAdd2Str_(from));
+    return (0);
+}
+
 
 int
 checkUseSelectJgrps(struct LSFHeader *reqHdr, struct jobInfoReq *req)
@@ -232,7 +411,7 @@ do_jobInfoReq(XDR *xdrs,
         + jobInfoHead.numHosts * (sizeof(char *) + MAXHOSTNAMELEN)
         + 100;
 
-    reply_buf = (char *)my_malloc (len, fname);
+    reply_buf = (char *) my_malloc(len, fname);
     xdrmem_create(&xdrs2, reply_buf, len, XDR_ENCODE);
     replyHdr.opCode = reply;
 
@@ -1987,6 +2166,105 @@ sendBack (int reply, struct submitReq *submitReq,
     xdr_destroy(&xdrs2);
     return (0);
 
+}
+
+
+static int
+sendBackPack(int overallReply, int successCount, int firstError,
+             struct submitMbdReply *replyArray, int jobCount,
+             int failCount, int chfd)
+{
+    static char fname[] = "sendBackPack()";
+    char *reply_buf = NULL;
+    int reply_buf_size;
+    XDR xdrs;
+    struct LSFHeader replyHdr;
+    struct submitMbdPackReply packReply;
+    int i, j, replyLen;
+    int return_code = 0;
+
+    memset(&packReply, 0, sizeof(struct submitMbdPackReply));
+
+    // Calculate required buffer size dynamically based on job count
+    // in sendBack() it use (MSGSIZE / 2) for submitMbdReply.
+    reply_buf_size = ALIGNWORD_(sizeof(struct submitMbdPackReply)
+            + jobCount * (MSGSIZE / 2)
+//            + jobCount * (sizeof(struct submitMbdReply))
+//            + jobCount * (sizeof(char *) + MAX_CMD_DESC_LEN) // pendLimitReason length
+//            + jobCount * (sizeof(char *) + MAX_LSB_NAME_LEN) // queue length
+//            + jobCount * (sizeof(char *) + MAX_CMD_DESC_LEN) // badJobName length
+            + sizeof(struct LSFHeader)
+            + 100) + 4;
+
+    reply_buf = (char *) my_malloc(reply_buf_size, fname);
+    if (!reply_buf) {
+        ls_syslog(LOG_ERR, "%s: Failed to allocate reply buffer (%d bytes)",
+                  fname, reply_buf_size);
+        return_code = -1;
+        return return_code;
+    }
+
+    if (logclass & (LC_TRACE | LC_EXEC))
+        ls_syslog(LOG_DEBUG, "%s: Preparing pack reply, jobs=%d, success=%d, buffer=%d bytes",
+                  fname, jobCount, successCount, reply_buf_size);
+
+    /* Initialize pack reply */
+    memset(&packReply, 0, sizeof(struct submitMbdPackReply));
+
+    packReply.numJobs = jobCount;
+    packReply.numSuccess = successCount;
+    packReply.numFailed = failCount;
+
+    packReply.submitMbdReps = (struct submitMbdReply *)calloc(jobCount, sizeof(struct submitMbdReply));
+
+    if (!packReply.submitMbdReps) {
+        ls_syslog(LOG_ERR, "%s: Failed to allocate submitMbdReps array", fname);
+        FREEUP(reply_buf);
+        return_code = -1;
+        return return_code;
+    }
+
+    for (i = 0; i < jobCount; i++) {
+        memcpy(&(packReply.submitMbdReps[i]), &(replyArray[i]), sizeof(struct submitMbdReply));
+    }
+
+    /* Serialize and send */
+    xdrmem_create(&xdrs, reply_buf, reply_buf_size, XDR_ENCODE);
+
+    replyHdr.opCode = overallReply;
+
+    if (!xdr_encodeMsg(&xdrs, (char *)&packReply, &replyHdr,
+                       xdr_submitMbdPackReply, 0, NULL)) {
+        ls_syslog(LOG_ERR, "%s: xdr_encodeMsg failed for %d jobs (buffer size: %d)",
+                  fname, jobCount, reply_buf_size);
+        xdr_destroy(&xdrs);
+        FREEUP(reply_buf);
+        return_code = -1;
+        goto cleanup_arrays;
+    }
+
+    replyLen = XDR_GETPOS(&xdrs);
+    ls_syslog(LOG_INFO, "%s: Encoded %d jobs, actual size=%d, buffer size=%d (%.1f%% used)",
+              fname, jobCount, replyLen, reply_buf_size,
+              (100.0 * replyLen / reply_buf_size));
+    if (chanWrite_(chfd, reply_buf, replyLen) != replyLen) {
+        ls_syslog(LOG_ERR, I18N_FUNC_D_FAIL_M, fname, "chanWrite_", replyLen);
+        xdr_destroy(&xdrs);
+        FREEUP(reply_buf);
+        return_code = 0;
+        goto cleanup_arrays;
+    }
+
+    xdr_destroy(&xdrs);
+    FREEUP(reply_buf);
+
+    if (logclass & LC_COMM && overallReply == LSBE_NO_ERROR)
+        ls_syslog(LOG_DEBUG, "%s: Sent pack reply (%d bytes) with %d jobs",
+                  fname, replyLen, jobCount);
+
+cleanup_arrays:
+    FREEUP(packReply.submitMbdReps);
+    return return_code;
 }
 
 

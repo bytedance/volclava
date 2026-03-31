@@ -113,6 +113,7 @@ int    pendJobSlots = 0;
 struct jData *chkJList;
 
 unitTypes unitForLimits = Megabytes;
+int packSkipErrFlag = FALSE;
 
 struct hTab cpuFactors;
 struct gData *usergroups[MAX_GROUPS];
@@ -186,6 +187,7 @@ extern int do_setJobAttr(XDR *, int, struct sockaddr_in *, char *,
                          struct LSFHeader *, struct lsfAuth *);
 extern void chanCloseAllBut_(int);
 extern int initLimSock_(void);
+
 
 int
 main (int argc, char **argv)
@@ -328,6 +330,12 @@ main (int argc, char **argv)
         unitForLimits = setUnitForLimits(daemonParams[LSF_UNIT_FOR_LIMITS].paramValue);
 
     }
+
+    if (daemonParams[LSB_PACK_SKIP_ERROR].paramValue != NULL
+        && (strcasecmp(daemonParams[LSB_PACK_SKIP_ERROR].paramValue, "y") == 0)) {
+        packSkipErrFlag = TRUE;
+    }
+
     daemon_doinit();
 
     if ((!debug) && (!lsb_CheckMode))  {
@@ -712,6 +720,12 @@ processClient(struct clientNode *client, int *needFree)
             setNextSchedTimeUponNewJob(jobData);
             statusChanged = 1;
             break;
+
+         case BATCH_JOB_SUB_PACK:
+            TIMEIT(0, do_submitPackReq(&xdrs, s, &from, client->fromHost, &reqHdr, &auth, &schedule1, dispatch), "do_submitPackReq()");
+            statusChanged = 1;
+            break;
+
         case BATCH_JOB_SIG:
             TIMEIT(0, do_signalReq(&xdrs, s, &from, client->fromHost, &reqHdr, &auth),"do_signalReq()");
             break;
@@ -1066,6 +1080,7 @@ authRequest(struct lsfAuth *auth,
     char buf[MAXLSFNAMELEN];
 
     if (!(reqType == BATCH_JOB_SUB
+          || reqType == BATCH_JOB_SUB_PACK
           || reqType == BATCH_JOB_PEEK
           || reqType == BATCH_JOB_SIG
           || reqType == BATCH_QUE_CTRL
@@ -1103,6 +1118,7 @@ authRequest(struct lsfAuth *auth,
 
     switch(reqType) {
         case BATCH_JOB_SUB:
+        case BATCH_JOB_SUB_PACK:
             if (auth->uid == 0
                 && daemonParams[LSF_ROOT_REX].paramValue  == NULL) {
                 ls_syslog(LOG_CRIT, "\

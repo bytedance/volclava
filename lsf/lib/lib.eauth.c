@@ -81,7 +81,7 @@ getEAuth(struct eauth *eauth, char *host)
     if (logclass & LC_TRACE)
         ls_syslog(LOG_DEBUG, "runEAuth(): path=<%s>", path);
 
-    if (runEClient_(&ld, argv) == -1) {
+    if (runEClient_(&ld, argv, FALSE) == -1) {
         if (logclass & (LC_AUTH |LC_TRACE))
             ls_syslog(LOG_ERR, I18N_FUNC_S_FAIL,  "runEAuth", "runEClient", path);
         lserrno = LSE_EAUTH;

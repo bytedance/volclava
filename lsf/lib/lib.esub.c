@@ -34,10 +34,10 @@
 #define EGROUPNAME "egroup"
 
 #define NL_SETN   23    
-static int getEData(struct lenData *, char **, const char *);
+static int getEData(struct lenData *, char **, const char *, int);
 
 int
-runEsub_(struct lenData *ed, char *path)
+runEsub_(struct lenData *ed, char *path, int esubPrintFD)
 {
     char esub[MAXPATHLEN];
     char *myargv[6];
@@ -70,25 +70,25 @@ runEsub_(struct lenData *ed, char *path)
 	    return (-1);
     }
 
-    if (runEClient_(ed, myargv) == -1)
+    if (runEClient_(ed, myargv, esubPrintFD) == -1)
 	return (-2);
 
     return (0);
 }
 
 int
-runEClient_(struct lenData *ed, char **argv)
+runEClient_(struct lenData *ed, char **argv, int esubPrintFD)
 {
     char lsfUserName[MAXLSFNAMELEN];
 
     if (getLSFUser_(lsfUserName, sizeof(lsfUserName)) < 0) {
         return -1;
     }
-    return getEData(ed, argv, lsfUserName);
+    return getEData(ed, argv, lsfUserName, esubPrintFD);
 }
 
 static int
-getEData(struct lenData *ed, char **argv, const char *lsfUserName)
+getEData(struct lenData *ed, char **argv, const char *lsfUserName, int esubPrintFD)
 {
     char *buf, *sp;
     int ePorts[2];
@@ -96,7 +96,8 @@ getEData(struct lenData *ed, char **argv, const char *lsfUserName)
     char fname[] = "getEData";
     LS_WAIT_T  status;
     char *abortVal;
-    
+
+
     uid_t uid;
 
     if (getOSUid_(lsfUserName, &uid) < 0) {
@@ -113,8 +114,14 @@ getEData(struct lenData *ed, char **argv, const char *lsfUserName)
 
     if ((pid = fork()) == 0) {
         close (ePorts[0]);
-        dup2(ePorts[1], 1);
-	
+
+        if (esubPrintFD == FALSE) {
+            dup2(ePorts[1], 1);
+        } else {
+            dup2(esubPrintFD, 1);
+            dup2(esubPrintFD, 2);
+        }
+
 	lsfSetUid(uid);
 	
         lsfExecvp (argv[0], argv); 
@@ -369,7 +376,7 @@ runEGroup_(char *type, char *gname)
 	return NULL;
     }	
 	   
-    if (getEData(&ed, argv, lsfUserName) < 0) {
+    if (getEData(&ed, argv, lsfUserName, FALSE) < 0) {
 	ls_syslog(LOG_ERR, I18N_FUNC_S_FAIL_M, fname, "getEData", egroupPath);
 	return NULL;
     }

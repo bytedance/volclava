@@ -456,7 +456,17 @@
 #define    LSBE_JOB_MAX_PEND        132
 #define    LSBE_SLOTS_MAX_PEND      133
 #define    LSBE_BAD_RLIMIT          134
-#define    LSBE_NUM_ERR             134
+#define    LSBE_CHANGE_BMOD_CKPT    135
+#define    LSBE_NO_CMD              136
+#define    LSBE_EMBED_ZS            137
+#define    LSBE_MAC_LABEL_ERR       138
+#define    LSBE_NOT_HANDLED         139
+#define    LSBE_HELP_IN_PACK        140
+#define    LSBE_VERSION_IN_PACK     141
+#define    LSBE_BLOCK_IN_PACK       142
+#define    LSBE_INTERACTIVE_IN_PACK 143
+#define    LSBE_PACK_IN_PACK        144
+#define    LSBE_NUM_ERR             144
 
 #define  SUB_JOB_NAME       0x01
 #define  SUB_QUEUE          0x02
@@ -565,6 +575,14 @@ struct submitReply {
      char    *pendLimitReason;
      int     badReqIndx;
      int     subTryInterval;
+     int     replyCode;
+};
+
+struct submitPackReply {
+    int     numJobs;
+    int     numSuccess;
+    int     numFailed;
+    struct  submitReply *submitReps;
 };
 
 struct submig {
@@ -710,6 +728,7 @@ struct userInfoEnt {
     int    numRESERVE;
 };
 
+
 #define ALL_QUEUE       0x01
 #define DFT_QUEUE       0x02
 #define CHECK_HOST      0x80
@@ -833,6 +852,7 @@ struct hostInfoEnt {
 #define DEF_RUN_TIME_FACTOR 0.7
 #define DEF_RUN_JOB_FACTOR  3.0
 #define DEF_HIST_HOURS      5
+
 
 struct parameterInfo {
     char *defaultQueues;
@@ -1525,6 +1545,7 @@ extern struct jobInfoHead *lsb_openjobinfo_a P_((LS_LONG_INT, char *,char *,
 extern struct jobInfoEnt *lsb_readjobinfo P_((int *));
 extern LS_LONG_INT lsb_submit P_((struct submit  *, struct submitReply *));
 
+extern LS_LONG_INT lsb_submit_pack P_((struct submit **, int, struct submitPackReply *));
 
 extern void lsb_closejobinfo P_((void));
 

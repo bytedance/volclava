@@ -265,7 +265,7 @@ esubValModify(struct submit *jobSubReq)
     ed.len = 0;
     ed.data = NULL;
 
-    if (runBatchEsub(&ed, jobSubReq) < 0)
+    if (runBatchEsub(&ed, jobSubReq, FALSE) < 0)
 	return (-1);
 
     if (ed.len > 0) {

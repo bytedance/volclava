@@ -41,7 +41,7 @@ extern int isatty(int);
 extern int optind;
 
 extern  int setOption_ (int argc, char **argv, char *template, 
-                      struct submit *req, int mask, char **errMsg);
+                      struct submit *req, int mask, char **errMsg, int isInPackFile);
 extern  struct submit * parseOptFile_(char *filename, 
 				      struct submit *req, char **errMsg);
 extern void subUsage_(int, char **);
@@ -482,7 +482,7 @@ fillReq2(int argc, char **argv, int operate, struct submit *req)
 
     
     optind = 1;
-    if (setOption_ (argc, argv, template, req, ~0, NULL) == -1)
+    if (setOption_ (argc, argv, template, req, ~0, NULL, FALSE) == -1)
         return (-1);
 
     if (operate == CMD_BSUB && (req->options & SUB_INTERACTIVE)
@@ -530,7 +530,7 @@ fillReq2(int argc, char **argv, int operate, struct submit *req)
     if (embedArgc > 1 && operate == CMD_BSUB) { 
        
         optind = 1;                            
-        if (setOption_ (embedArgc, embedArgv, template, req, ~req->options, NULL)
+        if (setOption_ (embedArgc, embedArgv, template, req, ~req->options, NULL, FALSE)
             == -1)
             return (-1);
     }
