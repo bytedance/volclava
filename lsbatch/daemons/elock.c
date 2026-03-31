@@ -98,7 +98,7 @@ access:
         gotLock = TRUE;
         return 0;
     } else if (errno == EEXIST) {
-        int fd,cc,i,pid;
+        int fd,cc,i,pid = -1;
 
         fd = open(lockfile, O_RDONLY, 0444);
         chuser(batchId);
@@ -141,7 +141,7 @@ access:
         while (1) {
             int j;
 
-            millisleep_(msleeptime * 1000/2);
+            millisleep_(msleeptime * 1000/10);
 
             mastername = ls_getmastername();
             for (j = 0; j<3 && !mastername && lserrno == LSE_TIME_OUT; j++) {
@@ -168,6 +168,13 @@ access:
                 return(MASTER_FATAL);
             }
             if ( statbuf.st_mtime == lastmodtime ) {
+                if (pid > 0 && kill(pid, 0) < 0) {
+                    ls_syslog(LOG_ERR, "\
+%s: Last owner of lock file was on this host with pid <%d>; attempting to take over lock file", fname, pid);
+                    force = 1;
+                    close(fd);
+                    goto access;
+                }
                 if (retry > 4) {
                     ls_syslog(LOG_ERR, _i18n_msg_get(ls_catd , NL_SETN, 8249,
                                                      "%s: Previous mbatchd appears dead; attempting to take over lock file"),fname); /* catgets 8249 */

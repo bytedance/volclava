@@ -32,7 +32,7 @@
 #define NL_SETN   23
 #define EPOLL_EVENT_MAX_SIZE 2048
 
-#define CLOSEIT(i) {                                    \
+#define CLOSEIT(i) {                                    \                                      
         CLOSESOCKET(channels[i].handle);                \
         channels[i].state = CH_DISC;                    \
         channels[i].readyEvents = EPOLL_EVENT_NONE;     \
@@ -371,7 +371,6 @@ chanSendDgram_(int chfd, char *buf, int len, struct sockaddr_in *peer)
 
     if (SOCK_CALL_FAIL(cc)) {
         lserrno = LSE_MSG_SYS;
-        printf("send or sendto error");
         return(-1);
     }
 
@@ -622,8 +621,7 @@ chanClose_(int chfd)
         for (buf = channels[chfd].send->forw;
              buf != channels[chfd].send; buf = nextbuf) {
             nextbuf = buf->forw;
-            if(buf->freeDataAfterSend == TRUE)
-                FREEUP(buf->data);
+            FREEUP(buf->data);
             FREEUP(buf);
         }
     }
@@ -744,7 +742,7 @@ chanEpoll_(int **readyfds, struct timeval *timeout)
             }
             if (epoll_events[i].events & EPOLLOUT)
                 channels[chfd].readyEvents |= EPOLL_EVENT_WRITE;
-            if (epoll_events[i].events & (EPOLLERR)){
+            if (epoll_events[i].events & EPOLLERR){
                 channels[chfd].readyEvents |= EPOLL_EVENT_ERROR;
                 addToReady = 1;
             }
@@ -988,6 +986,14 @@ chanRead_(int chfd, char *buf, int len)
     return (b_read_fix(channels[chfd].handle, buf, len));
 
 }
+
+int
+chanWriteNonBlock_(int chfd, char *buf, int len, int timeout)
+{
+
+    return (nb_write_timeout(channels[chfd].handle, buf, len, timeout));
+}
+
 
 int
 chanWrite_(int chfd, char *buf, int len)
@@ -1352,8 +1358,7 @@ dowrite(int chfd, struct Masks *chanmask)
     sendbuf->pos += cc;
     if (sendbuf->pos == sendbuf->len) {
         dequeue_(sendbuf);
-        if(sendbuf->freeDataAfterSend == TRUE)
-            free(sendbuf->data);
+        free(sendbuf->data);
         free(sendbuf);
     }
     return;
@@ -1389,8 +1394,7 @@ dowriteEpoll(int chfd)
 
     if (sendbuf->pos == sendbuf->len) {
         dequeue_(sendbuf);
-        if(sendbuf->freeDataAfterSend)
-            free(sendbuf->data);
+        free(sendbuf->data);
         free(sendbuf);
     }
     /*When the sendbuf becomes empty, the listener for the writable event should be removed.*/
@@ -1414,7 +1418,6 @@ newBuf(void)
     newbuf->len  = newbuf->pos = 0;
     newbuf->data = NULL;
     newbuf->stashed = FALSE;
-    newbuf->freeDataAfterSend = TRUE;
     return newbuf;
 }
 
@@ -1440,9 +1443,7 @@ chanFreeBuf_(struct Buffer *buf)
     if (buf) {
         if (buf->stashed) return 0;
 
-        if (buf->data && buf->freeDataAfterSend)
-            free(buf->data);
-
+        free(buf->data);
         free(buf);
     }
     return(0);
@@ -1631,7 +1632,7 @@ chanResetRevent4Chans()
  */
 void
 chanClearReadyEvents(int chfd, int events)
-{
+{   
     if (chfd < 0 || chfd >= chanMaxSize) {
         channels[chfd].chanerr = CHANE_BADCHFD;
         return ;
@@ -1648,13 +1649,8 @@ chanClearReadyEvents(int chfd, int events)
 int
 chanEventsReady(int chfd, int events)
 {
-    if (chfd < 0 || chfd >= chanMaxSize) {
-        channels[chfd].chanerr = CHANE_BADCHFD;
-        return -1;
-    }
-
-    if (channels[chfd].state == CH_FREE || channels[chfd].handle == INVALID_HANDLE) {
-        channels[chfd].chanerr = CHANE_BADCHFD;
+    if (chfd < 0 || chfd >= chanMaxSize || channels[chfd].state == CH_FREE || channels[chfd].handle == INVALID_HANDLE) {
+        channels[chfd].chanerr = CHANE_BADCHAN;
         return -1;
     }
 

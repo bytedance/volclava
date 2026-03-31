@@ -1,3 +1,4 @@
+#define _GNU_SOURCE
 /*
  * Copyright (C) 2021-2025 Bytedance Ltd. and/or its affiliates
  *
@@ -40,6 +41,8 @@ static void remoteOutput(int fidx, char **disOut, char *exHost, char *fname,
 			 char *execUsername, char **);
 static int useTmp(char *exHost, char *fname);
 static void stripClusterName(char *);
+static pid_t setupOutputCaptureAndCheck(LS_LONG_INT jobId, char * jobFile);
+static void cleanupOutputCaptureAndCheck(pid_t);
 
 static void
 usage (char *cmd)
@@ -61,6 +64,7 @@ oneOf (char *cmd)
 }
 
 #define MAX_PEEK_ARGS  5
+#define BPEEK_CHECK_BUF_SIZE 1024
 
 int
 main (int argc, char **argv, char **environ)
@@ -198,6 +202,12 @@ displayOutput (char *jobFile, struct jobInfoEnt *jInfo, char fflag, char **envp)
 {
     char fileOut[MAXFILENAMELEN];
     char fileErr[MAXFILENAMELEN];
+    int displayOut = FALSE;
+    int displayErr = FALSE;
+    int checked = FALSE;
+    pid_t capturePid = 0;
+    displayOut = !((jInfo->submit.options & SUB_OUT_FILE) && strcmp(jInfo->submit.outFile,  LSDEVNULL) == 0);
+    displayErr = (jInfo->submit.options & SUB_ERR_FILE) && strcmp(jInfo->submit.errFile,  LSDEVNULL) != 0;
 
     sprintf(fileOut, "%s.out", jobFile);
     sprintf(fileErr, "%s.err", jobFile);
@@ -206,18 +216,26 @@ displayOutput (char *jobFile, struct jobInfoEnt *jInfo, char fflag, char **envp)
     stripClusterName(jInfo->exHosts[0]);
 
 
-    if (! ((jInfo->submit.options & SUB_OUT_FILE)
-           && strcmp(jInfo->submit.outFile,  LSDEVNULL) == 0)) {
+    if (displayOut) {
 	printf("<< %s >>\n",(_i18n_msg_get(ls_catd,NL_SETN,2457, "output from stdout"))); /* catgets  2457  */
+    if(!fflag && !displayErr && !checked){
+        capturePid = setupOutputCaptureAndCheck(jInfo->jobId, fileOut);
+        checked = TRUE;
+    }
 	output(fileOut, jInfo->exHosts[0], fflag, jInfo->execUsername, envp);
     }
 
-
-    if ((jInfo->submit.options & SUB_ERR_FILE)
-          && strcmp(jInfo->submit.errFile,  LSDEVNULL) != 0) {
+    if (displayErr) {
 	printf("\n<< %s >>\n",(_i18n_msg_get(ls_catd,NL_SETN,2458, "output from stderr"))); /* catgets  2458  */
+    if(!fflag && !checked){
+        capturePid = setupOutputCaptureAndCheck(jInfo->jobId, fileErr);
+        checked = TRUE;
+    }
 	output(fileErr, jInfo->exHosts[0], fflag, jInfo->execUsername, envp);
     }
+
+    if (!fflag && checked)
+        cleanupOutputCaptureAndCheck(capturePid);
 
     exit(0);
 
@@ -387,4 +405,80 @@ stripClusterName(char *str)
     }
     str[p-str] = '\0';
     return;
+}
+
+
+static int
+setupOutputCaptureAndCheck(LS_LONG_INT jobId, char * jobFile)
+{
+    int stdoutPipe[2];
+    char errString[1024];
+    pid_t capturePid = 0;
+
+    if (pipe(stdoutPipe) < 0) {
+        perror("pipe");
+        exit(-1);
+    }
+    fflush(stdout);
+    capturePid = fork();
+    if (capturePid < 0) {
+        perror("fork");
+        close(stdoutPipe[0]);
+        close(stdoutPipe[1]);
+        exit(-1);
+    }
+
+    if (capturePid == 0) {
+        memset(errString, 0, sizeof(errString));
+        sprintf(errString, "cat: %s: No such file or directory", jobFile);
+        close(stdoutPipe[1]);
+
+        char readBuf[1025];
+        ssize_t n;
+
+        if (rd_poll_(stdoutPipe[0], NULL) < 0) {
+            perror("rd_poll_");
+            exit(-1);
+        }
+
+        n = read(stdoutPipe[0], readBuf, 1024);
+        if (n > 0) {
+            readBuf[n] = '\0';
+            if (write(STDOUT_FILENO, readBuf, n) != n) {
+                perror("write");
+            }
+            if (strstr(readBuf, errString)) {
+                fprintf(stderr, "Job <%s> may not be in RUN status. Use bjobs or bhist to confirm.\n", lsb_jobid2str(jobId));
+            }
+            
+            while (1) {
+                ssize_t sret = splice(stdoutPipe[0], NULL, STDOUT_FILENO, NULL, 65536, SPLICE_F_MOVE | SPLICE_F_MORE);
+                if (sret == 0) break;
+                if (sret < 0) {
+                    if (errno == EINTR) continue;
+                    if (errno == EAGAIN) continue;
+                    perror("splice");
+                    break;
+                }
+            }
+        } else if (n < 0) {
+            perror("read");
+        }
+
+        exit(0);
+    }
+
+    close(stdoutPipe[0]);
+    dup2(stdoutPipe[1], STDOUT_FILENO);
+    close(stdoutPipe[1]);
+    return capturePid;
+}
+
+static void
+cleanupOutputCaptureAndCheck(int capturePid)
+{
+    close(STDOUT_FILENO);
+    if (capturePid > 0) {
+        waitpid(capturePid, NULL, 0);
+    }
 }

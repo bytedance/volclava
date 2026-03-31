@@ -91,6 +91,12 @@ struct config_param daemonParams[] = {
     {"LIM_NO_MIGRANT_HOSTS", NULL},
     {"LSF_UNIT_FOR_LIMITS", NULL},
     {"LSB_PACK_SKIP_ERROR", NULL},
+    {"LSB_QMBD_PORT", NULL},
+    {"LSB_QMBD_SYNC_NEW_JOBS", NULL},
+    {"LSB_QMBD_ALIVE_TIME", NULL},
+    {"LSB_QMBD_THREAD_NUM", NULL},
+    {"LSB_QMBD_MAX_TASK_NUM", NULL},
+    {"LSB_QMBD_SYNC_SHM_SIZE", NULL},
     {NULL, NULL}
 };
 

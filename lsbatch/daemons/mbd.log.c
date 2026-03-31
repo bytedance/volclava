@@ -668,10 +668,6 @@ replay_startjob(char *filename, int lineNum, int preExecStart)
         updHostLeftRusageMem(jp, -1);
     }
 
-    if (jp->shared->jobBill.options & SUB_EXCLUSIVE)
-        for (i = 0; i < jp->numHostPtr; i ++)
-            jp->hPtr[i]->hStatus |= HOST_STAT_EXCLUSIVE;
-
     if (preExecStart)
         jp->jStatus |= JOB_STAT_PRE_EXEC;
 

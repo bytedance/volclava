@@ -159,6 +159,15 @@
 #define LIM_NO_MIGRANT_HOSTS   55
 #define LSF_UNIT_FOR_LIMITS    56
 #define LSB_PACK_SKIP_ERROR    57
+#ifdef LSB_QMBD_PORT
+#undef LSB_QMBD_PORT
+#endif
+#define LSB_QMBD_PORT               58
+#define LSB_QMBD_SYNC_NEW_JOBS      59
+#define LSB_QMBD_ALIVE_TIME         60 
+#define LSB_QMBD_THREAD_NUM         61
+#define LSB_QMBD_MAX_TASK_NUM       62 
+#define LSB_QMBD_SYNC_SHM_SIZE      63  
 #define NOT_LOG  INFINIT_INT
 
 

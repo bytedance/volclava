@@ -163,14 +163,18 @@ static struct jData *jobData = NULL;
 static time_t lastSchedTime = 0;
 static time_t nextSchedTime = 0;
 
+static time_t nextQmbdcheckedTime = 0; /*Next time to check query mbd */
+static time_t nextQmbdstartedTime = 0; /*Next time to re-fork query mbd */
+static int jobInfoChanged = 0;
+
 void setJobPriUpdIntvl(void);
 static void updateJobPriorityInPJL(void);
 static void houseKeeping (int *);
 static void periodicCheck (void);
-static int authRequest(struct lsfAuth *, XDR *, struct LSFHeader *,
+int authRequest(struct lsfAuth *, XDR *, struct LSFHeader *,
                        struct sockaddr_in *, struct sockaddr_in *,
                        char *, int);
-static int processClient(struct clientNode *, int *);
+int processClient(struct clientNode *, int *);
 
 static void clientIO();
 static int forkOnRequest(mbdReqType);
@@ -187,7 +191,25 @@ extern int do_setJobAttr(XDR *, int, struct sockaddr_in *, char *,
                          struct LSFHeader *, struct lsfAuth *);
 extern void chanCloseAllBut_(int);
 extern int initLimSock_(void);
-
+#define DEF_QMBD_ALIVE_TIME 5
+#define DEF_SYNC_SHM_SIZE   1024
+short qmbd_port;                                        /* Port of the query mbd process */
+int isQmbd = 0;                                         /* Flag indicating if the current process is query mbd */
+int qmbdAliveTime = DEF_QMBD_ALIVE_TIME;                /* Lifetime (in seconds) of the query mbd process */
+long long syncShmSize = DEF_SYNC_SHM_SIZE;
+long long syncShmXdrBufferSize;
+long long syncShmJobNameBufferSize;
+int syncShmJobCapacity;
+int syncNewJobs = 1;
+int qmbdPipe[2] = {-1, -1};   /* Pipe for communication between main mbd and query mbd [0]=read, [1]=write */
+struct syncJobShm *shm = NULL;
+static int qmbdCtlChfd = -1;
+static int qmbdIsAlive = 0;   /* Flag indicating if any query mbd process is alive */
+static pid_t qmbdPid = 0;     /* PID corresponding to qmbd */
+static int processQmbd();
+static void shmInit();
+static int createShmCleanerThread();
+static void *shmCleaner(void *arg);
 
 int
 main (int argc, char **argv)
@@ -336,6 +358,54 @@ main (int argc, char **argv)
         packSkipErrFlag = TRUE;
     }
 
+    if (daemonParams[LSB_QMBD_PORT].paramValue != NULL) {
+        if (atoi(daemonParams[LSB_QMBD_PORT].paramValue) > 0) {
+            qmbd_port =
+                htons(atoi(daemonParams[LSB_QMBD_PORT].paramValue));
+        } else {
+            ls_syslog(LOG_ERR, "\
+%s: Invalid LSB_QMBD_PORT %s ignored",
+                      __func__,
+                      daemonParams[LSB_QMBD_PORT].paramValue);
+        }
+    }
+
+    if (daemonParams[LSB_QMBD_ALIVE_TIME].paramValue != NULL) {
+        if (atoi(daemonParams[LSB_QMBD_ALIVE_TIME].paramValue) >= DEF_QMBD_ALIVE_TIME) {
+            qmbdAliveTime =
+                atoi(daemonParams[LSB_QMBD_ALIVE_TIME].paramValue);
+        } else {
+            ls_syslog(LOG_ERR, "\
+%s: Invalid LSB_QMBD_ALIVE_TIME %s ignored",
+                      __func__,
+                      daemonParams[LSB_QMBD_ALIVE_TIME].paramValue);
+        }
+    }
+
+    if (daemonParams[LSB_QMBD_SYNC_SHM_SIZE].paramValue != NULL) {
+        if (atoi(daemonParams[LSB_QMBD_SYNC_SHM_SIZE].paramValue) > 0) {
+            syncShmSize =
+                atoi(daemonParams[LSB_QMBD_SYNC_SHM_SIZE].paramValue);
+        } else {
+            ls_syslog(LOG_ERR, "\
+%s: Invalid LSB_QMBD_SYNC_SHM_SIZE %s ignored",
+                      __func__,
+                      daemonParams[LSB_QMBD_SYNC_SHM_SIZE].paramValue);
+        }
+    }
+    syncShmSize = syncShmSize * 1024 * 1024;
+    syncShmJobCapacity = syncShmSize / 1024 / 10;
+    syncShmJobNameBufferSize = syncShmSize / 8;
+    syncShmXdrBufferSize = syncShmSize - syncShmJobNameBufferSize - syncShmJobCapacity * sizeof(struct jobMetaData);
+
+    if ((daemonParams[LSB_QMBD_SYNC_NEW_JOBS].paramValue != NULL)
+        && (strcasecmp(daemonParams[LSB_QMBD_SYNC_NEW_JOBS].paramValue, "n") == 0
+            || strcasecmp(
+                daemonParams[LSB_QMBD_SYNC_NEW_JOBS].paramValue, "no") == 0)) {
+        syncNewJobs = 0;
+    }
+
+
     daemon_doinit();
 
     if ((!debug) && (!lsb_CheckMode))  {
@@ -419,11 +489,17 @@ main (int argc, char **argv)
     lastElockTouch = time(0) - msleeptime;
     schedulerInit();
     setJobPriUpdIntvl();
+    if(syncNewJobs)
+        shmInit();
     for (;;) {
         int maxfd;
 
         maxfd = sysconf(_SC_OPEN_MAX);
         now = time(0);
+        if(qmbd_port && (now >= nextQmbdstartedTime || (now >= nextQmbdcheckedTime && jobInfoChanged) || qmbdIsAlive == 0)){
+            ls_syslog(LOG_DEBUG,"%s: re-fork query mbd",__func__);
+            processQmbd();
+        }
 
         if ( (now - lastSchedTime >= msleeptime)
              || (now >= nextSchedTime) ) {
@@ -479,8 +555,17 @@ main (int argc, char **argv)
         timeout.tv_sec  = 0;
         timeout.tv_usec = 0;
 
-        if (chanEventsReady(batchSock, EPOLL_EVENT_READ)) {
+        if(chanEventsReady(batchSock, EPOLL_EVENT_READ)){
             acceptConnection(batchSock);
+        }
+
+        /*
+         * If the query mbd child process exits abnormally, the write end of the pipe will trigger the EPOLLERR event.
+         * After detecting this event, the query mbd process will be restarted.
+         */
+        if(chanEventsReady(qmbdCtlChfd, EPOLL_EVENT_ERROR)){
+            ls_syslog(LOG_WARNING, "query mbd exited unexpectedly");
+            qmbdIsAlive = 0;
         }
 
         clientIO();
@@ -596,7 +681,7 @@ clientIO()
     }
 }
 
-static int
+int
 processClient(struct clientNode *client, int *needFree)
 {
     static char          fname[]="processClient()";
@@ -719,6 +804,7 @@ processClient(struct clientNode *client, int *needFree)
             TIMEIT(0, do_submitReq(&xdrs, s, &from, client->fromHost, &reqHdr, &laddr, &auth, &schedule1, dispatch, &jobData), "do_submitReq()");
             setNextSchedTimeUponNewJob(jobData);
             statusChanged = 1;
+            jobInfoChanged = 1;
             break;
 
          case BATCH_JOB_SUB_PACK:
@@ -728,6 +814,7 @@ processClient(struct clientNode *client, int *needFree)
 
         case BATCH_JOB_SIG:
             TIMEIT(0, do_signalReq(&xdrs, s, &from, client->fromHost, &reqHdr, &auth),"do_signalReq()");
+            jobInfoChanged = 1;
             break;
         case BATCH_JOB_MSG:
             NEW_BUCKET(bucket,buf);
@@ -739,6 +826,7 @@ processClient(struct clientNode *client, int *needFree)
             break;
         case BATCH_QUE_CTRL:
             TIMEIT(0, do_queueControlReq (&xdrs, s, &from, client->fromHost, &reqHdr, &auth),"do_queueControlReq()");
+            jobInfoChanged = 1;
             break;
         case BATCH_DEBUG:
             TIMEIT(0, do_debugReq (&xdrs, s, &from, client->fromHost, &reqHdr, &auth),"do_debugReq()");
@@ -752,6 +840,7 @@ processClient(struct clientNode *client, int *needFree)
             if (mSchedStage == 0) {
                 setNextSchedTimeWhenJobFinish();
             }
+            jobInfoChanged = 1;
             break;
         case BATCH_STATUS_MSG_ACK:
         case BATCH_STATUS_JOB:
@@ -776,18 +865,22 @@ processClient(struct clientNode *client, int *needFree)
             }
             if (client->lastTime == 0)
                 nSbdConnections++;
+            jobInfoChanged = 1;
             break;
         case BATCH_SLAVE_RESTART:
             TIMEIT(0, do_restartReq(&xdrs, s, &from, &reqHdr),"do_restartReq()");
             break;
         case BATCH_HOST_CTRL:
             TIMEIT(0, do_hostControlReq(&xdrs, s, &from, client->fromHost, &reqHdr, &auth),"do_hostControlReq()");
+            jobInfoChanged = 1;
             break;
         case BATCH_JOB_SWITCH:
             TIMEIT(3, do_jobSwitchReq(&xdrs, s, &from, client->fromHost,&reqHdr, &auth),"do_jobSwitchReq()");
+            jobInfoChanged = 1;
             break;
         case BATCH_JOB_MOVE:
             TIMEIT(3, do_jobMoveReq(&xdrs, s, &from, client->fromHost, &reqHdr, &auth),"do_jobMoveReq()");
+            jobInfoChanged = 1;
             break;
         case BATCH_SET_JOB_ATTR:
             do_setJobAttr(&xdrs, s, &from, client->fromHost, &reqHdr, &auth);
@@ -795,6 +888,7 @@ processClient(struct clientNode *client, int *needFree)
         case BATCH_JOB_MODIFY:
             TIMEIT(3, do_modifyReq(&xdrs, s, &from, client->fromHost, &reqHdr,
                                    &auth),"do_modifyReq()");
+            jobInfoChanged = 1;
             break;
 
         case BATCH_JOB_PEEK:
@@ -825,6 +919,7 @@ processClient(struct clientNode *client, int *needFree)
             TIMEIT(0,
                    do_runJobReq(&xdrs, s, &from, &auth, &reqHdr),
                    "do_runJobReq()");
+            jobInfoChanged = 1;
             break;
         default:
             errorBack(s, LSBE_PROTOCOL, &from);
@@ -1022,13 +1117,13 @@ periodicCheck(void)
     if ((now - last_hostInfoRefreshTime > 10 * 60) || fastUpdHostInfo) {
         getLsbHostInfo();
         last_hostInfoRefreshTime = now;
-        if (fastUpdHostInfo) {
+    if (fastUpdHostInfo) {
             if (logclass & LC_COMM) {
                  ls_syslog(LOG_DEBUG, "%s: Some hosts need updating their static host information. Fetch it from the LIM.", __func__);
-            }
+}
         }
         fastUpdHostInfo = 0;
-    }
+            }
 }
 
 void
@@ -1067,7 +1162,7 @@ child_handler (int sig)
 }
 
 
-static int
+int
 authRequest(struct lsfAuth *auth,
             XDR *xdrs,
             struct LSFHeader *reqHdr,
@@ -1333,5 +1428,77 @@ updateJobPriorityInPJL(void)
          jp != jDataList[PJL]; jp = jp->forw) {
         unsigned int newVal = jp->jobPriority + priority;
         jp->jobPriority = MIN(newVal, (unsigned int)MAX_JOB_PRIORITY);
+    }
+}
+
+/* 
+ *If the survival time of query mbd is exceeded, notify query mbd by close pipe,
+ * and fork query mbd again.
+ */
+static int processQmbd() {
+    if(qmbdPipe[0] >= 0){
+        close(qmbdPipe[0]);
+        qmbdPipe[0] = -1;
+    }
+    /*
+     *Since the write-side file descriptor is registered with the channel and epoll, 
+     *it is necessary to call chanClose to unregister it.
+     */
+    if(qmbdPipe[1] >= 0){
+        chanClose_(qmbdCtlChfd);
+        qmbdCtlChfd = -1;
+        qmbdPipe[1] = -1;
+    }
+    if(pipe(qmbdPipe) < 0){
+        ls_syslog(LOG_ERR,"%s: create pipe for qmbd failed %m",__func__);
+        return -1;
+    }
+    if((qmbdCtlChfd = chanOpenSock_(qmbdPipe[1], CHAN_OP_NONBLOCK)) < 0){
+        ls_syslog(LOG_ERR, "%s: bind sokcet %d to channel failed:%m", __func__, qmbdPipe[1]);
+        return -1;
+    }
+    if(chanRegisterEpoll_(qmbdCtlChfd, EPOLLERR|EPOLLHUP) < 0){
+        ls_syslog(LOG_ERR, "%s: chanRegisterEpoll_() failed", __func__);
+        return -1;
+    }
+    
+    if(startQueryDaemon(&qmbdPid) < 0){
+        ls_syslog(LOG_ERR, "%s: query mbd start failed %m", __func__);
+        return -1;
+    }
+    qmbdIsAlive = 1;
+    nextQmbdstartedTime = time(0) + qmbdAliveTime;
+    nextQmbdcheckedTime = time(0) + DEF_QMBD_ALIVE_TIME;
+    jobInfoChanged = 0;
+    return 0;
+}
+
+static void shmInit(){
+    shm = initSyncShm();
+    if(shm == NULL)
+        mbdDie(MASTER_FATAL);
+    if(createShmCleanerThread() < 0)
+        mbdDie(MASTER_FATAL);
+}
+
+static int createShmCleanerThread(){
+    pthread_t tid;
+    if(pthread_create(&tid, NULL, shmCleaner, NULL) < 0){
+        ls_syslog(LOG_ERR, "%s failed: %m", __func__);
+        return -1;
+    }
+    pthread_detach(tid);
+    return 0;
+}
+
+void *shmCleaner(void *arg){
+    struct timespec req, rem;
+    while(TRUE){
+        req.tv_sec = 1;
+        req.tv_nsec = 0;
+        while (nanosleep(&req, &rem) == -1 && errno == EINTR) {
+            req = rem;
+        }
+        pruneOldJobs();
     }
 }

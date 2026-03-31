@@ -41,6 +41,7 @@ struct config_param lsbParams[] = {
      {"LSB_32_PAREN_ESC", NULL},
      {"LSB_API_QUOTE_CMD", NULL},
      {"LSF_UNIT_FOR_LIMITS", NULL},
+     {"LSB_QMBD_PORT", NULL},
      {NULL, NULL}
 };
 

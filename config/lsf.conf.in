@@ -34,3 +34,19 @@ LSF_PIM_SLEEPTIME_UPDATE=y
 
 LSB_MAX_PACK_JOBS=300
 LSB_PACK_SKIP_ERROR=N
+
+# After setting, mbd will fork a child 
+# process responsible for handling query requests
+# must be enabled manually and port must not
+# be in use by other programs.
+# If not set or set to a value less than or equal to 0,
+# the feature will not take effect.
+LSB_QMBD_PORT=6326
+
+#The following parameters take effect only after LSB_QMBD_PORT is set
+LSB_QMBD_ALIVE_TIME=5          #alive time (in seconds) for the qmbd subprocess,default is 5
+LSB_QMBD_THREAD_NUM=10         #maximum number of threads in qmbd's thread pool,default is 10
+LSB_QMBD_MAX_TASK_NUM=2000     #capacity of qmbd's thread pool task queue,default is 2000
+LSB_QMBD_SYNC_NEW_JOBS=y       #value: y = enable syncing new jobs; n = disable syncing new jobs,default is y
+LSB_QMBD_SYNC_SHM_SIZE=1024    #size of shared memory for storing synchronized job information, default is 1024 unit: MB; only valid when LSB_QMBD_SYNC_NEW_JOBS=y
+#
