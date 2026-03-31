@@ -552,6 +552,7 @@ freeLogRec(struct eventRec *logRec)
                 free(logRec->eventLog.jobStartLog.execHosts);
             FREEUP (logRec->eventLog.jobStartLog.queuePreCmd);
             FREEUP (logRec->eventLog.jobStartLog.queuePostCmd);
+            FREEUP (logRec->eventLog.jobStartLog.effeResReq);
 
             return;
 
@@ -1014,6 +1015,10 @@ readJobStart(char *line, struct jobStartLog *jobStartLog)
     cc = sscanf(line, "%d%n", &(jobStartLog->idx),  &ccount);
     if (cc != 1)
         return (LSBE_EVENT_FORMAT);
+
+    if (version >= _VOLCLAVA_VERSION2_2_) {
+        saveQStr(line, jobStartLog->effeResReq);
+    }
     return (LSBE_NO_ERROR);
 
 }
@@ -2111,8 +2116,10 @@ writeJobStart(FILE *log_fp, struct jobStartLog *jobStartLog)
         return (LSBE_SYS_CALL);
     }
 
-
     if (fprintf(log_fp, " %d", jobStartLog->idx) < 0 )
+        return (LSBE_SYS_CALL);
+
+    if (addQStr(log_fp, jobStartLog->effeResReq) < 0)
         return (LSBE_SYS_CALL);
 
     if (fprintf(log_fp, "\n") < 0)

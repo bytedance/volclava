@@ -179,22 +179,21 @@ extern struct objPRMO *pRMOPtr;
 #define ENDFORALL_PRMPT_RSRCS }         \
 }
 
-#define GET_RES_RSRC_USAGE(resn, val, jResValPtr, qResValPtr) { \
-      int jobSet = FALSE, queueSet = FALSE;                     \
-      if (jResValPtr)                                           \
-          TEST_BIT(resn, jResValPtr->rusgBitMaps, jobSet);      \
-      if (qResValPtr)                                           \
-          TEST_BIT(resn, qResValPtr->rusgBitMaps, queueSet);    \
-      if (jobSet == 0 && queueSet == 0) {                       \
-          val = -1.0;                                           \
-      } else if (jobSet == 0 && queueSet != 0) {                \
-          val = qResValPtr->val[resn];                          \
-      } else if (jobSet != 0 && queueSet == 0) {                \
-          val = jResValPtr->val[resn];                          \
-      } else if (jobSet != 0 && queueSet != 0) {                \
-          val = jResValPtr->val[resn];                          \
-      }                                                         \
-  }
+#define GET_JOB_MERGED_RES_REQ_STR(jp) (((struct resReqEntry *)jp->shared->mergedResReqEnt->hData)->resReqStr)
+#define GET_JOB_MERGED_RES_REQ(jp) (((struct resReqEntry *)jp->shared->mergedResReqEnt->hData)->resValPtr)
+#define GET_JOB_EFFE_RES_REQ_STR(jp) (((struct resReqEntry *)jp->effeResReqEnt->hData)->resReqStr)
+#define GET_JOB_EFFE_RES_REQ(jp) (((struct resReqEntry *)jp->effeResReqEnt->hData)->resValPtr)
+#define GET_RES_RSRC_USAGE(resn, val, mergedResVal) {       \
+    int isSet = FALSE;                                      \
+    if (mergedResVal) {                                     \
+        TEST_BIT(resn, mergedResVal->rusgBitMaps, isSet);   \
+    }                                                       \
+    if (isSet == FALSE) {                                   \
+        val = -1.0;                                         \
+    } else {                                                \
+        val = mergedResVal->val[resn];                      \
+    }                                                       \
+}
 
 struct candHost {
     struct hData *hData;
@@ -338,6 +337,7 @@ struct jData {
     int numSlotsReserve;
     int numAvailSlotsReserve;
     struct shareAcct * sa;  /*refer to shareAcct of fairshare tree in global policies*/
+    struct hEnt *effeResReqEnt; /*refer to effective resreq entry*/
 };
 
 
@@ -379,6 +379,7 @@ struct jShared {
     struct  dptNode   *dptRoot;
     struct  submitReq  jobBill;
     struct  resVal    *resValPtr;
+    hEnt*              mergedResReqEnt;
 };
 
 
@@ -843,6 +844,12 @@ struct profileCounters {
     char *cntDescr;
 };
 
+struct resReqEntry {
+    int numRef;
+    struct resVal *resValPtr;
+    char *resReqStr;
+};
+
 #undef MBD_PROF_COUNTER
 #define MBD_PROF_COUNTER(Func) PROF_CNT_ ## Func,
 
@@ -936,8 +943,8 @@ extern int                    errno;
 extern int                    nextId;
 extern int                    numRemoteJobsInList;
 extern unitTypes              unitForLimits;
-
-
+extern struct hTab            jobMergedResReqTab;
+extern struct hTab            jobEffeResReqTab;
 extern char                   *defaultQueues;
 extern char                   *defaultHostSpec;
 extern int                    max_retry;
@@ -1047,10 +1054,10 @@ extern int                  getHostsByResReq(struct resVal *, int *,
                                              struct hData *,int *);
 
 extern struct resVal *      checkResReq(char *, int);
+extern void                 freeResReqEntry(struct resReqEntry **);
 extern void                 adjLsbLoad(struct jData *, int, bool_t);
 extern int                  countHostJobs(struct hData *);
 extern void                 getLsbResourceInfo(void);
-extern struct resVal *      getReserveValues(struct resVal *,struct resVal *);
 extern void                 getLsfHostInfo(int);
 extern struct hData *       getHostByType(char *);
 
@@ -1078,6 +1085,7 @@ extern bool_t               isHostQMember(struct hData *, struct qData *);
 extern int                  getIndexByQueue(void *);
 extern void *               getQueueByIndex(int);
 extern bool_t               isQInQSet(struct qData *, LS_BITSET_T *);
+extern int                  hasResReserve(struct resVal *);
 
 extern struct listSet      *voidJobList;
 extern int                  newJob(struct submitReq *,
@@ -1587,9 +1595,14 @@ extern long   schedSeqNo;
 #define PARSE_XOR        0x04
 
 extern void copyJUsage(struct jRusage*, struct jRusage*);
-
 extern struct timeWindow *newTimeWindow (void);
 extern void freeTimeWindow(struct timeWindow *);
 extern void updateTimeWindow(struct timeWindow *);
 extern inline int numofhosts(void);
+extern void                 mkJobMergedResReqEntry(struct jData *);
+extern void                 mkJobEffeResReqEntry(struct jData *);
+extern void                 detachJobMergedResReqEntry(struct jShared *);
+extern void                 detachJobEffeResReqEntry(struct jData *);
+extern char*                resVal2Str(struct resVal *resVal);
+extern struct resVal*       dupResVal(struct resVal *src);
 #endif

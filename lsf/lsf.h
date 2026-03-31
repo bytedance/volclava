@@ -74,12 +74,12 @@ typedef unsigned long long LS_UNS_LONG_INT;
 #define _LS_VERSION_ (_VOLCLAVA_PROJECT_", " __DATE__"\n")
 #endif
 
-/* This is our current version.
+/* This is our current version presented in the event file.
  */
-#define VOLCLAVA_VERSION        _VOLCLAVA_VERSION2_1_
+#define VOLCLAVA_VERSION        _VOLCLAVA_VERSION2_2_
 #define _VOLCLAVA_VERSION2_0_   20 /*volclava 2.0*/
 #define _VOLCLAVA_VERSION2_1_   21 /*volclava 2.1*/
-
+#define _VOLCLAVA_VERSION2_2_   22 /*volclava 2.2*/
 
 #define LSF_DEFAULT_SOCKS       15
 #define MAXLINELEN              PATH_MAX

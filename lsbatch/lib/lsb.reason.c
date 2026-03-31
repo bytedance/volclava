@@ -173,7 +173,7 @@ lsb_pendreason(int numReasons, int *rsTb, struct jobInfoHead *jInfoH,
     int pendMsg_ID[] = { 550, 551, 552, 553, 554, 555, 556, 557, 558, 559, 
 			 560, 561, 562, 563, 564, 566, 567, 568,  
 			 571, 583,  
-			 655, 656, 586, 587, 
+			 655, 656, 657, 586, 587, 
 			 588, 589, 590, 591, 592, 596, 597, 598, 599, 600, 
 			 662, 601, 602, 603, 604, 605, 606, 607, 
 			 608, 609, 610, 611, 612,
@@ -227,6 +227,8 @@ lsb_pendreason(int numReasons, int *rsTb, struct jobInfoHead *jInfoH,
         "The job array has reached its running element limit"},  /* catgets  655 */
        { PEND_CHKPNT_DIR,
         "Checkpoint directory is invalid"},  /* catgets 656 */
+       { PEND_JOB_NO_RESREQ ,
+    "Failed to generate job resource requirements due to malloc error"},  /* catgets 657 */
 
        { PEND_QUE_INACT,
         "The queue is inactivated by the administrator"}, /* catgets 586 */

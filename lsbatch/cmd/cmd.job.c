@@ -1035,7 +1035,17 @@ displayLong (struct jobInfoEnt *job, struct jobInfoHead *jInfoH,
     }
 
     printf ("\n RESOURCE REQUIREMENT DETAILS:\n");
-    printf (" Combined: %s\n Effective: %s\n", job->submit.resReq, job->submit.resReq);
+    if (job->mergedResReq && job->mergedResReq[0] != '\0') {
+        printf (" Combined: %s\n", job->mergedResReq);
+        if (job->startTime && !IS_PEND(job->status)) {
+            printf (" Effective: %s\n", job->effeResReq);
+        } else {
+            printf (" Effective: -\n");
+        }
+
+    } else {
+        printf (" Combined: -\n Effective: -\n");
+    } 
 
     return;
 }
@@ -1163,7 +1173,18 @@ displayUF(struct jobInfoEnt *job, struct jobInfoHead *jInfoH, float cpuFactor,
     }
 
     printf ("\n RESOURCE REQUIREMENT DETAILS:\n");
-    printf (" Combined: %s\n Effective: %s\n", job->submit.resReq, job->submit.resReq);
+    if (job->mergedResReq && job->mergedResReq[0] != '\0') {
+        printf (" Combined: %s\n", job->mergedResReq);
+        if (job->startTime && !IS_PEND(job->status)) {
+            printf (" Effective: %s\n", job->effeResReq);
+        } else {
+            printf (" Effective: -\n");    
+        }
+
+    } else {
+        printf (" Combined: -\n Effective: -\n");
+    } 
+
     return;
 }
 

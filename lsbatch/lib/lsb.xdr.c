@@ -840,6 +840,14 @@ xdr_jobInfoReply (XDR *xdrs, struct jobInfoReply *jobInfoReply,
         return (FALSE);
     }
 
+    if (!xdr_var_string(xdrs, &jobInfoReply->mergedResReq)) {
+        return (FALSE);
+    }
+
+    if (!xdr_var_string(xdrs, &jobInfoReply->effeResReq)) {
+        return (FALSE);
+    }
+
     return(TRUE);
 
 }

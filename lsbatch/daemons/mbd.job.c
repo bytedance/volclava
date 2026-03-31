@@ -291,8 +291,7 @@ newJob (struct submitReq *subReq, struct submitMbdReply *Reply, int chan,
         else {
             goto error_cleanup;
         }
-    }
-    else {
+    } else {
         arraySize = (idxList->end - idxList->start)/idxList->step + 1;
         returnErr = checkJobPendLimit(newjob, auth, pendLimitReason, arraySize);
         if (returnErr == LSBE_NO_ERROR) {
@@ -423,6 +422,8 @@ handleNewJob(struct jData *jpbw, int job, int eventTime)
         updUserData(jpbw, jpbw->shared->jobBill.maxNumProcessors,
                     jpbw->shared->jobBill.maxNumProcessors, 0, 0, 0, 0);
     }
+
+    mkJobMergedResReqEntry(jpbw);
 
     if (job == JOB_NEW && eventTime == LOG_IT) {
         log_newjob(jpbw);
@@ -922,6 +923,7 @@ freeNewJob (struct jData *newjob)
     FREEUP (newjob->askedPtr);
     FREEUP (newjob->reqHistory);
     destroySharedRef(newjob->shared);
+    detachJobEffeResReqEntry(newjob);
     FREEUP (newjob);
 }
 
@@ -3459,8 +3461,19 @@ updateStopJobPreemptResources(struct jData *jp)
     FORALL_PRMPT_RSRCS(resn) {
         int hostn;
         float val;
-        GET_RES_RSRC_USAGE(resn, val, jp->shared->resValPtr,
-                           jp->qPtr->resValPtr);
+
+        if (jp->effeResReqEnt) {
+            GET_RES_RSRC_USAGE(resn, val, GET_JOB_EFFE_RES_REQ(jp));
+        } else if (jp->shared->mergedResReqEnt){
+            /*Just in case, effective resreq is missing, we use 
+             *merged resreq intead for potential compatibility
+             *of event verison earlier than 22!
+             */
+            GET_RES_RSRC_USAGE(resn, val, GET_JOB_MERGED_RES_REQ(jp));
+        } else {
+            continue;
+        }
+
         if (val <= 0.0)
             continue;
 
@@ -4019,7 +4032,7 @@ switchJobArray(struct jobSwitchReq *switchReq,
         FREEUP(jArrayPtr->shared->jobBill.queue);
         jArrayPtr->shared->jobBill.queue = safeSave(qPtr->queue);
         jArrayPtr->qPtr = qPtr;
-
+        mkJobMergedResReqEntry(jArrayPtr);
     } else {
 
 
@@ -4717,6 +4730,8 @@ inPendJobList (struct jData *job, int listno, time_t requeueTime)
                   fname, pendJobSlots, job->jobId, job->shared->jobBill.numProcessors);
     }
 
+    /*Drop job' effective resreq if has*/
+    detachJobEffeResReqEntry(job);
 }
 
 void
@@ -4779,6 +4794,7 @@ jobInQueueEnd (struct jData *job, struct qData *qp)
     free (job->shared->jobBill.queue);
     job->qPtr = qp;
     job->shared->jobBill.queue = safeSave (qp->queue);
+    mkJobMergedResReqEntry(job);/*job's queue is changed, we need update job's combined resreq*/
     if (IS_PEND (job->jStatus)) {
         if (job->jStatus & JOB_STAT_MIG) {
             if (glMigToPendFlag == TRUE)  {
@@ -4824,11 +4840,11 @@ destroySharedRef(struct jShared *shared)
             if (shared->dptRoot)
                 freeDepCond(shared->dptRoot);
             lsbFreeResVal(&shared->resValPtr);
+            detachJobMergedResReqEntry(shared);
             FREEUP(shared);
         }
     }
 }
-
 
 struct jData *
 initJData (struct jShared  *shared)
@@ -4931,6 +4947,8 @@ initJData (struct jShared  *shared)
     job->reservedGrp = -1;
     job->groupCands = NULL;
     job->inEligibleGroups = NULL;
+
+    job->effeResReqEnt = NULL;
 
     return (job);
 }
@@ -5525,10 +5543,26 @@ modifyJob (struct modifyReq *req, struct submitMbdReply *reply,
 
 
                 if (req->submitReq.options & SUB_QUEUE) {
+
                     FREEUP(jArray->shared->jobBill.queue);
                     jArray->shared->jobBill.queue
                         = safeSave(jPtr->qPtr->queue);
                     jArray->qPtr = jPtr->qPtr;
+                }
+                if (req->submitReq.options & SUB_RES_REQ) {
+                    int useLocal = TRUE;
+
+                    lsbFreeResVal(&(jArray->shared->resValPtr));
+                    if (jArray->numAskedPtr > 0 || jArray->askedOthPrio >= 0)
+                        useLocal = FALSE;
+                    else
+                        useLocal = TRUE;
+
+                    useLocal = useLocal ? USE_LOCAL : 0;
+                    jArray->shared->resValPtr = checkResReq (jArray->shared->jobBill.resReq, useLocal | CHK_TCL_SYNTAX | PARSE_XOR);                    
+                }
+                if (req->submitReq.options & (SUB_QUEUE | SUB_RES_REQ)) {
+                    mkJobMergedResReqEntry(jArray);
                 }
             }
 
@@ -5537,6 +5571,7 @@ modifyJob (struct modifyReq *req, struct submitMbdReply *reply,
 
             if (req->submitReq.options & SUB_QUEUE) {
                 jArray->qPtr = jArray->nextJob->qPtr;
+                mkJobMergedResReqEntry(jArray);
             }
         }
 
@@ -5762,6 +5797,89 @@ modifyAJob (struct modifyReq *req, struct submitMbdReply *reply,
     return (LSBE_NO_ERROR);
 }
 
+/*
+ * modifyJobEffeRusage - Update the effective resource usage for a job
+ * @jp: Pointer to the job data structure
+ *
+ * This function updates the job's effective resource requirement (effeResReqEnt)
+ * by incorporating the rusage (resource usage) specifications from the merged
+ * resource requirement.
+ */
+static void modifyJobEffeRusage(struct jData *jp) {
+    struct resVal *mResVal = NULL, *eResVal = NULL;
+    char *resReqStr = NULL;
+    hEnt *ent = NULL;
+    int eHasRusage = 0, mHasRusage = 0;
+
+    if (!jp->shared->mergedResReqEnt) {
+        return;
+    }
+
+    eHasRusage = hasResReserve(GET_JOB_EFFE_RES_REQ(jp));
+    mHasRusage = hasResReserve(GET_JOB_MERGED_RES_REQ(jp));
+
+    if(!eHasRusage && !mHasRusage) {
+        return;
+    }
+
+    /*copy rusage from merged resreq*/
+    eResVal = dupResVal(GET_JOB_EFFE_RES_REQ(jp));
+    mResVal = GET_JOB_MERGED_RES_REQ(jp);
+
+    FREEUP(eResVal->rusgBitMaps);
+    eResVal->rusgBitMaps = (int *) my_calloc(GET_INTNUM(allLsInfo->nRes), sizeof(int), "dupResVal");
+    FREEUP(eResVal->val);
+    eResVal->val = (float *) my_calloc(allLsInfo->nRes, sizeof(float), "dupResVal");
+    eResVal->duration = INFINIT_INT;
+    eResVal->decay = INFINIT_FLOAT;
+    eResVal->genClass = 0; 
+    eResVal->options &= ~PR_RUSAGE;
+
+    if (mHasRusage) {
+        if (mResVal->rusgBitMaps) {
+            memcpy(eResVal->rusgBitMaps, mResVal->rusgBitMaps, GET_INTNUM(allLsInfo->nRes) * sizeof(int));
+        }
+        if (mResVal->val) {
+            memcpy(eResVal->val, mResVal->val, allLsInfo->nRes * sizeof(float));
+        }
+        eResVal->duration = mResVal->duration;
+        eResVal->decay = mResVal->decay;
+        eResVal->genClass = mResVal->genClass;
+        eResVal->options |= PR_RUSAGE;
+    }
+
+    /*attach to job*/
+    resReqStr = resVal2Str(eResVal);
+    if (!resReqStr) {
+        lsbFreeResVal(&eResVal);
+        return;
+    }
+    ent = h_getEnt_(&jobEffeResReqTab, resReqStr);
+
+    if (ent) {
+        if (ent != jp->effeResReqEnt) {
+            detachJobEffeResReqEntry(jp);
+            jp->effeResReqEnt = ent;
+            ((struct resReqEntry *)ent->hData)->numRef++;
+        }
+        lsbFreeResVal(&eResVal);
+        FREEUP(resReqStr);
+        return;
+    } else {
+        struct resReqEntry *resReqEnt = (struct resReqEntry *) my_calloc(1, sizeof(struct resReqEntry), "modifyJobEffeRusage");
+        resReqEnt->resValPtr = eResVal;
+        resReqEnt->resReqStr = resReqStr;
+        ent = h_addEnt_(&jobEffeResReqTab, resReqStr, NULL);
+        if (ent) {
+            ent->hData = (int *) resReqEnt;
+            detachJobEffeResReqEntry(jp);
+            jp->effeResReqEnt = ent;
+            resReqEnt->numRef = 1;
+        } else {
+            freeResReqEntry(&resReqEnt);
+        }
+    }
+}
 
 static struct submitReq *
 getMergeSubReq (struct jData *jpbw, struct modifyReq *req, int *errorCode)
@@ -5881,6 +5999,7 @@ handleJParameters (struct jData *jpbw, struct jData *job, struct submitReq *modR
     int oldMaxCpus = 0;
     bool_t chgPriority;
     int    alreadySetNewSub =0;
+    int  needReMergeResReq = 0;
 
     if (IS_PEND (jpbw->jStatus) || IS_FINISH(jpbw->jStatus)) {
 
@@ -5926,6 +6045,14 @@ handleJParameters (struct jData *jpbw, struct jData *job, struct submitReq *modR
         lsbFreeResVal(&jpbw->shared->resValPtr);
         jpbw->shared->resValPtr = job->shared->resValPtr;
         job->shared->resValPtr = NULL;
+
+        /*job level resreq is changed, let us update merge resreq*/
+        if (modReq->options & SUB_RES_REQ || 
+            delOptions & SUB_RES_REQ || 
+            modReq->options & SUB_HOST || 
+            delOptions & SUB_HOST) {
+            needReMergeResReq = 1;
+        }
 
         if (jpbw->numAskedPtr)
             FREEUP (jpbw->askedPtr);
@@ -6057,6 +6184,9 @@ handleJParameters (struct jData *jpbw, struct jData *job, struct submitReq *modR
                             jpbw->shared->jobBill.options2 |= SUB2_QUEUE_RERUNNABLE;
                         }
                     }
+
+                    /*job changed queue, we need update merge resreq later*/
+                    needReMergeResReq = 1;
                 }
 
                 if (replay != TRUE) {
@@ -6064,8 +6194,6 @@ handleJParameters (struct jData *jpbw, struct jData *job, struct submitReq *modR
                 }
             }
         }
-
-
 
         chgPriority = FALSE;
 
@@ -6092,12 +6220,14 @@ handleJParameters (struct jData *jpbw, struct jData *job, struct submitReq *modR
         }
     } else if (IS_START(jpbw->jStatus)
                && !(modReq->options2 & SUB2_MODIFY_RUN_JOB)) {
-
         lsbFreeResVal(&jpbw->shared->resValPtr);
         jpbw->shared->resValPtr = job->shared->resValPtr;
         job->shared->resValPtr = NULL;
         FREEUP (jpbw->shared->jobBill.resReq);
         jpbw->shared->jobBill.resReq = safeSave(subReq->resReq);
+
+        /*job level resreq is changed, let us update merge resreq*/
+        needReMergeResReq = 1;
 
     } else if (IS_START(jpbw->jStatus)
                && ((lsbModifyAllJobs == TRUE) || (mSchedStage == M_STAGE_REPLAY))
@@ -6121,11 +6251,21 @@ handleJParameters (struct jData *jpbw, struct jData *job, struct submitReq *modR
             lsbFreeResVal(&jpbw->shared->resValPtr);
             jpbw->shared->resValPtr = job->shared->resValPtr;
             job->shared->resValPtr = NULL;
+
+            /*job level resreq is changed, let us update merge resreq*/
+            needReMergeResReq = 1;
         }
     } else {
-
-
         setNewSub(jpbw, job, subReq, modReq, delOptions, delOptions2 );
+    }
+
+    if (needReMergeResReq) {
+        mkJobMergedResReqEntry(jpbw);
+
+        /*update effective rusage for started job*/
+        if (IS_START(jpbw->jStatus)) {
+            modifyJobEffeRusage(jpbw);
+        }
     }
 }
 static struct submitReq *
@@ -6742,6 +6882,7 @@ freeJData (struct jData *jpbw)
     if (jpbw->shared->numRef <= 1)
         freeSubmitReq (&(jpbw->shared->jobBill));
     destroySharedRef(jpbw->shared);
+    detachJobEffeResReqEntry(jpbw);
     FREEUP (jpbw->askedPtr);
 
     FREEUP(jpbw->reqHistory);
@@ -7712,11 +7853,21 @@ shouldLockJob (struct jData *jData, int newStatus)
     if (newStatus & JOB_STAT_USUSP)
         return (TRUE);
 
-    if (jData->shared->resValPtr)
-        getReserveParams (jData->shared->resValPtr, &duration, &resBitMaps);
-
-    if (jData->qPtr->resValPtr)
-        getReserveParams (jData->qPtr->resValPtr, &duration, &resBitMaps);
+    if (jData->effeResReqEnt) {
+        getReserveParams (GET_JOB_EFFE_RES_REQ(jData), &duration, &resBitMaps);
+    } else if (jData->shared->mergedResReqEnt) {
+         /*Just in case, effective resreq is missing, we use 
+          *merged resreq intead for potential compatibility
+          *of event verison earlier than 22!
+          */
+        getReserveParams (GET_JOB_MERGED_RES_REQ(jData), &duration, &resBitMaps);
+    } else {
+        /*shouldn't get here, we keep the original logic just in case*/
+        if (jData->shared->resValPtr)
+            getReserveParams (jData->shared->resValPtr, &duration, &resBitMaps);
+        if (jData->qPtr->resValPtr)
+            getReserveParams (jData->qPtr->resValPtr, &duration, &resBitMaps);
+    }
 
     if (duration - jData->runTime > 0 && resBitMaps != 0)
         return (TRUE);
@@ -8028,7 +8179,7 @@ shouldResumeByRes (struct jData *jp)
 {
     static char fname[] = "shouldResumeByRes";
     int i, j, returnCode = RESUME_JOB;
-    struct  resVal *resValPtr;
+    struct  resVal *resValPtr = NULL;
     float **loads;
     int *hBitMaps = NULL;
     hEnt  *ent = NULL;
@@ -8041,9 +8192,18 @@ shouldResumeByRes (struct jData *jp)
 
     if (jp->jStatus & JOB_STAT_RESERVE)
         return CANNOT_RESUME;
-    if ((resValPtr
-         = getReserveValues (jp->shared->resValPtr, jp->qPtr->resValPtr)) == NULL)
+
+    if (jp->effeResReqEnt) {
+        resValPtr = GET_JOB_EFFE_RES_REQ(jp);
+    } else if (jp->shared->mergedResReqEnt) {
+         /*Just in case, effective resreq is missing, we use 
+          *merged resreq intead for potential compatibility
+          *of event verison earlier than 22!
+          */
+        resValPtr = GET_JOB_MERGED_RES_REQ(jp);
+    } else {
         return RESUME_JOB;
+    }
 
     if (resValPtr->duration != INFINIT_INT
         && (resValPtr->duration - jp->runTime <= 0)
@@ -8069,8 +8229,19 @@ shouldResumeByRes (struct jData *jp)
 
     FORALL_PRMPT_RSRCS(j) {
         float val;
-        GET_RES_RSRC_USAGE(j, val, jp->shared->resValPtr,
-                           jp->qPtr->resValPtr);
+
+        if (jp->effeResReqEnt) {
+            GET_RES_RSRC_USAGE(j, val, GET_JOB_EFFE_RES_REQ(jp));
+        } else if (jp->shared->mergedResReqEnt){
+            /*Just in case, effective resreq is missing, we use 
+            *merged resreq intead for potential compatibility
+            *of event verison earlier than 22!
+            */
+            GET_RES_RSRC_USAGE(j, val, GET_JOB_MERGED_RES_REQ(jp));
+        } else {
+            continue;
+        }
+
         if (val <= 0.0)
             continue;
 

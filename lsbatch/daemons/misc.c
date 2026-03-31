@@ -297,10 +297,21 @@ safeSave(char *str)
 /* my_malloc()
  */
 void *
-my_malloc(int len, const char *s)
+my_malloc(int len, const char *caller)
 {
-    return(malloc(len));
+    void *p;
 
+    p = malloc(len);
+    if (!p) {
+        ls_syslog(LOG_ERR, "\
+%s: failed %m %s", __func__, (caller ? caller : "unknown"));
+        if (masterme)
+            die(MASTER_MEM);
+        else
+            die(SLAVE_MEM);       
+    }
+
+    return p;
 }
 
 /* my_calloc()
@@ -314,10 +325,34 @@ my_calloc(int nelem, int esize, const char *caller)
     if (!p) {
         ls_syslog(LOG_ERR, "\
 %s: failed %m %s", __func__, (caller ? caller : "unknown"));
+        if (masterme)
+            die(MASTER_MEM);
+        else
+            die(SLAVE_MEM);
     }
 
     return p;
 }
+
+/* my_realloc()
+ */
+char *
+my_realloc(void *memblock, int size, char *caller)
+{
+    char *p;
+
+    p = realloc(memblock, size);
+    if (!p) {
+        ls_syslog(LOG_ERR, "\
+%s: failed %m %s", __func__, (caller ? caller : "unknown"));
+        if (masterme)
+            die(MASTER_MEM);
+        else
+            die(SLAVE_MEM);
+    }
+    return p;
+
+} /* my_realloc */
 
 void
 daemon_doinit(void)

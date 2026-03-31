@@ -200,6 +200,8 @@ struct jobInfoReply {
     u_short   port;                
     int       jobPriority;         
     char      *chargedSAAP;
+    char      *mergedResReq;
+    char      *effeResReq;
 };
 
 struct infoReq {

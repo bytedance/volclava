@@ -66,7 +66,7 @@ void addFSPolicy(struct qData *q) {
     /*1. get pair values of user and share*/
     count = 0;
     p = q->userShares;
-    while ((p != '\0') && ((p = strchr(p, '[')) != NULL)) {
+    while ((*p != '\0') && ((p = strchr(p, '[')) != NULL)) {
         count++;
         p++;
     }
@@ -78,7 +78,7 @@ void addFSPolicy(struct qData *q) {
     i = 0;
     p = tmpStr;
     /*we don't need do syntax check for q->userShares, because check-configuration has done it.*/
-    while ((p != '\0') && ((p = strchr(p, '[')) != NULL)) {
+    while ((*p != '\0') && ((p = strchr(p, '[')) != NULL)) {
         end = strchr(p, ']');
         end[0] = '\0';
         delimiter = strchr(p, ',');

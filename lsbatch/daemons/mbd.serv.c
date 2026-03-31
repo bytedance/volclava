@@ -414,6 +414,8 @@ jobInfoReplyXdrBufLen(struct jobInfoReply *jobInfoReplyPtr)
     len += ALIGNWORD_(strlen(jobInfoReply.jobBill->projectName) + 1);
     len += ALIGNWORD_(strlen(jobInfoReply.jobBill->loginShell) + 1);
     len += ALIGNWORD_(strlen(jobInfoReply.jobBill->schedHostType) + 1);
+    len += ALIGNWORD_(strlen(jobInfoReply.mergedResReq) + 1);
+    len += ALIGNWORD_(strlen(jobInfoReply.effeResReq) + 1);
 
     return(len);
 }
@@ -466,6 +468,9 @@ packJobInfo(struct jData * jobData,
     jobInfoReply.cpuTime = jobData->cpuTime;
     jobInfoReply.numToHosts = jobData->numHostPtr;
     jobInfoReply.chargedSAAP = (jobData->sa ? jobData->sa->path : "");
+    jobInfoReply.mergedResReq = (jobData->shared->mergedResReqEnt ? GET_JOB_MERGED_RES_REQ_STR(jobData): "");
+    jobInfoReply.effeResReq = (jobData->effeResReqEnt ? GET_JOB_EFFE_RES_REQ_STR(jobData): "");
+
 
     if (jobData->jStatus & JOB_STAT_UNKWN)
         jobInfoReply.status = JOB_STAT_UNKWN;

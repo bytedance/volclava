@@ -516,6 +516,7 @@ extern int get_ports(void);
 extern void die(int sig);
 extern void *my_malloc(int size, const char *);
 extern void *my_calloc(int, int, const char *);
+extern char *my_realloc(void *, int, char *);
 extern void lsb_merr(char *s);
 extern void merr_user(char *user, char *host, char *msg, char *type);
 extern int portok(struct sockaddr_in *from);
