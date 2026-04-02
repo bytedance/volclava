@@ -1633,6 +1633,19 @@ extern char*                resVal2Str(struct resVal *resVal);
 extern struct resVal*       dupResVal(struct resVal *src);
 
 /*query_port*/
+#define DEF_QMBD_ALIVE_TIME        5
+#define MIN_QMBD_ALIVE_TIME        5
+#define MAX_QMBD_ALIVE_TIME        50
+#define DEF_QMBD_THREAD_NUM        10
+#define MIN_QMBD_THREAD_NUM        10
+#define MAX_QMBD_THREAD_NUM        50
+#define DEF_QMBD_MAX_TASK_NUM      2000
+#define MIN_QMBD_MAX_TASK_NUM      500
+#define MAX_QMBD_MAX_TASK_NUM      5000
+#define DEF_QMBD_SYNC_SHM_SIZE_MB  1024
+#define MIN_QMBD_SYNC_SHM_SIZE_MB  512
+#define MAX_QMBD_SYNC_SHM_SIZE_MB  2048
+
 #define DEF_WRITE_TIMEOUT      5
 #define MAX_QMBD_NUMS          12
 
@@ -1740,6 +1753,7 @@ extern long long      syncShmXdrBufferSize;     /* Size of XDR serialization buf
 extern long long      syncShmJobNameBufferSize; /* Size of job name buffer in shared memory */
 extern int            syncShmJobCapacity;       /* Maximum number of jobs that can be stored in shared memory */
 extern int            syncNewJobs;              /* Flag to trigger sync of new jobs into shared memory (1 = need sync) */
+extern int            getValidatedNumericParam(const char *, char *, char *, int, int, int);
 extern struct syncJobShm *shm;
 extern struct syncJobShm *initSyncShm();
 extern int addJobToSyncShm(struct jData *, int);

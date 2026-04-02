@@ -412,9 +412,9 @@ static int
 setupOutputCaptureAndCheck(LS_LONG_INT jobId, char * jobFile)
 {
     int stdoutPipe[2];
-    char errString[1024];
+    char errString[BPEEK_CHECK_BUF_SIZE], readBuf[BPEEK_CHECK_BUF_SIZE];
     pid_t capturePid = 0;
-
+    ssize_t n;
     if (pipe(stdoutPipe) < 0) {
         perror("pipe");
         exit(-1);
@@ -433,8 +433,7 @@ setupOutputCaptureAndCheck(LS_LONG_INT jobId, char * jobFile)
         sprintf(errString, "cat: %s: No such file or directory", jobFile);
         close(stdoutPipe[1]);
 
-        char readBuf[1025];
-        ssize_t n;
+        
 
         if (rd_poll_(stdoutPipe[0], NULL) < 0) {
             perror("rd_poll_");

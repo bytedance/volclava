@@ -15,13 +15,11 @@
 #include "daemonout.h"
 #include <sys/prctl.h>
 #define DEF_EPOLL_INTERVAL 1
-#define DEF_THREAD_NUM 8
-#define DEF_THREADPOLL_MAX_TASK 2000
-#define DEF_QMBD_FORCE_EXIT_DELAY 300 
+#define DEF_QMBD_FORCE_EXIT_DELAY 100 
  
 int listenChfd;
-int qmbdThreadNum = DEF_THREAD_NUM;
-int qmbdMaxTaskNum = DEF_THREADPOLL_MAX_TASK;
+int qmbdThreadNum = DEF_QMBD_THREAD_NUM;
+int qmbdMaxTaskNum = DEF_QMBD_MAX_TASK_NUM;
 threadPool_t  *lightQueryPool, *heavyQueryPool;
 extern short qmbd_port;
 
@@ -58,7 +56,8 @@ int startQueryDaemon(int *qmbdPid){
     if (logclass & LC_TRACE)
         ls_syslog(LOG_DEBUG,"%s: Entering...", __func__);
 
-    if ((*qmbdPid = fork()) < 0) {
+    *qmbdPid = fork();
+    if ((*qmbdPid) < 0) {
         ls_syslog(LOG_DEBUG, I18N_FUNC_FAIL_M, __func__, "fork");
         return -1;
     }
@@ -177,7 +176,6 @@ static void processQueryRequestByThread(struct clientNode *client) {
         xdr_destroy(xdrs);
         FREEUP(xdrs);
         chanFreeBuf_(buf);
-        FREEUP(reqContext);
         client->state = CLIENT_STATE_FINISHED;
         client->lastTime = time(0);
         client->reqType = mbdReqtype;
@@ -229,8 +227,8 @@ static void* controlPipeMonitorThread(void* arg){
     pfd.events = POLLIN;
     /* After reading data from the pipe, close the listen socket, close the read end of the pipe, and exit the thread */
     while(1){
-        /* Wait up to twice the survival time; if no event is ready, the query mbd is considered expired. */
-        ret = poll(&pfd, 1, qmbdAliveTime*1500);
+        /* Wait up to survival time; if no event is ready, the query mbd is considered expired. */
+        ret = poll(&pfd, 1, qmbdAliveTime * 1500);
         if(ret < 0){
             if(errno == EINTR){
                 continue;
@@ -425,27 +423,21 @@ int initQueryDaemon(){
     exitStatus = 0;
 
     if (daemonParams[LSB_QMBD_THREAD_NUM].paramValue != NULL) {
-        if (atoi(daemonParams[LSB_QMBD_THREAD_NUM].paramValue) > 0) {
-            qmbdThreadNum =
-                atoi(daemonParams[LSB_QMBD_THREAD_NUM].paramValue);
-        } else {
-            ls_syslog(LOG_ERR, "\
-%s: Invalid LSB_QMBD_THREAD_NUM %s ignored",
-                      __func__,
-                      daemonParams[LSB_QMBD_THREAD_NUM].paramValue);
-        }
+        qmbdThreadNum = getValidatedNumericParam(__func__,
+                                                 "LSB_QMBD_THREAD_NUM",
+                                                 daemonParams[LSB_QMBD_THREAD_NUM].paramValue,
+                                                 MIN_QMBD_THREAD_NUM,
+                                                 MAX_QMBD_THREAD_NUM,
+                                                 DEF_QMBD_THREAD_NUM);
     }
 
     if (daemonParams[LSB_QMBD_MAX_TASK_NUM].paramValue != NULL) {
-        if (atoi(daemonParams[LSB_QMBD_MAX_TASK_NUM].paramValue) > 0) {
-            qmbdMaxTaskNum =
-                atoi(daemonParams[LSB_QMBD_MAX_TASK_NUM].paramValue);
-        } else {
-            ls_syslog(LOG_ERR, "\
-%s: Invalid LSB_QMBD_MAX_TASK_NUM %s ignored",
-                      __func__,
-                      daemonParams[LSB_QMBD_MAX_TASK_NUM].paramValue);
-        }
+        qmbdMaxTaskNum = getValidatedNumericParam(__func__,
+                                                  "LSB_QMBD_MAX_TASK_NUM",
+                                                  daemonParams[LSB_QMBD_MAX_TASK_NUM].paramValue,
+                                                  MIN_QMBD_MAX_TASK_NUM,
+                                                  MAX_QMBD_MAX_TASK_NUM,
+                                                  DEF_QMBD_MAX_TASK_NUM);
     }
 
     sigemptyset(&empty_set);
@@ -598,10 +590,10 @@ static void exitQmbd(){
         destroyThreadPool(heavyQueryPool);
 
     if(exitStatus == 1){
-        ls_syslog(LOG_DEBUG, "query mbd exit normally");
+        ls_syslog(LOG_DEBUG, "%s: query mbd exit normally",__func__);
         exit(0);
     }
-    ls_syslog(LOG_WARNING, "query mbd exit timeout");
+    ls_syslog(LOG_WARNING, "%s query mbd exit timeout",__func__);
     exit(-1);
 }
 

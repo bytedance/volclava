@@ -2497,6 +2497,7 @@ int
 switch_log(void)
 {
     static char fname[] = "switch_log";
+    static pid_t            eventIndexRebuildPid = 0;
     char                    tmpfn[MAXFILENAMELEN];
     int                     i, lineNum = 0, errnoSv;
     LS_LONG_INT             jobId = 0;
@@ -2506,6 +2507,7 @@ switch_log(void)
     long                   pos;
     int                    preserved = FALSE;
     int                    totalEventFile;
+    char                   indexFile[MAXFILENAMELEN];
 
     sprintf(tmpfn, "%s/logdir/lsb.events",
             daemonParams[LSB_SHAREDIR].paramValue);
@@ -2740,10 +2742,21 @@ switch_log(void)
     else
         log_logSwitch(nextJobId);
 
-    if ((totalEventFile = renameElogFiles()) > 0)  {
+    /*
+     * When switch_log is triggered frequently, multiple child processes may simultaneously read and write lsb.event.index. 
+     * It is necessary to ensure that only one child process operates on this index file at any given time.
+     */
+    if (eventIndexRebuildPid != 0 && kill(eventIndexRebuildPid, 0) == 0) {
+        ls_syslog(LOG_DEBUG, "\
+%s: event index rebuild pid=%d still running",
+                      __func__, (int)eventIndexRebuildPid);
+        return -1;
+    }
 
-        if (fork() == 0) {
-            char  indexFile[MAXFILENAMELEN];
+    if ((totalEventFile = renameElogFiles()) > 0)  {
+        eventIndexRebuildPid = fork();
+        if (eventIndexRebuildPid == 0) {
+            closeExceptFD(-1);
 
             sprintf(indexFile, "%s/logdir/%s",
                     daemonParams[LSB_SHAREDIR].paramValue,

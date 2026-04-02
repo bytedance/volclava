@@ -191,12 +191,10 @@ extern int do_setJobAttr(XDR *, int, struct sockaddr_in *, char *,
                          struct LSFHeader *, struct lsfAuth *);
 extern void chanCloseAllBut_(int);
 extern int initLimSock_(void);
-#define DEF_QMBD_ALIVE_TIME 5
-#define DEF_SYNC_SHM_SIZE   1024
 short qmbd_port;                                        /* Port of the query mbd process */
 int isQmbd = 0;                                         /* Flag indicating if the current process is query mbd */
 int qmbdAliveTime = DEF_QMBD_ALIVE_TIME;                /* Lifetime (in seconds) of the query mbd process */
-long long syncShmSize = DEF_SYNC_SHM_SIZE;
+long long syncShmSize = DEF_QMBD_SYNC_SHM_SIZE_MB;
 long long syncShmXdrBufferSize;
 long long syncShmJobNameBufferSize;
 int syncShmJobCapacity;
@@ -210,6 +208,38 @@ static int processQmbd();
 static void shmInit();
 static int createShmCleanerThread();
 static void *shmCleaner(void *arg);
+
+int
+getValidatedNumericParam(const char *func,
+                         char *paramName,
+                         char *paramValue,
+                         int minValue,
+                         int maxValue,
+                         int defaultValue)
+{
+    int value;
+
+    if (paramValue == NULL) {
+        return defaultValue;
+    }
+
+    if (!isint_(paramValue)) {
+        ls_syslog(LOG_ERR,
+                  "%s: Invalid %s=%s, using default %d",
+                  func, paramName, paramValue, defaultValue);
+        return defaultValue;
+    }
+
+    value = atoi(paramValue);
+    if (value < minValue || value > maxValue) {
+        ls_syslog(LOG_ERR,
+                  "%s: Invalid %s=%s, valid range is [%d,%d], using default %d",
+                  func, paramName, paramValue, minValue, maxValue, defaultValue);
+        return defaultValue;
+    }
+
+    return value;
+}
 
 int
 main (int argc, char **argv)
@@ -371,27 +401,21 @@ main (int argc, char **argv)
     }
 
     if (daemonParams[LSB_QMBD_ALIVE_TIME].paramValue != NULL) {
-        if (atoi(daemonParams[LSB_QMBD_ALIVE_TIME].paramValue) >= DEF_QMBD_ALIVE_TIME) {
-            qmbdAliveTime =
-                atoi(daemonParams[LSB_QMBD_ALIVE_TIME].paramValue);
-        } else {
-            ls_syslog(LOG_ERR, "\
-%s: Invalid LSB_QMBD_ALIVE_TIME %s ignored",
-                      __func__,
-                      daemonParams[LSB_QMBD_ALIVE_TIME].paramValue);
-        }
+        qmbdAliveTime = getValidatedNumericParam(__func__,
+                                                 "LSB_QMBD_ALIVE_TIME",
+                                                 daemonParams[LSB_QMBD_ALIVE_TIME].paramValue,
+                                                 MIN_QMBD_ALIVE_TIME,
+                                                 MAX_QMBD_ALIVE_TIME,
+                                                 DEF_QMBD_ALIVE_TIME);
     }
 
     if (daemonParams[LSB_QMBD_SYNC_SHM_SIZE].paramValue != NULL) {
-        if (atoi(daemonParams[LSB_QMBD_SYNC_SHM_SIZE].paramValue) > 0) {
-            syncShmSize =
-                atoi(daemonParams[LSB_QMBD_SYNC_SHM_SIZE].paramValue);
-        } else {
-            ls_syslog(LOG_ERR, "\
-%s: Invalid LSB_QMBD_SYNC_SHM_SIZE %s ignored",
-                      __func__,
-                      daemonParams[LSB_QMBD_SYNC_SHM_SIZE].paramValue);
-        }
+        syncShmSize = getValidatedNumericParam(__func__,
+                                               "LSB_QMBD_SYNC_SHM_SIZE",
+                                               daemonParams[LSB_QMBD_SYNC_SHM_SIZE].paramValue,
+                                               MIN_QMBD_SYNC_SHM_SIZE_MB,
+                                               MAX_QMBD_SYNC_SHM_SIZE_MB,
+                                               DEF_QMBD_SYNC_SHM_SIZE_MB);
     }
     syncShmSize = syncShmSize * 1024 * 1024;
     syncShmJobCapacity = syncShmSize / 1024 / 10;
@@ -563,7 +587,7 @@ main (int argc, char **argv)
          * If the query mbd child process exits abnormally, the write end of the pipe will trigger the EPOLLERR event.
          * After detecting this event, the query mbd process will be restarted.
          */
-        if(chanEventsReady(qmbdCtlChfd, EPOLL_EVENT_ERROR)){
+        if (qmbd_port && chanEventsReady(qmbdCtlChfd, EPOLL_EVENT_ERROR)) {
             ls_syslog(LOG_WARNING, "query mbd exited unexpectedly");
             qmbdIsAlive = 0;
         }
@@ -810,6 +834,7 @@ processClient(struct clientNode *client, int *needFree)
          case BATCH_JOB_SUB_PACK:
             TIMEIT(0, do_submitPackReq(&xdrs, s, &from, client->fromHost, &reqHdr, &auth, &schedule1, dispatch), "do_submitPackReq()");
             statusChanged = 1;
+            jobInfoChanged = 1;
             break;
 
         case BATCH_JOB_SIG:

@@ -67,9 +67,9 @@ serv_connect (char *serv_host, ushort serv_port, int timeout)
     serv_addr.sin_port = serv_port;
 
     if (getNonPrivilegedPorts() == 0 && (geteuid() == 0)) {
-       options = CHAN_OP_PPORT;
+        options = CHAN_OP_PPORT;
     } else {
-       options = 0;
+        options = 0;
     }
 
     chfd = chanClientSocket_(AF_INET, SOCK_STREAM, options);
@@ -387,8 +387,8 @@ ushort
 get_qmbd_port(void)
 {
 
-    static ushort qmbd_port =0;
-    if(qmbd_port) return qmbd_port;
+    static ushort qmbd_port = 0;
+    if (qmbd_port) return qmbd_port;
     if (isint_(lsbParams[LSB_QMBD_PORT].paramValue)) {
         if ((qmbd_port = atoi(lsbParams[LSB_QMBD_PORT].paramValue)) > 0)
             return((qmbd_port = htons(qmbd_port)));

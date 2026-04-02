@@ -168,6 +168,7 @@ access:
                 return(MASTER_FATAL);
             }
             if ( statbuf.st_mtime == lastmodtime ) {
+                /* Lock file is unchanged; check if process is dead */
                 if (pid > 0 && kill(pid, 0) < 0) {
                     ls_syslog(LOG_ERR, "\
 %s: Last owner of lock file was on this host with pid <%d>; attempting to take over lock file", fname, pid);
