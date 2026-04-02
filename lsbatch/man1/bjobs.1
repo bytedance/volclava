@@ -638,6 +638,14 @@ unlimited.
 .RE
 .RE
 .RE
+.IP
+MEMORY USAGE
+.RS
+.IP
+Displays peak memory usage and average memory usage. It is displayed when job rusage is reported by the sbatchd daemon. 
+.IP
+For example: MAX MEM:9 Mbytes; AVG MEM:5 Mbytes
+.RE
 
 .IP
 RESOURCE REQUIREMENT DETAILS
@@ -776,24 +784,29 @@ Number of held jobs of the job array.
 .PP
 .PP
 % \fBbjobs -pl
-\fR.PP
+\fR
+.PP
 Displays detailed information about all pending jobs of the invoker. 
 .PP
 % \fBbjobs -ps
-\fR.PP
+\fR
+.PP
 Display only pending and suspended jobs.
 .PP
 % \fBbjobs -u all -a
-\fR.PP
+\fR
+.PP
 Displays all jobs of all users.
 .PP
 % \fBbjobs -d -q short -m apple -u john
-\fR.PP
+\fR
+.PP
 Displays all the recently finished jobs submitted by john to the queue 
 short, and executed on the host apple. 
 .PP
 % \fBbjobs 101 102 203 509
-\fR.PP
+\fR
+.PP
 Display jobs with job_ID 101, 102, 203, and 509. 
 .SH SEE ALSO
 .BR

@@ -121,6 +121,8 @@ status_job(mbdReqType reqType,
     statusReq.runRusage.pgid = jp->runRusage.pgid;
     statusReq.actStatus = jp->actStatus;
     statusReq.sigValue  = jp->jobSpecs.actValue;
+    statusReq.maxMem = jp->maxRusage.mem; /*SBD retains this information to avoid data loss when MBD restarts.*/
+    statusReq.avgMem = jp->avgMem;
     statusReq.seq = seq;
     seq++;
     if (seq >= MAX_SEQ_NUM)
@@ -285,12 +287,11 @@ getJobsState(struct sbdPackage *sbdPackage)
     char *myhostnm;
     XDR xdrs;
     struct LSFHeader hdr;
-    int reply;
+    int reply = LSBE_NO_JOB;
     int i;
     int cc;
     int numJobs;
     struct jobSpecs jobSpecs;
-    struct jobCard *job = NULL;
 
     if ((myhostnm = ls_getmyhostname()) == NULL) {
         ls_syslog(LOG_ERR, "\
@@ -400,7 +401,7 @@ znovu:
                         free(reply_buf);
                     return;
                 }
-                job = addJob(&jobSpecs, hdr.version);
+                addJob(&jobSpecs, hdr.version);
                 xdr_lsffree(xdr_jobSpecs, (char *)&jobSpecs, &hdr);
             }
 
@@ -417,6 +418,8 @@ znovu:
             ls_syslog(LOG_DEBUG, "\
 %s: got configuration from master %s all right", __func__, masterHost);
 
+            /*Clean up residual and unused job usage files*/
+            cleanOldJobRusageFiles();
             return;
 
         case LSBE_BAD_HOST:

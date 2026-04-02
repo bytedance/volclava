@@ -569,8 +569,9 @@ execArgs(struct jobSpecs *jp, char **execArgv)
 void
 resetEnv(void)
 {
-    char **env;
+    static char **env = NULL;
 
+    FREEUP(env);
     env = (char **) my_calloc(2, sizeof(char *), "resetEnv");
 
     env[0] = NULL;
@@ -2690,6 +2691,7 @@ deallocJobCard(struct jobCard *jobCard)
                   lsb_jobid2str(jobCard->jobSpecs.jobId),
                   "unlink",
                   fileBuf);
+    removeJobRusageFile(jobCard);
 
     offList ((struct listEntry *)jobCard);
     freeWeek (jobCard->week);
@@ -4237,6 +4239,11 @@ initJobCard(struct jobCard *jp, struct jobSpecs *jobSpecs, int *reply)
 
     jp->jobSpecs.execHosts = NULL;
 
+    jp->avgMemCounters = 0;
+    jp->avgMemLastCalcTime = 0;
+    jp->avgMem = 0;
+    jp->avgMemMbd = 0;
+    recoverJobRusageFile(jp);
 
     ls_syslog(LOG_DEBUG, "options2=%x ", jobSpecs->options2);
 
@@ -4418,4 +4425,178 @@ setJobArrayEnv(char *jobName, int jobIndex)
         idxList = idx;
     }
     return;
+}
+
+/*
+ * saveJobRusage2File - Save job rusage info to a temporary file
+ * @jp: Pointer to the jobCard structure
+ *
+ * This function saves jp->maxRusage.mem, jp->avgMem, and jp->avgMemCounters
+ * into a file named /tmp/.clusterName.sbd/jobrusage.jobid.
+ * If the directory does not exist, it is created.
+ */
+void saveJobRusage2File(struct jobCard *jp) {
+    char dir[MAXPATHLEN];
+    char file[MAXPATHLEN];
+    FILE *fp;
+    int  idx = 0;
+
+    if (jp == NULL) {
+        return;
+    }
+
+    snprintf(dir, MAXPATHLEN, "%s/.%s.sbd", LSTMPDIR, clusterName);
+    if (access(dir, F_OK) != 0) {
+        if (mkdir(dir, 0700) != 0 && errno != EEXIST) {
+            ls_syslog(LOG_ERR, "saveJobRusage2File: failed to create directory %s: %m", dir);
+            return;
+        }
+    }
+
+    idx = LSB_ARRAY_IDX(jp->jobSpecs.jobId);
+    if (idx == 0) {
+        snprintf(file, MAXPATHLEN, "%s/jobrusage.%d", dir, LSB_ARRAY_JOBID(jp->jobSpecs.jobId));
+    } else {
+        snprintf(file, MAXPATHLEN, "%s/jobrusage.%d.%d",
+                dir,
+                LSB_ARRAY_JOBID(jp->jobSpecs.jobId),
+                LSB_ARRAY_IDX(jp->jobSpecs.jobId));
+    }
+    fp = fopen(file, "w");
+    if (fp == NULL) {
+        ls_syslog(LOG_ERR, "saveJobRusage2File: failed to open file %s for writing: %m", file);
+        return;
+    }
+
+    fprintf(fp, "%d %d %d\n", jp->maxRusage.mem, jp->avgMem, jp->avgMemCounters);
+    fclose(fp);
+}
+
+/*
+ * recoverJobRusageFile - Recover job rusage info from a temporary file
+ * @jp: Pointer to the jobCard structure
+ *
+ * This function reads jp->maxRusage.mem, jp->avgMem, and jp->avgMemCounters
+ * from /tmp/.clusterName.sbd/jobrusage.jobid if the file exists.
+ */
+void recoverJobRusageFile(struct jobCard *jp) {
+    char file[MAXPATHLEN];
+    FILE *fp;
+    int  idx = 0;
+
+    if (jp == NULL) {
+        return;
+    }
+
+    idx = LSB_ARRAY_IDX(jp->jobSpecs.jobId);
+    if (idx == 0) {
+        snprintf(file, MAXPATHLEN, "%s/.%s.sbd/jobrusage.%d", LSTMPDIR, clusterName, LSB_ARRAY_JOBID(jp->jobSpecs.jobId));
+    } else {
+        snprintf(file, MAXPATHLEN, "%s/.%s.sbd/jobrusage.%d.%d",
+                LSTMPDIR,
+                clusterName,
+                LSB_ARRAY_JOBID(jp->jobSpecs.jobId),
+                LSB_ARRAY_IDX(jp->jobSpecs.jobId));
+    }
+    fp = fopen(file, "r");
+    if (fp == NULL) {
+        return;
+    }
+
+    if (fscanf(fp, "%d %d %d", &jp->maxRusage.mem, &jp->avgMem, &jp->avgMemCounters) != 3) {
+        ls_syslog(LOG_ERR, "recoverJobRusageFile: failed to read from file %s", file);
+    }
+    fclose(fp);
+}
+
+/*
+ * removeJobRusageFile - Remove the temporary job rusage file
+ * @jp: Pointer to the jobCard structure
+ *
+ * This function deletes the file /tmp/.clusterName.sbd/jobrusage.jobid if it exists.
+ */
+void removeJobRusageFile(struct jobCard *jp) {
+    char file[MAXPATHLEN];
+    int idx = 0;
+
+    if (jp == NULL) {
+        return;
+    }
+
+    idx = LSB_ARRAY_IDX(jp->jobSpecs.jobId);
+    if (idx == 0) {
+        snprintf(file, MAXPATHLEN, "%s/.%s.sbd/jobrusage.%d", LSTMPDIR, clusterName, LSB_ARRAY_JOBID(jp->jobSpecs.jobId));
+    } else {
+        snprintf(file, MAXPATHLEN,
+                "%s/.%s.sbd/jobrusage.%d.%d",
+                LSTMPDIR,
+                clusterName,
+                LSB_ARRAY_JOBID(jp->jobSpecs.jobId),
+                LSB_ARRAY_IDX(jp->jobSpecs.jobId));
+    }
+
+    if (unlink(file) < 0 && errno != ENOENT) {
+        ls_syslog(LOG_ERR, "removeJobRusageFile: failed to remove file %s: %m", file);
+    }
+}
+
+/*
+ * cleanOldJobRusageFiles - Clean up old job rusage files
+ *
+ * This function scans the /tmp/.clusterName.sbd directory and removes
+ * files that meet the following criteria:
+ * 1. Filename matches "jobrusage.<jobid>"
+ * 2. File modification time is more than 2 days ago
+ * 3. The job ID does not exist in the current sbatchd job list
+ */
+void cleanOldJobRusageFiles() {
+    char dirPath[MAXPATHLEN];
+    DIR *dir;
+    struct dirent *entry;
+
+    if (clusterName == NULL) return;
+
+    snprintf(dirPath, MAXPATHLEN, "%s/.%s.sbd", LSTMPDIR, clusterName);
+    dir = opendir(dirPath);
+    if (dir == NULL) {
+        return;
+    }
+
+    while ((entry = readdir(dir)) != NULL) {
+        if (strncmp(entry->d_name, "jobrusage.", 10) == 0) {
+            char *p = entry->d_name + 10;
+            LS_LONG_INT array_jobId = 0;
+            int array_idx = 0;
+            char *dot = strchr(p, '.');
+            LS_LONG_INT jobId;
+            struct jobCard *jp;
+            int found = 0;
+
+            if (dot) {
+                *dot = '\0';
+                array_jobId = atoi(p);
+                array_idx = atoi(dot + 1);
+                *dot = '.';
+                jobId = LSB_JOBID(array_jobId, array_idx);
+            } else {
+                array_jobId = atoi(p);
+                jobId = array_jobId;
+            }
+
+            for (jp = jobQueHead->forw; jp != jobQueHead; jp = jp->forw) {
+                if (jp->jobSpecs.jobId == jobId) {
+                    found = 1;
+                    break;
+                }
+            }
+            if (!found) {
+                char filePath[MAXPATHLEN];
+                snprintf(filePath, MAXPATHLEN, "%s/%s", dirPath, entry->d_name);
+                if (unlink(filePath) < 0) {
+                   ls_syslog(LOG_ERR, "cleanOldJobRusageFiles: failed to unlink %s: %m", filePath);
+                }
+            }
+        }
+    }
+    closedir(dir);
 }

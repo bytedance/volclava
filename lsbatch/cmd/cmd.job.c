@@ -31,7 +31,7 @@
 static char *strXfOptions(int);
 void prtJobRusage(struct jobInfoEnt *);
 void prtJobRusageUF(struct jobInfoEnt *);
-
+void prtJobRusageMem(struct jobInfoEnt *);
 
 void
 prtHeader(struct jobInfoEnt *job, int prt_q, int tFormat)
@@ -699,6 +699,8 @@ prtJobFinish(struct jobInfoEnt *job, struct jobInfoHead *jInfoH)
 	}
 
 	printf(prline);
+
+        prtJobRusageMem(job);
         break;
     case JOB_STAT_PSUSP:
     case JOB_STAT_PEND:
@@ -923,13 +925,7 @@ prtJobRusage(struct jobInfoEnt *job)
     sprintf(prline, "\n");
     printf("%s", prline);
 
-    if (job->runRusage.mem > 0) {
-        printf ("\n MEMORY USAGE:\n");
-        if (job->runRusage.mem > 1024)
-            printf(" MAX MEM: %d Mbytes;  AVG MEM: %d Mbytes\n", job->runRusage.mem/1024, job->runRusage.mem/1024);
-        else
-            printf(" MAX MEM: %d Kbytes;  AVG MEM: %d Kbytes\n", job->runRusage.mem, job->runRusage.mem);
-    }
+    prtJobRusageMem(job);
 }
 
 void
@@ -1155,14 +1151,7 @@ displayUF(struct jobInfoEnt *job, struct jobInfoHead *jInfoH, float cpuFactor,
         job->submit.rLimits[LSF_RLIMIT_RUN] = qp->rLimits[LSF_RLIMIT_RUN];
     }
     prtResourceLimit(job->submit.rLimits, hostPtr, hostFactor, NULL);
-
-    if (job->runRusage.mem > 0) {
-        printf ("\n MEMORY USAGE:\n");
-        if (job->runRusage.mem > 1024)
-            printf(" MAX MEM: %d Mbytes;  AVG MEM: %d Mbytes\n", job->runRusage.mem/1024, job->runRusage.mem/1024);
-        else
-            printf(" MAX MEM: %d Kbytes;  AVG MEM: %d Kbytes\n", job->runRusage.mem, job->runRusage.mem);
-    }
+    prtJobRusageMem(job);
 
     if (lsbMode_ & LSB_MODE_BATCH) {
         printf("\n %s:\n",
@@ -1924,4 +1913,20 @@ prtFileNamesUF(struct jobInfoEnt *job, int prtCwd)
         printf("%s", prline);
     }
 
+}
+
+void prtJobRusageMem(struct jobInfoEnt *job) {
+    if (job->maxMem > 0) {
+        printf ("\n MEMORY USAGE:\n"); 
+        if (job->maxMem > 1024) {
+            printf(" MAX MEM: %d Mbytes;  ", job->maxMem/1024);
+            if (job->avgMem > 1024) {
+                printf("AVG MEM: %d Mbytes\n", job->avgMem/1024);
+            } else {
+                printf("AVG MEM: %d Kbytes\n", job->avgMem);
+            }
+        } else {
+            printf(" MAX MEM: %d Kbytes;  AVG MEM: %d Kbytes\n", job->maxMem, job->avgMem);
+        }
+    }
 }

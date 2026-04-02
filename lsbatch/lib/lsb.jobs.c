@@ -409,6 +409,8 @@ lsb_readjobinfo(int *more)
     jobInfo.chargedSAAP = jobInfoReply.chargedSAAP;
     jobInfo.mergedResReq = jobInfoReply.mergedResReq;
     jobInfo.effeResReq = jobInfoReply.effeResReq;
+    jobInfo.maxMem = jobInfoReply.maxMem;
+    jobInfo.avgMem = jobInfoReply.avgMem;
 
     if (more)
 	*more = hdr.reserved;

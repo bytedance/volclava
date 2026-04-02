@@ -2870,6 +2870,11 @@ statusJob(struct statusReq *statusReq, struct hostent *hp, int *schedule)
     else
         diffUTime = statusReq->runRusage.utime - jpbw->runRusage.utime;
 
+    if (statusReq->maxMem > jpbw->maxMem) {
+        jpbw->maxMem = statusReq->maxMem;
+    }
+    jpbw->avgMem = statusReq->avgMem;
+
     /*update cpuTime for fairshare account*/
     diffTime = diffSTime+diffUTime;
     if (jpbw->sa && diffTime > 0) {
@@ -3039,6 +3044,12 @@ statusJob(struct statusReq *statusReq, struct hostent *hp, int *schedule)
             if (jData->lsfRusage == NULL)
                 jData->lsfRusage = &(statusReq->lsfRusage);
             accumulateRU (jData, statusReq);
+            if (statusReq->maxMem > jData->maxMem) {
+                jData->maxMem = statusReq->maxMem;
+            }
+            if (statusReq->avgMem > 0) {
+                jData->avgMem = statusReq->avgMem;
+            }
             log_newstatus(jData);
             if (jData->lsfRusage == &(statusReq->lsfRusage))
                 jData->lsfRusage = NULL;
@@ -3510,6 +3521,11 @@ rusageJob (struct statusReq *statusReq, struct hostent *hp)
                                             0.1);
 
     copyJUsage(&(jpbw->runRusage), &(statusReq->runRusage));
+
+    if (statusReq->maxMem > jpbw->maxMem) {
+        jpbw->maxMem = statusReq->maxMem;
+    }
+    jpbw->avgMem = statusReq->avgMem;
 
     return (LSBE_NO_ERROR);
 }
@@ -5206,6 +5222,9 @@ initJData (struct jShared  *shared)
     job->inEligibleGroups = NULL;
 
     job->effeResReqEnt = NULL;
+
+    job->maxMem = 0;
+    job->avgMem = 0;
 
     return (job);
 }
@@ -7614,7 +7633,8 @@ inZomJobList (struct jData *oldjob, int mail)
     newjob->queuePostCmd = safeSave (oldjob->queuePostCmd);
     newjob->sigValue = oldjob->sigValue;
     newjob->schedHost = safeSave (oldjob->schedHost);
-
+    newjob->maxMem = oldjob->maxMem;
+    newjob->avgMem = oldjob->avgMem;
 
     newjob->pendEvent.sig = SIGTERM;
     eventPending = TRUE;

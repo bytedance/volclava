@@ -1108,9 +1108,23 @@ readJobStatus(char *line, struct jobStatusLog *jobStatusLog)
     if (cc != 1)
         return (LSBE_EVENT_FORMAT);
     line += ccount + 1;
+
     cc = sscanf(line, "%d%n", &(jobStatusLog->idx),  &ccount);
     if (cc != 1)
         return (LSBE_EVENT_FORMAT);
+    line += ccount + 1;
+
+    if (version >= _VOLCLAVA_VERSION2_2_) {
+        cc = sscanf(line, "%d%n", &(jobStatusLog->maxMem), &ccount);
+        if (cc != 1)
+            return (LSBE_EVENT_FORMAT);
+        line += ccount + 1;
+ 
+        cc = sscanf(line, "%d%n", &(jobStatusLog->avgMem), &ccount);
+        if (cc != 1)
+            return (LSBE_EVENT_FORMAT);
+    }
+
     return (LSBE_NO_ERROR);
 }
 
@@ -2199,6 +2213,11 @@ writeJobStatus(FILE *log_fp, struct jobStatusLog *jobStatusLog)
     if (fprintf(log_fp, " %d", jobStatusLog->idx) < 0 )
         return (LSBE_SYS_CALL);
 
+    if (fprintf(log_fp, " %d", jobStatusLog->maxMem) < 0 )
+        return (LSBE_SYS_CALL);
+
+    if (fprintf(log_fp, " %d", jobStatusLog->avgMem) < 0 )
+        return (LSBE_SYS_CALL);
 
     if (fprintf(log_fp, "\n") < 0)
         return (LSBE_SYS_CALL);

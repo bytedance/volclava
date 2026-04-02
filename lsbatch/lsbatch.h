@@ -710,6 +710,8 @@ struct jobInfoEnt {
     char    *chargedSAAP;
     char    *mergedResReq;
     char    *effeResReq;
+    int     maxMem;
+    int     avgMem;
 };
 
 struct userInfoEnt {
@@ -1126,6 +1128,8 @@ struct jobStatusLog {
     int   jFlags;
     int   exitStatus;
     int    idx;
+    int    maxMem;
+    int    avgMem;
 };
 
 

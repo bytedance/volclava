@@ -320,6 +320,8 @@ struct statusReq {
     struct jRusage runRusage;
     int         sigValue;
     int         actStatus;
+    int         maxMem;
+    int         avgMem;
 };
 
 struct chunkStatusReq {

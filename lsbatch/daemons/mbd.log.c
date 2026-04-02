@@ -847,6 +847,8 @@ replay_newstat(char *filename, int lineNum)
         jp->endTime = newStat->endTime;
         jp->cpuTime = newStat->cpuTime;
         jp->exitStatus = newStat->exitStatus;
+        jp->maxMem = newStat->maxMem;
+        jp->avgMem = newStat->avgMem;
     }
 
     jStatusChange(jp, newStat->jStatus, logPtr->eventTime, "replay_newstat");
@@ -1652,7 +1654,7 @@ log_startjob(struct jData * job, int preExecStart)
         jobStartLog->queuePostCmd = job->queuePostCmd;
 
     if (!job->effeResReqEnt) {
-	jobStartLog->effeResReq = "";
+        jobStartLog->effeResReq = "";
     } else {
         jobStartLog->effeResReq = GET_JOB_EFFE_RES_REQ_STR(job);
     }
@@ -1776,7 +1778,13 @@ log_newstatus(struct jData * job)
 
     logPtr->eventLog.jobStatusLog.jStatus &= MASK_INT_JOB_STAT;
 
-
+    if (job->jStatus & JOB_STAT_DONE || job->jStatus & JOB_STAT_EXIT) {
+        logPtr->eventLog.jobStatusLog.maxMem = job->maxMem;
+        logPtr->eventLog.jobStatusLog.avgMem = job->avgMem;
+    } else {
+        logPtr->eventLog.jobStatusLog.maxMem = 0;
+        logPtr->eventLog.jobStatusLog.avgMem = 0;
+    }
 
     if (putEventRec(fname) < 0) {
         ls_syslog(LOG_ERR, I18N_JOB_FAIL_S,

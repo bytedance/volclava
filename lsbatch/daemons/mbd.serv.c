@@ -649,6 +649,8 @@ packJobInfo(struct jData * jobData,
     jobInfoReply.chargedSAAP = (jobData->sa ? jobData->sa->path : "");
     jobInfoReply.mergedResReq = (jobData->shared->mergedResReqEnt ? GET_JOB_MERGED_RES_REQ_STR(jobData): "");
     jobInfoReply.effeResReq = (jobData->effeResReqEnt ? GET_JOB_EFFE_RES_REQ_STR(jobData): "");
+    jobInfoReply.maxMem = jobData->maxMem;
+    jobInfoReply.avgMem = jobData->avgMem;
 
 
     if (jobData->jStatus & JOB_STAT_UNKWN)

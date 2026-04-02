@@ -221,6 +221,8 @@ struct jobInfoReply {
     char      *chargedSAAP;
     char      *mergedResReq;
     char      *effeResReq;
+    int       maxMem;
+    int       avgMem;
 };
 
 struct infoReq {

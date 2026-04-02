@@ -321,8 +321,6 @@ struct jData {
     int     restartPid;
     time_t  chkpntPeriod;
     u_short port;
-
-
     int     jSubPriority;
     int     jobPriority;
     char    *jobSpoolDir;
@@ -338,6 +336,8 @@ struct jData {
     int numAvailSlotsReserve;
     struct shareAcct * sa;  /*refer to shareAcct of fairshare tree in global policies*/
     struct hEnt *effeResReqEnt; /*refer to effective resreq entry*/
+    int    maxMem;
+    int    avgMem;
 };
 
 
