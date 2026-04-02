@@ -219,6 +219,10 @@ struct jobInfoReply {
     u_short   port;                
     int       jobPriority;         
     char      *chargedSAAP;
+    char      *mergedResReq;
+    char      *effeResReq;
+    int       maxMem;
+    int       avgMem;
 };
 
 struct infoReq {

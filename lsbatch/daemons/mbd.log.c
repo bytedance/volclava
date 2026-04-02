@@ -67,6 +67,7 @@ static int              replay_cleanjob(char *, int);
 static bool_t           replay_jobforce(char *, int);
 static int              replay_logSwitch(char *, int);
 static int              replay_jobattrset(char *, int );
+static hEnt*            replay_jobEffeResReq(char * resreq);
 
 static int replay_logSwitch(char *, int);
 extern bool_t memberOfVacateList(struct lsQueueEntry *, struct lsQueue *);
@@ -653,6 +654,15 @@ replay_startjob(char *filename, int lineNum, int preExecStart)
     if (job.queuePostCmd && job.queuePostCmd[0] != '\0')
         jp->queuePostCmd = safeSave(job.queuePostCmd);
 
+    if (!jp->effeResReqEnt && !preExecStart) {
+        jp->effeResReqEnt = replay_jobEffeResReq(logPtr->eventLog.jobStartLog.effeResReq);
+        if (jp->effeResReqEnt == NULL) {
+            /*For compatibility, when event version is earlier than 22, there is no effective
+            *resreq string in JOB_START event, we use merged resreq as effective one instead.
+            */
+            mkJobEffeResReqEntry(jp);
+        }
+    }
     jStatusChange(jp, job.jStatus, logPtr->eventTime, "replay_startjob");
     if  (!preExecStart){
         updHostLeftRusageMem(jp, -1);
@@ -837,6 +847,8 @@ replay_newstat(char *filename, int lineNum)
         jp->endTime = newStat->endTime;
         jp->cpuTime = newStat->cpuTime;
         jp->exitStatus = newStat->exitStatus;
+        jp->maxMem = newStat->maxMem;
+        jp->avgMem = newStat->avgMem;
     }
 
     jStatusChange(jp, newStat->jStatus, logPtr->eventTime, "replay_newstat");
@@ -1222,6 +1234,61 @@ replay_loadIndex(char *filename, int lineNum)
     return (TRUE);
 }
 
+/*
+ * replay_jobEffeResReq - Replay effective resource request entry
+ * @resreq: Resource requirement string to replay
+ *
+ * This function is used during log replay to recreate effective resource request
+ * entries. It first checks if the resource request already exists in the
+ * jobEffeResReqTab hash table. If it exists, it increments the reference count.
+ * If it doesn't exist, it creates a new resReqEntry by parsing the resource
+ * requirement string and adds it to the hash table with an initial reference
+ * count of 1.
+ *
+ * Returns: Hash table entry pointer on success, NULL on failure
+ */
+static hEnt*
+replay_jobEffeResReq(char * resreq) {
+    struct resReqEntry *resReqEnt = NULL;
+    hEnt                *ent = NULL;
+
+    /* Validate input - return NULL if resource request string is empty */
+    if (resreq == NULL || resreq[0] == '\0') {
+        return NULL;
+    }
+
+    /* Check if resource request already exists in the hash table */
+    ent = h_getEnt_(&jobEffeResReqTab, resreq);
+    if (ent == NULL) {
+        /* Entry doesn't exist - create new entry */
+        struct resVal * resValPtr = (struct resVal *)
+            my_calloc(1, sizeof(struct resVal), "replay_jobEffeResReq");
+
+        /* Parse the resource requirement string */
+        if (parseResReq(resreq, resValPtr, allLsInfo, (PR_ALL | PR_BATCH), unitForLimits) != PARSE_OK) {
+            freeResVal(resValPtr);
+            return NULL;
+        }
+
+        /* Create new resReqEntry structure */
+        resReqEnt = (struct resReqEntry *)
+            my_calloc(1, sizeof(struct resReqEntry), "replay_jobEffeResReq");
+        resReqEnt->resValPtr = resValPtr;
+        resReqEnt->resReqStr = safeSave(resreq);
+        resReqEnt->numRef = 1;
+        
+        /* Add new entry to hash table */
+        ent = h_addEnt_(&jobEffeResReqTab, resreq, NULL);
+        ent->hData = (int *)resReqEnt;
+    } else {
+        /* Entry already exists - increment reference count */
+        resReqEnt = (struct resReqEntry *) ent->hData;
+        resReqEnt->numRef++;
+    }
+    
+    return ent;
+}
+
 int
 log_modifyjob(struct modifyReq * modReq, struct lsfAuth *auth)
 {
@@ -1586,7 +1653,11 @@ log_startjob(struct jData * job, int preExecStart)
     else
         jobStartLog->queuePostCmd = job->queuePostCmd;
 
-
+    if (!job->effeResReqEnt) {
+        jobStartLog->effeResReq = "";
+    } else {
+        jobStartLog->effeResReq = GET_JOB_EFFE_RES_REQ_STR(job);
+    }
 
     if (putEventRec(fname) < 0) {
         ls_syslog(LOG_ERR, I18N_JOB_FAIL_S,
@@ -1707,7 +1778,13 @@ log_newstatus(struct jData * job)
 
     logPtr->eventLog.jobStatusLog.jStatus &= MASK_INT_JOB_STAT;
 
-
+    if (job->jStatus & JOB_STAT_DONE || job->jStatus & JOB_STAT_EXIT) {
+        logPtr->eventLog.jobStatusLog.maxMem = job->maxMem;
+        logPtr->eventLog.jobStatusLog.avgMem = job->avgMem;
+    } else {
+        logPtr->eventLog.jobStatusLog.maxMem = 0;
+        logPtr->eventLog.jobStatusLog.avgMem = 0;
+    }
 
     if (putEventRec(fname) < 0) {
         ls_syslog(LOG_ERR, I18N_JOB_FAIL_S,

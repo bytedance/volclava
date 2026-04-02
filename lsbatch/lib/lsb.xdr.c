@@ -1046,6 +1046,22 @@ xdr_jobInfoReply (XDR *xdrs, struct jobInfoReply *jobInfoReply,
         return (FALSE);
     }
 
+    if (!xdr_var_string(xdrs, &jobInfoReply->mergedResReq)) {
+        return (FALSE);
+    }
+
+    if (!xdr_var_string(xdrs, &jobInfoReply->effeResReq)) {
+        return (FALSE);
+    }
+
+    if (!xdr_int(xdrs, &jobInfoReply->maxMem)) {
+        return FALSE;
+    }
+
+    if (!xdr_int(xdrs, &jobInfoReply->avgMem)) {
+        return FALSE;
+    }
+
     return(TRUE);
 
 }

@@ -448,17 +448,17 @@ updSharedResourceByRUNJob(const struct jData* jp)
     }
 
     if (!jp->numHostPtr || jp->hPtr == NULL) {
-	return;
-    }
-
-    if ((resValPtr = getReserveValues(jp->shared->resValPtr,
-				      jp->qPtr->resValPtr)) == NULL) {
         return;
     }
 
+    if (jp->effeResReqEnt == NULL) {
+        return; 
+    }
+    resValPtr = GET_JOB_EFFE_RES_REQ(jp);
+
     for (i = 0; i < GET_INTNUM(allLsInfo->nRes); i++) {
-	resAssign += resValPtr->rusgBitMaps[i];
-	rusgBitMaps[i] = 0;
+        resAssign += resValPtr->rusgBitMaps[i];
+        rusgBitMaps[i] = 0;
     }
 
     if (resAssign == 0)

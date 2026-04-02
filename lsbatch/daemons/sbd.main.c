@@ -135,7 +135,6 @@ main (int argc, char **argv)
     int aopt;
     extern char *optarg;
     extern int opterr;
-
     char *msg = NULL;
 
 

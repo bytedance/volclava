@@ -287,7 +287,9 @@ lsb_readjobinfo(int *more)
     FREEUP( jobInfoReply.execUsername );
     FREEUP( jobInfoReply.parentGroup );
     FREEUP( jobInfoReply.jName );
-    FREEUP(jobInfoReply.chargedSAAP );
+    FREEUP( jobInfoReply.chargedSAAP );
+    FREEUP( jobInfoReply.mergedResReq );
+    FREEUP( jobInfoReply.effeResReq );
 
     TIMEIT(1, xdrmem_create(&xdrs, buffer, XDR_DECODE_SIZE_(hdr.length), XDR_DECODE), "xdrmem_create");
     TIMEIT(1, (aa = xdr_jobInfoReply(&xdrs, &jobInfoReply, &hdr)), "xdr_jobInfoReply");
@@ -405,6 +407,10 @@ lsb_readjobinfo(int *more)
     }
 
     jobInfo.chargedSAAP = jobInfoReply.chargedSAAP;
+    jobInfo.mergedResReq = jobInfoReply.mergedResReq;
+    jobInfo.effeResReq = jobInfoReply.effeResReq;
+    jobInfo.maxMem = jobInfoReply.maxMem;
+    jobInfo.avgMem = jobInfoReply.avgMem;
 
     if (more)
 	*more = hdr.reserved;

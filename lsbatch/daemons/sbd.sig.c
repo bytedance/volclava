@@ -715,6 +715,7 @@ mykillpg(struct jobCard *jp, int sig)
     int status;
     int fileStatus;
     char jobFileName[320];
+    int isSave = 0;
 
     if (logclass & LC_SIGNAL)
 	ls_syslog(LOG_DEBUG,
@@ -821,7 +822,16 @@ mykillpg: job file name = %s\n", jobFileName);
             jru->stime = jp->maxRusage.stime;
         }
 
-
+        /*Calculate the average of mem*/
+        if ((sig == 0) && (now - jp->avgMemLastCalcTime >= sbdSleepTime)) {
+            if (jp->avgMemCounters < 0) {
+                jp->avgMemCounters = 0;
+            }
+            jp->avgMem = jp->avgMem * ((float)jp->avgMemCounters/(jp->avgMemCounters+1)) + (float)(jru->mem/(jp->avgMemCounters+1));
+            jp->avgMemCounters++;
+            jp->avgMemLastCalcTime = now;
+            isSave = 1;
+        }
 
 	if (ABS(jru->mem - jp->mbdRusage.mem)
             > jp->mbdRusage.mem / 100.0 * (float) rusageUpdatePercent) {
@@ -829,7 +839,10 @@ mykillpg: job file name = %s\n", jobFileName);
         } else if (ABS(jru->swap - jp->mbdRusage.swap)
                 > jp->mbdRusage.swap / 100.0 * (float) rusageUpdatePercent) {
             changed = TRUE;
-	} else if (ABS(jru->utime - jp->mbdRusage.utime)
+	} else if (ABS(jp->avgMem - jp->avgMemMbd) > jp->avgMemMbd / 100.0 * (float) rusageUpdatePercent) {
+            changed = TRUE;
+
+    } else if (ABS(jru->utime - jp->mbdRusage.utime)
                 > jp->mbdRusage.utime / 100.0 * (float) rusageUpdatePercent) {
             changed = TRUE;
 	} else if (ABS(jru->stime - jp->mbdRusage.stime)
@@ -863,9 +876,9 @@ mykillpg: job file name = %s\n", jobFileName);
 	}
 
 	if (logclass & (LC_SIGNAL|LC_EXEC)) {
-	    ls_syslog(LOG_DEBUG, "mykillpg(): Job <%s> pgid %d mem %d swap %d utime %d stime %d rusageUpdatePercent %d current mem %d swap %d rusageUpdateRate %d changed %d needReportRU %d lastStatusMbdTime %d sbdSleepTime %d",
+	    ls_syslog(LOG_DEBUG, "mykillpg(): Job <%s> pgid %d mem %d swap %d utime %d stime %d rusageUpdatePercent %d current mem %d swap %d avgMem %d rusageUpdateRate %d changed %d needReportRU %d lastStatusMbdTime %d sbdSleepTime %d",
 		      lsb_jobid2str(jp->jobSpecs.jobId), jp->jobSpecs.jobPGid,
-		      jru->mem, jru->swap, jru->utime, jru->stime,
+		      jru->mem, jru->swap, jp->avgMem, jru->utime, jru->stime,
 		      rusageUpdatePercent, jp->mbdRusage.mem,
 		      jp->mbdRusage.swap, rusageUpdateRate, changed,
 		      jp->needReportRU, jp->lastStatusMbdTime, sbdSleepTime);
@@ -885,15 +898,19 @@ mykillpg: job file name = %s\n", jobFileName);
 
 	    jp->needReportRU = TRUE;
 
-	    if (! (jp->regOpFlag & REG_RUSAGE))
+	    if (! (jp->regOpFlag & REG_RUSAGE)) {
 	      copyJUsage( &(jp->mbdRusage), jru);
+          jp->avgMemMbd = jp->avgMem;
+        }
 	}
 
 	if (! (jp->regOpFlag & REG_RUSAGE))
 	    copyJUsage( &(jp->runRusage), jru);
     }
 
-
+    if (isSave) {
+        saveJobRusage2File(jp);
+    }
 
     if (kill(jp->jobSpecs.jobPid, sig) == 0) {
 

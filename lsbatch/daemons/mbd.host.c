@@ -38,7 +38,6 @@ static int    returnHostInfo(struct hostDataReply *, int, struct hData **,
                              struct infoReq *);
 
 static struct resPair * getResPairs(struct hData *);
-static int    hasResReserve(struct resVal *);
 
 static void addMigrantHost(struct hostInfo *);
 static int rmMigrantHost(void);
@@ -1411,7 +1410,7 @@ adjLsbLoad(struct jData *jpbw, int forResume, bool_t doAdj) {
     static char fname[] = "adjLsbLoad";
     int i, ldx, resAssign = 0;
     float jackValue, orgnalLoad, duration, decay;
-    struct  resVal *resValPtr;
+    struct  resVal *resValPtr = NULL;
     struct resourceInstance *instance;
     static int *rusgBitMaps = NULL;
     int adjForPreemptableResource = FALSE;
@@ -1431,10 +1430,13 @@ adjLsbLoad(struct jData *jpbw, int forResume, bool_t doAdj) {
     if (!jpbw->numHostPtr || jpbw->hPtr == NULL)
         return;
 
-    if ((resValPtr
-         = getReserveValues (jpbw->shared->resValPtr, jpbw->qPtr->resValPtr)) == NULL)
-        return;
+    if (jpbw->effeResReqEnt) {
+        resValPtr = GET_JOB_EFFE_RES_REQ(jpbw);
+    }
 
+    if (!resValPtr) {
+        return NULL;
+    }
 
     for (i = 0; i < GET_INTNUM(allLsInfo->nRes); i++) {
         resAssign += resValPtr->rusgBitMaps[i];
@@ -1711,101 +1713,6 @@ adjLsbLoad(struct jData *jpbw, int forResume, bool_t doAdj) {
 
 } /*adjLsbLoad*/
 
-struct resVal *
-getReserveValues(struct resVal *jobResVal, struct resVal *qResVal)
-{
-    static char fname[]= "getReserveValues";
-    static int first = TRUE;
-    static struct resVal resVal;
-    int i, diffrent = FALSE;
-
-    if (jobResVal == NULL && qResVal == NULL)
-        return (NULL);
-
-    if (jobResVal == NULL && qResVal != NULL) {
-
-        if (hasResReserve (qResVal) == TRUE)
-            return (qResVal);
-        else
-            return (NULL);
-    }
-    if (jobResVal != NULL && qResVal == NULL) {
-
-        if (hasResReserve (jobResVal) == TRUE)
-            return (jobResVal);
-        else
-            return (NULL);
-    }
-
-    for (i = 0; i < GET_INTNUM(allLsInfo->nRes); i++) {
-        if (jobResVal->rusgBitMaps[i] == qResVal->rusgBitMaps[i])
-            continue;
-        diffrent = TRUE;
-    }
-    if (diffrent == FALSE)
-        return (jobResVal);
-
-    if (first == TRUE) {
-        resVal.val = (float *) my_malloc(allLsInfo->nRes * sizeof(float), fname);
-        resVal.rusgBitMaps = (int *)
-            my_malloc (GET_INTNUM(allLsInfo->nRes) * sizeof (int), fname);
-        first = FALSE;
-    }
-
-
-    for (i = 0; i < allLsInfo->nRes; i++)
-        resVal.val[i] = INFINIT_FLOAT;
-    for (i = 0; i < GET_INTNUM(allLsInfo->nRes); i++)
-        resVal.rusgBitMaps[i] = 0;
-    resVal.duration = INFINIT_INT;
-    resVal.decay = INFINIT_FLOAT;
-
-    for (i = 0; i < allLsInfo->nRes; i++) {
-        int jobSet, queueSet;
-
-        if (NOT_NUMERIC(allLsInfo->resTable[i]))
-            continue;
-
-        TEST_BIT(i, jobResVal->rusgBitMaps, jobSet);
-        TEST_BIT(i, qResVal->rusgBitMaps, queueSet);
-        if (jobSet == 0 && queueSet == 0)
-
-            continue;
-        else {
-            SET_BIT (i, resVal.rusgBitMaps);
-            if (jobSet == 0 && queueSet != 0) {
-                resVal.val[i] = qResVal->val[i];
-                continue;
-            } else if (jobSet != 0 && queueSet == 0) {
-                resVal.val[i] = jobResVal->val[i];
-                continue;
-            } else if (jobSet != 0 && queueSet != 0) {
-                resVal.val[i] = jobResVal->val[i];
-                continue;
-            }
-        }
-    }
-
-    if (jobResVal->duration < qResVal->duration)
-        resVal.duration = jobResVal->duration;
-    else
-        resVal.duration = qResVal->duration;
-
-    if (qResVal->decay != INFINIT_FLOAT && jobResVal->decay != INFINIT_FLOAT) {
-        if (qResVal->decay < jobResVal->decay)
-            resVal.decay = jobResVal->decay;
-        else
-            resVal.decay = qResVal->decay;
-    } else if (qResVal->decay == INFINIT_FLOAT
-               && jobResVal->decay != INFINIT_FLOAT)
-        resVal.decay = jobResVal->decay;
-    else if (qResVal->decay != INFINIT_FLOAT
-             && jobResVal->decay == INFINIT_FLOAT)
-        resVal.decay = qResVal->decay;
-    return (&resVal);
-
-}
-
 void
 getLsfHostInfo(int retry)
 {
@@ -1853,7 +1760,7 @@ getLsfHostData(char *host)
     return NULL;
 }
 
-static int
+int
 hasResReserve(struct resVal *resVal)
 {
     int i;
@@ -1944,6 +1851,7 @@ numofhosts(void)
 {
     return LIST_NUM_ENTRIES(hostList);
 }
+
 
 /* migrantHostJobs()
  * In a large dynamic cluster this routine can

@@ -177,6 +177,7 @@
 #define PEND_SYS_UNABLE        35
 #define PEND_JOB_ARRAY_JLIMIT  38
 #define PEND_CHKPNT_DIR        39
+#define PEND_JOB_NO_RESREQ     40
 
 #define PEND_QUE_INACT             301
 #define PEND_QUE_WINDOW            302
@@ -707,6 +708,10 @@ struct jobInfoEnt {
     u_short port;
     int     jobPriority;
     char    *chargedSAAP;
+    char    *mergedResReq;
+    char    *effeResReq;
+    int     maxMem;
+    int     avgMem;
 };
 
 struct userInfoEnt {
@@ -1088,6 +1093,7 @@ struct jobStartLog {
     char   *queuePostCmd;
     int	   jFlags;
     int    idx;
+    char   *effeResReq;
 };
 
 struct jobStartAcceptLog {
@@ -1122,6 +1128,8 @@ struct jobStatusLog {
     int   jFlags;
     int   exitStatus;
     int    idx;
+    int    maxMem;
+    int    avgMem;
 };
 
 

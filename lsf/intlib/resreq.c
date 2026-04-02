@@ -252,7 +252,7 @@ parseResReq(char *resReq,
                                   options,
                                   unitForLimits)) != PARSE_OK)
                 return(cc);
-	}
+        }
     }
 
     if (options & PR_ORDER) {
@@ -424,6 +424,7 @@ parseSelect(char *resReq, struct resVal *resVal, struct lsInfo *lsInfo, bool_t p
     char *expr, *countPtr;
     int i, numXorExprs;
     struct resVal tmpResVal;
+    int   resReq2Size = 0;
     char *resReq2 = NULL;
 
     if (logclass & (LC_TRACE | LC_SCHED))
@@ -433,104 +434,98 @@ parseSelect(char *resReq, struct resVal *resVal, struct lsInfo *lsInfo, bool_t p
 
     if (parseXor && resReq[0] != '\0') {
 
-	countPtr = (char *)malloc(strlen(resReq)+1);
-	if (countPtr == NULL) {
-	    return(PARSE_BAD_MEM);
-	}
-	strcpy(countPtr, resReq);
-	expr = strtok(countPtr, ",");
-	if (expr == NULL) {
+        countPtr = (char *)malloc(strlen(resReq)+1);
+        if (countPtr == NULL) {
+            return(PARSE_BAD_MEM);
+        }
+        strcpy(countPtr, resReq);
+        expr = strtok(countPtr, ",");
+        if (expr == NULL) {
 
-	    numXorExprs = 0;
-	} else {
-	    numXorExprs = 1;
+            numXorExprs = 0;
+        } else {
+            numXorExprs = 1;
 
-	    while (strtok(NULL, ",")) {
-	        numXorExprs++;
+            while (strtok(NULL, ",")) {
+                numXorExprs++;
             }
-	}
-	free(countPtr);
+        }
+        free(countPtr);
 
-	if (logclass & (LC_TRACE |LC_SCHED))
-	    ls_syslog(LOG_DEBUG3,"%s: numXorExprs = %d", fname, numXorExprs);
+        if (logclass & (LC_TRACE |LC_SCHED))
+            ls_syslog(LOG_DEBUG3,"%s: numXorExprs = %d", fname, numXorExprs);
 
 
         if (numXorExprs > 1) {
 
-	    resVal->xorExprs =
-		(char **)calloc(numXorExprs + 1, sizeof(char*));
-	    if (resVal->xorExprs == NULL)
-		return(PARSE_BAD_MEM);
+            resVal->xorExprs =
+                (char **)calloc(numXorExprs + 1, sizeof(char*));
+            if (resVal->xorExprs == NULL)
+                return(PARSE_BAD_MEM);
 
+            /*Later we will turn exp,exp to (exp)||(exp)||(exp), here calculate its size
+             * numXorExprs*4: the length of numXorExprs instances of '()||'
+             * -1: 4 - 2(the length of '||' for the last exp) + 1(and add a space for '\0')
+             */     
+            resReq2Size = strlen(resReq) + numXorExprs * 4 - 1;
+            resReq2 = (char *)malloc(resReq2Size);
+            if ( resReq2== NULL)
+                return (PARSE_BAD_MEM);
+            resReq2[0] = '\0';
+            expr = strtok(resReq, ",");
+            for ( i =0 ; i < numXorExprs; i++) {
+                initResVal(&tmpResVal);
 
-            resReq2 = (char *)malloc(strlen(resReq) + numXorExprs * 4 - 1);
-	    if ( resReq2== NULL)
-		return (PARSE_BAD_MEM);
-	    resReq2[0] = '\0';
-	    expr = strtok(resReq, ",");
-	    for ( i =0 ; i < numXorExprs; i++) {
-		initResVal(&tmpResVal);
-
-		ALLOC_STRING(tmpResVal.selectStr, tmpResVal.selectStrSize,
+                ALLOC_STRING(tmpResVal.selectStr, tmpResVal.selectStrSize,
                              MAX(3*strlen(expr) + 1, MAXLINELEN + MAXLSFNAMELEN));
 
-    		if (tmpResVal.selectStr == NULL) {
-		    FREEUP(resReq2);
-        	    return PARSE_BAD_MEM;
-		}
-		if (setDefaults(&tmpResVal, lsInfo, options) < 0) {
-		    FREEUP(resReq2);
-		    return (PARSE_BAD_MEM);
-		}
-		if ((cc = parseSelect(expr, &tmpResVal, lsInfo, FALSE, options, unitForLimits)) != PARSE_OK) {
-		    for (i--;i>=0; i--) {
-			FREEUP(resVal->xorExprs[i]);
-		    }
-		    FREEUP(resReq2);
-		    return cc;
+                    if (tmpResVal.selectStr == NULL) {
+                    FREEUP(resReq2);
+                    return PARSE_BAD_MEM;
+                }
+                if (setDefaults(&tmpResVal, lsInfo, options) < 0) {
+                    FREEUP(resReq2);
+                    return (PARSE_BAD_MEM);
+                }
+                if ((cc = parseSelect(expr, &tmpResVal, lsInfo, FALSE, options, unitForLimits)) != PARSE_OK) {
+                    for (i--;i>=0; i--) {
+                        FREEUP(resVal->xorExprs[i]);
+                    }
+                    FREEUP(resReq2);
+                    return cc;
                 }
                 resVal->xorExprs[i] =
-		    (char *)calloc(strlen(tmpResVal.selectStr) + 1,
-				   sizeof(char));
-		if (resVal->xorExprs[i] == NULL)
-		    return (PARSE_BAD_MEM);
+                    (char *)calloc(strlen(tmpResVal.selectStr) + 1,
+                                   sizeof(char));
+                if (resVal->xorExprs[i] == NULL)
+                    return (PARSE_BAD_MEM);
 
-		strcpy(resVal->xorExprs[i], tmpResVal.selectStr);
-		if (logclass & (LC_TRACE | LC_SCHED))
-		    ls_syslog(LOG_DEBUG3,"%s: xorExprs[%d] = %s", fname, i, resVal->xorExprs[i]);
+                strcpy(resVal->xorExprs[i], tmpResVal.selectStr);
+                if (logclass & (LC_TRACE | LC_SCHED))
+                    ls_syslog(LOG_DEBUG3,"%s: xorExprs[%d] = %s", fname, i, resVal->xorExprs[i]);
                 if (i == 0 ) {
-                    sprintf(resReq2, "(%s)", expr);
-		} else {
-                    char tmpbuf[4096];
-                    snprintf(tmpbuf, sizeof(tmpbuf), "%s||(%s)", resReq2, expr);
-                    /* We're assuming resReq2 has enough space — old code,
-                     * we trust it *for now*
-                     */
-                    if (strlen(tmpbuf) + 1 > strlen(resReq) + numXorExprs * 4 - 1) {
-                        // Bail out or truncate
-                        return PARSE_BAD_MEM;
-                    }
-                    strcpy(resReq2, tmpbuf);
-
-		}
-		freeResVal(&tmpResVal);
-		expr = strtok(NULL, ",");
-	    }
-	    resVal->xorExprs[i] = NULL;
-	    if (logclass & (LC_TRACE | LC_SCHED))
-		ls_syslog(LOG_DEBUG3,"%s: new selectStr=%s", fname, resReq2);
+                    snprintf(resReq2, resReq2Size, "(%s)", expr);
+                } else {
+                    snprintf(resReq2 + strlen(resReq2), resReq2Size - strlen(resReq2), "||(%s)", expr);
+                }
+                freeResVal(&tmpResVal);
+                expr = strtok(NULL, ",");
+            }
+            resVal->xorExprs[i] = NULL;
+            if (logclass & (LC_TRACE | LC_SCHED))
+                ls_syslog(LOG_DEBUG3,"%s: new selectStr=%s", fname, resReq2);
             resReq = resReq2;
-	} else {
-	    if (numXorExprs == 1) {
+        } else {
+            if (numXorExprs == 1) {
 
-		if (strchr(resReq,',')) {
-	            return(PARSE_BAD_EXP);
-		}
-	    } else {
+                if (strchr(resReq,',')) {
+                    return(PARSE_BAD_EXP);
+                }
+            } else {
 
-	        return(PARSE_BAD_EXP);
-	    }
-	}
+                return(PARSE_BAD_EXP);
+            }
+        }
     }
 
     syntax = getSyntax(resReq);
@@ -675,7 +670,7 @@ parseUsage (char *usageReq, struct resVal *resVal, struct lsInfo *lsInfo, int un
                 return(PARSE_BAD_NAME);
 
             if (usageReq[0] == '=') {
-    	        int returnValue;
+                    int returnValue;
                 if (entry == KEY_DURATION)
                     returnValue =  getTimeVal(&usageReq, &value);
                 else
@@ -835,9 +830,9 @@ validValue(char *value, struct lsInfo *lsInfo, int nentry)
         if (  strcmp(value,"ok") == 0    || strcmp(value,"busy") == 0  ||
               strcmp(value,"lockU") == 0 || strcmp(value,"lockW") == 0 ||
               strcmp(value,"lock") == 0  || strcmp(value,"lockM") == 0 ||
-	      strcmp(value,"lockUW") == 0|| strcmp(value,"lockUM") == 0||
-	      strcmp(value,"lockWM") == 0|| strcmp(value,"lockUWM") == 0 ||
-	      strcmp(value,"unavail") == 0 )
+              strcmp(value,"lockUW") == 0|| strcmp(value,"lockUM") == 0||
+              strcmp(value,"lockWM") == 0|| strcmp(value,"lockUWM") == 0 ||
+              strcmp(value,"unavail") == 0 )
             return 0;
         else
             return -1;
@@ -1121,7 +1116,7 @@ resToClassOld(char *resReq, struct resVal *resVal,
                 valueSpecified = TRUE;
                 value = IDLETIME;
                 resVal->val[entry] = value;
-     	    }
+                 }
 
             // deal with LSF_UNIT_FOR_LIMITS
             if (entry == MEM || entry == SWP || entry == TMP) {
@@ -1149,7 +1144,7 @@ resToClassOld(char *resReq, struct resVal *resVal,
             if(resReq[0] != '=')
                 return(PARSE_BAD_EXP);
 
-	    if ((token = getNextToken(&resReq)) == NULL)
+            if ((token = getNextToken(&resReq)) == NULL)
                 return(PARSE_BAD_EXP) ;
 
 
@@ -1189,7 +1184,7 @@ setDefaults(struct resVal *resVal, struct lsInfo *lsInfo, int options)
     resVal->val=malloc(lsInfo->nRes*sizeof(float));
     resVal->indicies=malloc((lsInfo->numIndx)*sizeof(int));
     if ((!resVal->val) || (!resVal->indicies)) {
-	freeResVal (resVal);
+        freeResVal (resVal);
         lserrno=LSE_MALLOC;
         ls_perror("intlib:resreq");
         return( PARSE_BAD_MEM );
@@ -1216,12 +1211,12 @@ setDefaults(struct resVal *resVal, struct lsInfo *lsInfo, int options)
     resVal->rusgBitMaps =
         (int *)malloc (GET_INTNUM(lsInfo->nRes) * sizeof (int));
     if (resVal->rusgBitMaps == NULL) {
-	lserrno=LSE_MALLOC;
-	freeResVal (resVal);
+        lserrno=LSE_MALLOC;
+        freeResVal (resVal);
         return (PARSE_BAD_MEM);
     }
     for (i = 0; i < GET_INTNUM(lsInfo->nRes); i++)
-	resVal->rusgBitMaps[i] = 0;
+        resVal->rusgBitMaps[i] = 0;
 
     if (!(options &PR_BATCH)) {
         SET_BIT(R15S, resVal->rusgBitMaps);
@@ -1244,7 +1239,7 @@ void
 freeResVal (struct resVal *resVal)
 {
     if (resVal == NULL)
-	return;
+        return;
 
     FREEUP (resVal->val);
     FREEUP (resVal->indicies);
@@ -1253,9 +1248,9 @@ freeResVal (struct resVal *resVal)
     FREEUP (resVal->rusgBitMaps);
     if (resVal->xorExprs) {
         int i;
-	for (i=0; resVal->xorExprs[i]; i++)
-	    FREEUP (resVal->xorExprs[i]);
-	FREEUP (resVal->xorExprs);
+        for (i=0; resVal->xorExprs[i]; i++)
+            FREEUP (resVal->xorExprs[i]);
+        FREEUP (resVal->xorExprs);
     }
 }
 
@@ -1283,7 +1278,7 @@ getTimeVal(char **time, float *val)
     token = getNextToken(time);
     cp = token;
     while (isdigit(*cp))
-	cp++;
+        cp++;
 
     if (*cp == 'm' || *cp == 'h' || *cp == 's') {
         oneChar = *cp;

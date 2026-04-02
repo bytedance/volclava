@@ -112,6 +112,10 @@ struct jobCard {
     char *spooledExec;
     char   postJobStarted;
     char   userJobSucc;
+    int    avgMemCounters;
+    int    avgMemLastCalcTime;
+    int    avgMemMbd;
+    int    avgMem;
 };
 
 typedef enum {
@@ -273,6 +277,10 @@ extern void runUPre(struct jobCard *);
 extern int runUPost(struct jobCard *);
 extern int reniceJob(struct jobCard *);
 extern int updateRUsageFromSuper(struct jobCard *jp, char *mbuf);
+extern void saveJobRusage2File(struct jobCard *jp);
+extern void recoverJobRusageFile(struct jobCard *jp);
+extern void removeJobRusageFile(struct jobCard *jp);
+extern void cleanOldJobRusageFiles();
 extern void sbdChild(char *, char *);
 extern int initJobCard(struct jobCard *jp, struct jobSpecs *jobSpecs, int *);
 extern void freeThresholds (struct thresholds *);

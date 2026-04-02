@@ -552,6 +552,7 @@ freeLogRec(struct eventRec *logRec)
                 free(logRec->eventLog.jobStartLog.execHosts);
             FREEUP (logRec->eventLog.jobStartLog.queuePreCmd);
             FREEUP (logRec->eventLog.jobStartLog.queuePostCmd);
+            FREEUP (logRec->eventLog.jobStartLog.effeResReq);
 
             return;
 
@@ -1014,6 +1015,10 @@ readJobStart(char *line, struct jobStartLog *jobStartLog)
     cc = sscanf(line, "%d%n", &(jobStartLog->idx),  &ccount);
     if (cc != 1)
         return (LSBE_EVENT_FORMAT);
+
+    if (version >= _VOLCLAVA_VERSION2_2_) {
+        saveQStr(line, jobStartLog->effeResReq);
+    }
     return (LSBE_NO_ERROR);
 
 }
@@ -1103,9 +1108,23 @@ readJobStatus(char *line, struct jobStatusLog *jobStatusLog)
     if (cc != 1)
         return (LSBE_EVENT_FORMAT);
     line += ccount + 1;
+
     cc = sscanf(line, "%d%n", &(jobStatusLog->idx),  &ccount);
     if (cc != 1)
         return (LSBE_EVENT_FORMAT);
+    line += ccount + 1;
+
+    if (version >= _VOLCLAVA_VERSION2_2_) {
+        cc = sscanf(line, "%d%n", &(jobStatusLog->maxMem), &ccount);
+        if (cc != 1)
+            return (LSBE_EVENT_FORMAT);
+        line += ccount + 1;
+ 
+        cc = sscanf(line, "%d%n", &(jobStatusLog->avgMem), &ccount);
+        if (cc != 1)
+            return (LSBE_EVENT_FORMAT);
+    }
+
     return (LSBE_NO_ERROR);
 }
 
@@ -2111,8 +2130,10 @@ writeJobStart(FILE *log_fp, struct jobStartLog *jobStartLog)
         return (LSBE_SYS_CALL);
     }
 
-
     if (fprintf(log_fp, " %d", jobStartLog->idx) < 0 )
+        return (LSBE_SYS_CALL);
+
+    if (addQStr(log_fp, jobStartLog->effeResReq) < 0)
         return (LSBE_SYS_CALL);
 
     if (fprintf(log_fp, "\n") < 0)
@@ -2192,6 +2213,11 @@ writeJobStatus(FILE *log_fp, struct jobStatusLog *jobStatusLog)
     if (fprintf(log_fp, " %d", jobStatusLog->idx) < 0 )
         return (LSBE_SYS_CALL);
 
+    if (fprintf(log_fp, " %d", jobStatusLog->maxMem) < 0 )
+        return (LSBE_SYS_CALL);
+
+    if (fprintf(log_fp, " %d", jobStatusLog->avgMem) < 0 )
+        return (LSBE_SYS_CALL);
 
     if (fprintf(log_fp, "\n") < 0)
         return (LSBE_SYS_CALL);

@@ -168,7 +168,6 @@ localizeJobArray(struct jData *jArray)
 } 
 
 
-
 int
 localizeJobElement(struct jData *jElement)
 {
@@ -180,6 +179,7 @@ localizeJobElement(struct jData *jElement)
     sharedData = copyJShared(jElement);
     destroySharedRef(jElement->shared);
     jElement->shared = createSharedRef(sharedData);
+    mkJobMergedResReqEntry(jElement);
     return(LSBE_NO_ERROR);
 
 } 
@@ -274,7 +274,9 @@ handleNewJobArray(struct jData *jarray, struct idxList *idxList, int maxJLimit)
 	    userPending = 1;
     }
 
-    
+    /*create merged resource requirement for the job*/
+    mkJobMergedResReqEntry(jarray);
+
     jPtr = jarray;
     for (idxPtr = idxList; idxPtr; idxPtr = idxPtr->next) {
         for (i = idxPtr->start; i <= idxPtr->end; i += idxPtr->step) {
@@ -295,8 +297,6 @@ handleNewJobArray(struct jData *jarray, struct idxList *idxList, int maxJLimit)
 	     }
         }
     }
-
-    
   
     ARRAY_DATA(jarray->jgrpNode)->maxJLimit = maxJLimit;
 

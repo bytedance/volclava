@@ -139,35 +139,10 @@ struct leftTimeTable {
 
 #define END_OF_JOB_LIST(jp, listNum) ((jp) == jDataList[listNum])
 
-
-#define HAS_JOB_LEVEL_SPAN_PTILE(jp)                    \
-    ((jp)->shared->resValPtr != NULL &&                 \
-     (jp)->shared->resValPtr->pTile != INFINIT_INT)
-
-#define QUEUE_HAS_SPAN_PTILE(qPtr)              \
-    ((qPtr)->resValPtr != NULL &&               \
-     (qPtr)->resValPtr->pTile != INFINIT_INT)
-
-#define HAS_QUEUE_LEVEL_SPAN_PTILE(jp) (QUEUE_HAS_SPAN_PTILE((jp)->qPtr))
-
-#define JOB_LEVEL_SPAN_PTILE(jp) ((jp)->shared->resValPtr->pTile)
-#define QUEUE_LEVEL_SPAN_PTILE(jp) ((jp)->qPtr->resValPtr->pTile)
-
-#define HAS_JOB_LEVEL_SPAN_HOSTS(jp)            \
-    ((jp)->shared->resValPtr != NULL &&         \
-     (jp)->shared->resValPtr->maxNumHosts == 1)
-
-#define QUEUE_HAS_SPAN_HOSTS(qPtr)              \
-    ((qPtr)->resValPtr != NULL &&               \
-     (qPtr)->resValPtr->maxNumHosts == 1)
-
-#define HAS_QUEUE_LEVEL_SPAN_HOSTS(jp) (QUEUE_HAS_SPAN_HOSTS((jp)->qPtr))
-
-#define HAS_JOB_LEVEL_SPAN(jp)                                          \
-    (HAS_JOB_LEVEL_SPAN_PTILE(jp) || HAS_JOB_LEVEL_SPAN_HOSTS(jp))
-
-#define HAS_QUEUE_LEVEL_SPAN(jp)                                        \
-    (HAS_QUEUE_LEVEL_SPAN_PTILE(jp) || HAS_QUEUE_LEVEL_SPAN_HOSTS(jp))
+#define MERGED_RESREQ_SPAN_PTILE(jp) (GET_JOB_MERGED_RES_REQ(jp)->pTile)
+#define MERGED_RESREQ_HAS_SPAN_PTILE(jp) (MERGED_RESREQ_SPAN_PTILE(jp) != INFINIT_INT)
+#define MERGED_RESREQ_HAS_SPAN_HOSTS(jp) (GET_JOB_MERGED_RES_REQ(jp)->maxNumHosts == 1)
+#define MERGED_RESREQ_HAS_SPAN(jp) (MERGED_RESREQ_HAS_SPAN_PTILE(jp) || MERGED_RESREQ_HAS_SPAN_HOSTS(jp))
 
 #define HOST_HAS_ENOUGH_PROCS(jp, host, requestedProcs)         \
     (jobMaxUsableSlotsOnHost(jp, host) >= requestedProcs)
@@ -178,7 +153,6 @@ static int reservePreemptResourcesForExecCands(struct jData *jp);
 static int reservePreemptResources(struct jData *jp, int numHosts,
                                    struct hData **hosts);
 
-
 #define FORALL_PRMPT_HOST_RSRCS(hostn, resn, val, jp)                   \
     if (jp->numRsrcPreemptHPtr && jp->rsrcPreemptHPtr != NULL) {        \
                                                                         \
@@ -186,13 +160,18 @@ static int reservePreemptResources(struct jData *jp, int numHosts,
          hostn == 0 || (slotResourceReserve &&                          \
                         hostn < jp->numRsrcPreemptHPtr);                \
          hostn++) {                                                     \
-    if (jp->rsrcPreemptHPtr[hostn]->hStatus & HOST_STAT_UNAVAIL)        \
-        continue;                                                       \
-    FORALL_PRMPT_RSRCS(resn) {                                          \
-    GET_RES_RSRC_USAGE(resn, val, jp->shared->resValPtr,                \
-                       jp->qPtr->resValPtr);                            \
-    if (val <= 0.0)                                                     \
-        continue;
+        if (jp->rsrcPreemptHPtr[hostn]->hStatus & HOST_STAT_UNAVAIL)    \
+            continue;                                                   \
+        FORALL_PRMPT_RSRCS(resn) {                                      \
+        if (jp->effeResReqEnt) {                                        \
+            GET_RES_RSRC_USAGE(resn, val, GET_JOB_EFFE_RES_REQ(jp));    \
+        } else if (jp->shared->mergedResReqEnt) {                       \
+            GET_RES_RSRC_USAGE(resn, val, GET_JOB_MERGED_RES_REQ(jp));  \
+        } else {                                                        \
+            continue;                                                   \
+        }                                                               \
+        if (val <= 0.0)                                                 \
+            continue;
 
 #define ENDFORALL_PRMPT_HOST_RSRCS } ENDFORALL_PRMPT_RSRCS;             \
     }                                                                   \
@@ -201,6 +180,7 @@ static int reservePreemptResources(struct jData *jp, int numHosts,
 #define CANNOT_BE_PREEMPTED_FOR_RSRC(s) ( (s->jFlags & JFLAG_URGENT) || \
                                           (s->jFlags & JFLAG_URGENT_NOSTOP) || \
                                           (s->jStatus & JOB_STAT_UNKWN))
+
 
 static int readyToDisp(struct jData *jpbw, int *numAvailSlots);
 static enum candRetCode getCandHosts(struct jData *);
@@ -301,12 +281,11 @@ static bool_t enoughMaxUsableSlots(struct jData *);
 static int jobMaxUsableSlotsOnHost(struct jData *, struct hData *);
 static void hostHasEnoughSlots(struct jData *, struct hData *, int, int, int,
                                int *);
-static void checkHostUsableToSpan(struct jData *, struct hData *, int, int *,
+static void checkHostUsableToSpan(struct jData *, struct hData *, int *,
                                   int *);
 static void reshapeCandHost(struct jData *, struct candHost *, int *);
-static void getSlotsUsableToSpan(struct jData *, struct hData *, int, int *);
+static void getSlotsUsableToSpan(struct jData *, struct hData *, int *);
 static void exchangeHostPos(struct candHost *, int, int);
-static int notDefaultOrder (struct resVal *);
 static int isQAskedHost (struct hData *, struct jData *);
 static int totalBackfillSlots(LIST_T *);
 static float getNumericLoadValue(const struct hData *hp, int lidx);
@@ -855,7 +834,10 @@ getCandHosts (struct jData *jpbw)
         return (CAND_NO_HOST);
     }
 
-
+    if (!jpbw->shared->mergedResReqEnt) {
+        addReason(jpbw, 0, PEND_JOB_NO_RESREQ);
+        return (CAND_NO_HOST);
+    }
 
     if ( (jpbw->shared != NULL) &&
          (jpbw->shared->jobBill.numProcessors <=1 ||
@@ -901,13 +883,6 @@ getCandHosts (struct jData *jpbw)
         }
     }
 
-    if (jpbw->shared->resValPtr)
-        resValPtr = jpbw->shared->resValPtr;
-    else
-        resValPtr = jpbw->qPtr->resValPtr;
-
-
-
     TIMEVAL2(3, jUsable = getJUsable(jpbw, &numJUsable, &nProc), tmpVal);
     timeGetJUsable += tmpVal;
 
@@ -917,15 +892,10 @@ getCandHosts (struct jData *jpbw)
     INC_CNT(PROF_CNT_numJobsWithCandHostsPerSession);
 
     if  (jpbw->shared->jobBill.maxNumProcessors > 1) {
-        if (HAS_JOB_LEVEL_SPAN_PTILE(jpbw) &&
-            numJUsable * JOB_LEVEL_SPAN_PTILE(jpbw) <
+        if (MERGED_RESREQ_HAS_SPAN_PTILE(jpbw) &&
+            numJUsable * MERGED_RESREQ_SPAN_PTILE(jpbw) <
             jpbw->shared->jobBill.numProcessors) {
             addReason(jpbw, 0, PEND_JOB_SPREAD_TASK);
-        } else if (!HAS_JOB_LEVEL_SPAN(jpbw) &&
-                   HAS_QUEUE_LEVEL_SPAN_PTILE(jpbw) &&
-                   numJUsable * QUEUE_LEVEL_SPAN_PTILE(jpbw) <
-                   jpbw->shared->jobBill.numProcessors) {
-            addReason (jpbw, 0, PEND_QUE_SPREAD_TASK);
         }
     }
 
@@ -969,14 +939,15 @@ getCandHosts (struct jData *jpbw)
         return (CAND_HOST_FOUND);
     }
 
-
-    if (jpbw->shared->resValPtr
-        && notDefaultOrder(jpbw->shared->resValPtr) == TRUE) {
-        resValPtr = jpbw->shared->resValPtr;
+    /*order will be considered*/
+    if (jpbw->shared->mergedResReqEnt) {
+        resValPtr = GET_JOB_MERGED_RES_REQ(jpbw);
     } else {
-        resValPtr = jpbw->qPtr->resValPtr;
+        if (jpbw->shared->resValPtr)
+            resValPtr = jpbw->shared->resValPtr;
+        else
+            resValPtr = jpbw->qPtr->resValPtr;
     }
-
 
     TIMEVAL2(3, nHosts = findBestHosts(jpbw, resValPtr, nHosts, jpbw->numCandPtr,
                                       jpbw->candPtr, FALSE), tmpVal);
@@ -1101,7 +1072,6 @@ getQUsable(struct qData *qp)
     qp->numUsable = 0;
     qp->numSlots = 0;
     qp->numReasons = 0;
-    qp->qAttrib &= ~Q_ATTRIB_NO_HOST_TYPE;
 
     if (OUT_SCHED_RS(qp->reasonTb[1][0])) {
         ls_syslog(LOG_DEBUG, "\
@@ -1157,22 +1127,6 @@ getQUsable(struct qData *qp)
                 goto next;
             }
         }
-
-        j = 1;
-        if (qp->resValPtr
-            && !getHostsByResReq(qp->resValPtr,
-                                 &j,
-                                 &hPtr,
-                                 NULL,
-                                 NULL,
-                                 &overRideFromType))
-            hReason = PEND_HOST_QUE_RESREQ;
-
-        if (overRideFromType == TRUE) {
-            qp->qAttrib |= Q_ATTRIB_NO_HOST_TYPE;
-        }
-        if (hReason)
-            goto next;
 
         if (OUT_SCHED_RS(qp->reasonTb[1][i])) {
             hReason = qp->reasonTb[1][i];
@@ -1345,32 +1299,10 @@ getJUsable(struct jData *jp, int *numJUsable, int *nProc)
     }
 
     num = numHosts;
-    if ((!jp->qPtr->resValPtr
-         || !(jp->qPtr->qAttrib & Q_ATTRIB_NO_HOST_TYPE))
-        && !jp->shared->resValPtr
-        &&  jp->numAskedPtr == 0) {
-
-        numHosts = 0;
-        for (i = 0; i < num; i++) {
-            INC_CNT(PROF_CNT_secondLoopGetJUsable) ;
-            if (strcmp(jp->schedHost, jUsable[i]->hostType) == 0) {
-                if (numHosts != i) {
-                    jUsable[numHosts] = jUsable[i];
-                }
-                numHosts++;
-            } else {
-                jUnusable[numReasons] = jUsable[i];
-                jReasonTb[numReasons++] = PEND_HOST_SCHED_TYPE;
-                if (logclass & (LC_SCHED | LC_PEND))
-                    ls_syslog(LOG_DEBUG2, "%s: Host %s isn't eligible; reason=%d schedHost=%s hostType=%s", fname, jUsable[i]->host, jReasonTb[numReasons-1], jp->schedHost, jUsable[i]->hostType);
-            }
-        }
-    }
-
-    num = numHosts;
-    if (jp->shared->resValPtr || jp->qPtr->resValPtr) {
+    if (jp->shared->mergedResReqEnt) {
         int noUse;
         struct hData *hData;
+        struct resVal *resValPtr = GET_JOB_MERGED_RES_REQ(jp);
 
         if ((hData = getHostData(jp->shared->jobBill.fromHost)) == NULL
             || (hData->hStatus & HOST_STAT_REMOTE)) {
@@ -1389,39 +1321,16 @@ getJUsable(struct jData *jp, int *numJUsable, int *nProc)
             }
         }
 
-        if (jp->shared->resValPtr) {
-
-            if (!(jp->shared->resValPtr->options & PR_SELECT)
-                && (jp->qPtr->resValPtr
-                    && (jp->qPtr->resValPtr->options & PR_SELECT))) {
-
-                if (jp->shared->resValPtr->selectStr) {
-                    FREEUP(jp->shared->resValPtr->selectStr);
-                    jp->shared->resValPtr->selectStrSize = 0;
-                }
-                jp->shared->resValPtr->selectStr =
-                    safeSave(jp->qPtr->resValPtr->selectStr);
-                jp->shared->resValPtr->selectStrSize =
-                    strlen(jp->qPtr->resValPtr->selectStr);
-
-                jp->shared->resValPtr->options |= PR_SELECT;
-            }
-
-            numHosts = getHostsByResReq(jp->shared->resValPtr,
-                                        &numHosts,
-                                        jUsable,
-                                        &thrown,
-                                        hData,
-                                        &noUse);
-        } else {
-
-            numHosts = getHostsByResReq(jp->qPtr->resValPtr,
-                                        &numHosts,
-                                         jUsable,
-                                        &thrown,
-                                        hData,
-                                        &noUse);
-        }
+        numHosts = getHostsByResReq(resValPtr,
+                                    &numHosts,
+                                    jUsable,
+                                    &thrown,
+                                    hData,
+                                    &noUse);
+    } else {
+        /*should not the here, log it just in case*/
+        ls_syslog (LOG_ERR, "\
+%s: Job <%s> has no merged resource requirement. Please check log history for any memory issue.", fname, __func__, lsb_jobid2str(jp->jobId));
     }
 
     if (numHosts < num) {
@@ -1485,44 +1394,26 @@ getJUsable(struct jData *jp, int *numJUsable, int *nProc)
             jp->newReason = svReason;
         }
 
-        if (!hReason && jp->shared->resValPtr) {
+        /*Check resource requirment rusage*/
+        if (!hReason && GET_JOB_MERGED_RES_REQ(jp)) {
             int resource;
-            int num = ckResReserve (jUsable[i], jp->shared->resValPtr,
+            int num = ckResReserve (jUsable[i], GET_JOB_MERGED_RES_REQ(jp),
                                     &resource, jp);
             if (num < 1) {
                 hReason = resource + PEND_HOST_JOB_RUSAGE;
             }
             numSlots = MIN (numSlots, num);
         }
-        if (!hReason && jp->qPtr->resValPtr) {
-            int resource;
-            int num = ckResReserve (jUsable[i], jp->qPtr->resValPtr,
-                                    &resource, jp);
-            if (num < 1) {
-                hReason = resource + PEND_HOST_QUE_RUSAGE;
-            }
-            numSlots = MIN (numSlots, num);
-        }
 
-        if (!hReason && HAS_JOB_LEVEL_SPAN(jp)) {
-            checkHostUsableToSpan(jp, jUsable[i], TRUE, &numSlots, &hReason);
+        /*check resource requirement span*/
+        if (!hReason && MERGED_RESREQ_HAS_SPAN(jp)) {
+            checkHostUsableToSpan(jp, jUsable[i], &numSlots, &hReason);
             if (hReason) {
                 if (logclass & (LC_SCHED | LC_PEND)) {
-                    ls_syslog(LOG_DEBUG2, "%s: host: <%s> is not usable to job <%s> because it doesn't satisfy job's job level span requirement", fname, jUsable[i]->host, lsb_jobid2str(jp->jobId));
+                    ls_syslog(LOG_DEBUG2, "%s: host: <%s> is not usable to job <%s> because it doesn't satisfy job's span requirement", fname, jUsable[i]->host, lsb_jobid2str(jp->jobId));
                 }
             }
         }
-
-        if (!hReason && !HAS_JOB_LEVEL_SPAN(jp) && HAS_QUEUE_LEVEL_SPAN(jp)) {
-            checkHostUsableToSpan(jp, jUsable[i], FALSE, &numSlots, &hReason);
-            if (hReason) {
-                if (logclass & (LC_SCHED | LC_PEND)) {
-                    ls_syslog(LOG_DEBUG2, "%s: host: <%s> is not usable to job <%s> because it doesn't satisfy job's queue level span requirement", fname, jUsable[i]->host, lsb_jobid2str(jp->jobId));
-                }
-            }
-        }
-
-
 
         if (!hReason && jp->requeMode == RQE_EXCLUDE) {
             for (j = 0; jp->reqHistory[j].host != NULL; j++)
@@ -1625,12 +1516,16 @@ getJUsable(struct jData *jp, int *numJUsable, int *nProc)
 static int
 allInOne(struct jData *jp)
 {
-    if (jp->shared->resValPtr && jp->shared->resValPtr->maxNumHosts == 1)
-        return TRUE;
-
-    if ((!jp->shared->resValPtr || jp->shared->resValPtr->pTile == INFINIT_INT)
-        && (jp->qPtr->resValPtr && jp->qPtr->resValPtr->maxNumHosts == 1))
-        return TRUE;
+    /*check span in job's merged resource requirement*/
+    if (jp->shared->mergedResReqEnt) {
+        struct resVal *resValPtr = GET_JOB_MERGED_RES_REQ(jp);
+        if (resValPtr->maxNumHosts == 1)
+            return TRUE;
+    } else {
+        /*should not happen, log it just in case*/
+        ls_syslog(LOG_ERR, "\
+%s: job <%s> has no merged resource requirement, please check history log for any memory issue.", __func__, lsb_jobid2str(jp->jobId));
+    }
 
     return FALSE;
 }
@@ -1885,38 +1780,18 @@ static int isPeerJob(struct jData *jobp, struct jData *jpbw) {
         return FALSE;
     }
 
-    if ((!jobp->shared->resValPtr && jpbw->shared->resValPtr)
-        || (jobp->shared->resValPtr && !jpbw->shared->resValPtr)) {
+    if (jobp->shared->mergedResReqEnt != jpbw->shared->mergedResReqEnt) {
         return FALSE;
     }
 
-     if ((jobp->shared->resValPtr && jpbw->shared->resValPtr)
-        && (strcmp(jpbw->shared->jobBill.resReq,
-                    jobp->shared->jobBill.resReq) != 0)) {
-        return FALSE;
-    }
+    if (jobp->shared->mergedResReqEnt) {
+        struct resVal *resValPtr = GET_JOB_MERGED_RES_REQ(jobp);
 
-    if (jobp->shared->resValPtr) {
-        if ((jobp->shared->resValPtr->selectStr != NULL)
-            && (strstr(jobp->shared->resValPtr->selectStr, "type \"eq\" \"local\""))
+        if ((resValPtr->selectStr)
+            && (strstr(resValPtr->selectStr, "type \"eq\" \"local\""))
             && (strcmp(jpbw->schedHost, jobp->schedHost) != 0)){
             return FALSE;
         }
-    }else if (jobp->qPtr->resValPtr){
-        if ((jobp->qPtr->resValPtr->selectStr != NULL)
-            && (strstr(jobp->qPtr->resValPtr->selectStr, "type \"eq\" \"local\""))
-            && (strcmp(jpbw->schedHost, jobp->schedHost) != 0)){
-            return FALSE;
-        }
-    }
-
-    if (!jobp->shared->resValPtr
-            && !jpbw->shared->resValPtr
-            && !jobp->qPtr->resValPtr
-            && !jobp->numAskedPtr
-            && !jpbw->numAskedPtr
-            && strcmp(jobp->schedHost, jpbw->schedHost) != 0) {
-        return FALSE;
     }
 
     return TRUE;
@@ -2864,41 +2739,20 @@ candHostOk (struct jData *jp, int indx, int *numAvailSlots,
                                        *numAvailSlots - numBackfillSlots);
     if (nSlots == 0) {
         rtReason = jp->newReason;
-    } else
-        if (jp->shared->resValPtr
-            && jp->shared->resValPtr->maxNumHosts == 1
+    } else if (jp->shared->mergedResReqEnt
+            && GET_JOB_MERGED_RES_REQ(jp)->maxNumHosts == 1
             && nSlots < jp->shared->jobBill.numProcessors) {
-            rtReason = PEND_JOB_NO_SPAN;
-        } else
-            if ((!jp->shared->resValPtr || jp->shared->resValPtr->pTile == INFINIT_INT)
-                && jp->qPtr->resValPtr
-                && jp->qPtr->resValPtr->maxNumHosts == 1
-                && nSlots < jp->shared->jobBill.numProcessors) {
-                rtReason = PEND_QUE_NO_SPAN;
-            }
-
-
-    if (!rtReason && jp->qPtr->resValPtr != NULL) {
-        int resource;
-        int num = ckResReserve (hp->hData, jp->qPtr->resValPtr,
-                                &resource, jp);
-        if (num < 1) {
-            rtReason = resource + PEND_HOST_QUE_RUSAGE;
-        } else {
-            if (!jp->shared->resValPtr || jp->shared->resValPtr->maxNumHosts != 1) {
-                num = MIN (num, jp->qPtr->resValPtr->pTile);
-                nSlots = MIN (nSlots, num);
-            }
-        }
+        rtReason = PEND_JOB_NO_SPAN;
     }
-    if (!rtReason && jp->shared->resValPtr != NULL) {
+
+    if (!rtReason && jp->shared->mergedResReqEnt) {
         int resource;
-        int num = ckResReserve (hp->hData, jp->shared->resValPtr,
+        int num = ckResReserve (hp->hData, GET_JOB_MERGED_RES_REQ(jp),
                                 &resource, jp);
         if (num < 1) {
             rtReason = resource + PEND_HOST_JOB_RUSAGE;
         } else  {
-            num = MIN (num, jp->shared->resValPtr->pTile);
+            num = MIN (num, MERGED_RESREQ_SPAN_PTILE(jp));
             nSlots = MIN (nSlots, num);
         }
     }
@@ -2944,8 +2798,7 @@ candHostOk (struct jData *jp, int indx, int *numAvailSlots,
     }
     else if (rtReason == PEND_QUE_PROC_JLIMIT
              || rtReason == PEND_QUE_HOST_JLIMIT
-             || rtReason == PEND_HOST_QUE_RUSAGE
-             || rtReason == PEND_QUE_NO_SPAN) {
+             || rtReason == PEND_HOST_QUE_RUSAGE) {
         *hReason = rtReason;
         jp->qPtr->reasonTb[1][hp->hData->hostId] = rtReason;
         if (!HAS_BACKFILL_POLICY) {
@@ -3255,6 +3108,7 @@ jobStarted (struct jData *jp, struct jobReply *jobReply)
     if (jp->shared->jobBill.options & SUB_PRE_EXEC)
         jp->jStatus |= JOB_STAT_PRE_EXEC;
 
+    mkJobEffeResReqEntry(jp);
     jStatusChange (jp, JOB_STAT_RUN, LOG_IT, "jobStarted");
     adjLsbLoad (jp, FALSE, TRUE);
 
@@ -4918,15 +4772,22 @@ dispatchAJob(struct jData *jp, int dontTryNextCandHost)
 
             notEnoughSlot = TRUE;
 
-
-            if (jp->shared->resValPtr
-                && jp->shared->resValPtr->pTile != INFINIT_INT) {
-                addReason (jp, 0, PEND_JOB_SPREAD_TASK);
-            } else if ( ((jp->shared->resValPtr == NULL)
-                         || (jp->shared->resValPtr->maxNumHosts != 1))
-                        && jp->qPtr->resValPtr
-                        && (jp->qPtr->resValPtr->pTile != INFINIT_INT) ) {
-                addReason (jp, 0, PEND_QUE_SPREAD_TASK);
+            /*Use merged resReq which belong to job to check spread task */
+            if (jp->shared->mergedResReqEnt) {
+                if (GET_JOB_MERGED_RES_REQ(jp)->pTile != INFINIT_INT) {
+                    addReason (jp, 0, PEND_JOB_SPREAD_TASK);
+                }
+            } else {
+                /*shouldn't get here, we keep the original logic just in case*/
+                if (jp->shared->resValPtr
+                    && jp->shared->resValPtr->pTile != INFINIT_INT) {
+                    addReason (jp, 0, PEND_JOB_SPREAD_TASK);
+                } else if ( ((jp->shared->resValPtr == NULL)
+                            || (jp->shared->resValPtr->maxNumHosts != 1))
+                            && jp->qPtr->resValPtr
+                            && (jp->qPtr->resValPtr->pTile != INFINIT_INT) ) {
+                    addReason (jp, 0, PEND_QUE_SPREAD_TASK);
+                }
             }
         }
 
@@ -6410,23 +6271,6 @@ clearJobReason(void)
     }
 }
 
-static int
-notDefaultOrder (struct resVal *resVal)
-{
-    if (resVal == NULL)
-        return FALSE;
-
-    if (resVal->nphase != 2)
-        return TRUE;
-
-
-    if (resVal->order[0] == R15S && resVal->order[1] == PG)
-        return FALSE;
-    return TRUE;
-
-}
-
-
 static bool_t
 enoughMaxUsableSlots(struct jData *jp)
 {
@@ -6453,29 +6297,20 @@ enoughMaxUsableSlots(struct jData *jp)
             !isAskedHost (hPtr, jp))
             continue;
 
-        if (jp->qPtr->resValPtr) {
+        if (jp->shared->mergedResReqEnt) {
             int num = 1, noUse;
-            if (!getHostsByResReq (jp->qPtr->resValPtr, &num, &hPtr, NULL,
+            if (!getHostsByResReq (GET_JOB_MERGED_RES_REQ(jp), &num, &hPtr, NULL,
                                    NULL, &noUse))
                 continue;
-        }
-        if (jp->shared->resValPtr) {
-            int num = 1, noUse;
-            if (!getHostsByResReq (jp->shared->resValPtr, &num, &hPtr, NULL,
-                                   NULL, &noUse))
-                continue;
-        }
-
-        if (!jp->qPtr->resValPtr && !jp->shared->resValPtr &&
-            jp->numAskedPtr == 0) {
-            if (strcmp (jp->schedHost, hPtr->hostType) != 0)
-                continue;
+        } else {
+            /*should not happen, log it just in case*/
+            ls_syslog(LOG_ERR, "\
+%s: job <%s> has no merged resource requirement, please check history log for any memory issue.", __func__, lsb_jobid2str(jp->jobId));
+            continue;
         }
 
-        if (HAS_JOB_LEVEL_SPAN(jp)) {
-            getSlotsUsableToSpan(jp, hPtr, TRUE, &numMaxUsableSlots);
-        } else if (HAS_QUEUE_LEVEL_SPAN(jp)) {
-            getSlotsUsableToSpan(jp, hPtr, FALSE, &numMaxUsableSlots);
+        if (MERGED_RESREQ_HAS_SPAN(jp)) {
+            getSlotsUsableToSpan(jp, hPtr, &numMaxUsableSlots);
         } else {
             numMaxUsableSlots += jobMaxUsableSlotsOnHost(jp, hPtr);
         }
@@ -6587,33 +6422,19 @@ hostHasEnoughSlots(struct jData *jPtr,
 }
 
 static void
-checkHostUsableToSpan(struct jData *jp, struct hData *host, int isJobLevel,
+checkHostUsableToSpan(struct jData *jp, struct hData *host,
                       int *numSlots, int *hreason)
 {
-    int hasSpanPtile, hasSpanHosts;
     int requestsProcs;
-    int reason;
+    int reason = PEND_JOB_NO_SPAN;
 
-    if (isJobLevel) {
-        hasSpanPtile = HAS_JOB_LEVEL_SPAN_PTILE(jp);
-        hasSpanHosts = HAS_JOB_LEVEL_SPAN_HOSTS(jp);
-        reason = PEND_JOB_NO_SPAN;
-    } else {
-        hasSpanPtile = HAS_QUEUE_LEVEL_SPAN_PTILE(jp);
-        hasSpanHosts = HAS_QUEUE_LEVEL_SPAN_HOSTS(jp);
-        reason = PEND_QUE_NO_SPAN;
-    }
-    if (hasSpanPtile) {
-        if (isJobLevel) {
-            requestsProcs = JOB_LEVEL_SPAN_PTILE(jp);
-        } else {
-            requestsProcs = QUEUE_LEVEL_SPAN_PTILE(jp);
-        }
+    if (MERGED_RESREQ_HAS_SPAN_PTILE(jp)) {
+        requestsProcs = MERGED_RESREQ_SPAN_PTILE(jp);
         hostHasEnoughSlots(jp, host, *numSlots, requestsProcs, reason,
                            hreason);
 
         *numSlots = MIN(*numSlots, requestsProcs);
-    } else if (hasSpanHosts) {
+    } else if (MERGED_RESREQ_HAS_SPAN_HOSTS(jp)) {
         requestsProcs = jp->shared->jobBill.numProcessors;
         hostHasEnoughSlots(jp, host, *numSlots, requestsProcs, reason,
                            hreason);
@@ -6628,13 +6449,8 @@ reshapeCandHost(struct jData *jp, struct candHost *candHosts, int *numJUsable)
     int pTile;
     int numCandHosts;
 
-    if (HAS_JOB_LEVEL_SPAN_PTILE(jp) || (!HAS_JOB_LEVEL_SPAN(jp) &&
-                                         HAS_QUEUE_LEVEL_SPAN_PTILE(jp))) {
-        if (HAS_JOB_LEVEL_SPAN_PTILE(jp)) {
-            pTile = JOB_LEVEL_SPAN_PTILE(jp);
-        } else {
-            pTile = QUEUE_LEVEL_SPAN_PTILE(jp);
-        }
+    if (MERGED_RESREQ_HAS_SPAN_PTILE(jp)) {
+        pTile = MERGED_RESREQ_SPAN_PTILE(jp);
 
         numRequestHosts = jp->shared->jobBill.numProcessors/pTile;
         if (jp->shared->jobBill.numProcessors % pTile) {
@@ -6684,30 +6500,18 @@ reshapeCandHost(struct jData *jp, struct candHost *candHosts, int *numJUsable)
 }
 
 static void
-getSlotsUsableToSpan(struct jData *jp, struct hData *host, int isJobLevel,
+getSlotsUsableToSpan(struct jData *jp, struct hData *host,
                      int *numMaxUsableSlots)
 {
     int pTile;
-    int hasSpanPtile, hasSpanHosts;
 
-    if (isJobLevel) {
-        hasSpanPtile = HAS_JOB_LEVEL_SPAN_PTILE(jp);
-        hasSpanHosts = HAS_JOB_LEVEL_SPAN_HOSTS(jp);
-    } else {
-        hasSpanPtile = HAS_QUEUE_LEVEL_SPAN_PTILE(jp);
-        hasSpanHosts = HAS_QUEUE_LEVEL_SPAN_HOSTS(jp);
-    }
-    if (hasSpanPtile) {
-        if (isJobLevel) {
-            pTile = JOB_LEVEL_SPAN_PTILE(jp);
-        } else {
-            pTile = QUEUE_LEVEL_SPAN_PTILE(jp);
-        }
+    if (MERGED_RESREQ_HAS_SPAN_PTILE(jp)) {
+        pTile = MERGED_RESREQ_SPAN_PTILE(jp);
         if (HOST_HAS_ENOUGH_PROCS(jp, host, pTile)) {
             *numMaxUsableSlots += MIN(pTile,
                                       jobMaxUsableSlotsOnHost(jp, host));
         }
-    } else if (hasSpanHosts) {
+    } else if (MERGED_RESREQ_HAS_SPAN_HOSTS(jp)) {
         if (HOST_HAS_ENOUGH_PROCS(jp, host,
                                   jp->shared->jobBill.numProcessors)) {
 
@@ -6903,9 +6707,8 @@ int
 reservePreemptResources(struct jData *jp, int numHosts, struct hData **hosts)
 {
     static char         fname[] = "reservePreemptResources";
-    struct resVal              *resValPtr;
-    if ((resValPtr = getReserveValues(jp->shared->resValPtr,
-                                      jp->qPtr->resValPtr)) == NULL) {
+    struct resVal              *resValPtr = GET_JOB_MERGED_RES_REQ(jp);
+    if (hasResReserve(resValPtr) == 0) {
         FREEUP(hosts);
         if (logclass & (LC_SCHED))
             ls_syslog (LOG_DEBUG3, "%s: No resources required; job <%s>", fname, lsb_jobid2str(jp->jobId));
@@ -6984,8 +6787,13 @@ updPreemptResourceByRUNJob(struct jData *jp)
             continue;
         }
         FORALL_PRMPT_RSRCS(resn) {
-            GET_RES_RSRC_USAGE(resn, val, jp->shared->resValPtr,
-                               jp->qPtr->resValPtr);
+            if (jp->effeResReqEnt) {
+                GET_RES_RSRC_USAGE(resn, val, GET_JOB_EFFE_RES_REQ(jp));
+            } else if (jp->shared->mergedResReqEnt){
+                GET_RES_RSRC_USAGE(resn, val, GET_JOB_MERGED_RES_REQ(jp));
+            } else {
+                continue;
+            }
             if (val <= 0.0)
                 continue;
 
@@ -7023,7 +6831,7 @@ markPreemptForPRHQValues(struct resVal *resValPtr, int numHosts,
         FORALL_PRMPT_RSRCS(resn) {
             float needPreempt, usable, val;
             struct resourceInstance *instance;
-            GET_RES_RSRC_USAGE(resn, val, resValPtr, qPtr->resValPtr);
+            GET_RES_RSRC_USAGE(resn, val, resValPtr);
             if (val <= 0.0)
                 continue;
 
@@ -7075,17 +6883,21 @@ handleXor(struct jData *jpbw)
         ls_syslog(LOG_DEBUG3, "%s: Entering for job <%s>", fname, lsb_jobid2str(jpbw->jobId));
     }
 
-
-    if (jpbw->shared->resValPtr
-        && (jpbw->shared->resValPtr->xorExprs !=NULL )) {
-        resValPtr = jpbw->shared->resValPtr;
+    if (jpbw->shared->mergedResReqEnt
+        && (GET_JOB_MERGED_RES_REQ(jpbw)->xorExprs != NULL)) {
+        resValPtr = GET_JOB_MERGED_RES_REQ(jpbw);
     } else {
-        if (jpbw->qPtr->resValPtr
-            && (jpbw->qPtr->resValPtr->xorExprs != NULL)) {
-            resValPtr = jpbw->qPtr->resValPtr;
+        /*shouldn't get here, we keep the original logic just in case*/
+        if (jpbw->shared->resValPtr
+            && (jpbw->shared->resValPtr->xorExprs !=NULL )) {
+            resValPtr = jpbw->shared->resValPtr;
+        } else {
+            if (jpbw->qPtr->resValPtr
+                && (jpbw->qPtr->resValPtr->xorExprs != NULL)) {
+                resValPtr = jpbw->qPtr->resValPtr;
+            }
         }
     }
-
 
     if (logclass & (LC_TRACE | LC_SCHED)) {
         ls_syslog(LOG_DEBUG3, "%s: Before filtering with xor select, the candidate hosts are: ", fname);
@@ -7175,12 +6987,18 @@ needHandleXor(struct jData *jpbw)
 
     if ((jpbw->shared->jobBill.maxNumProcessors > 1 )
         && (!allInOne(jpbw))) {
-        if (jpbw->shared->resValPtr
-            && (jpbw->shared->resValPtr->xorExprs != NULL))
+        if(jpbw->shared->mergedResReqEnt
+            && (GET_JOB_MERGED_RES_REQ(jpbw)->xorExprs != NULL)) {
             return TRUE;
-        if (jpbw->qPtr->resValPtr
-            && (jpbw->qPtr->resValPtr->xorExprs != NULL))
-            return TRUE;
+        } else {
+            /*shouldn't get here, we keep the original logic just in case*/
+            if (jpbw->shared->resValPtr
+                && (jpbw->shared->resValPtr->xorExprs != NULL))
+                return TRUE;
+            if (jpbw->qPtr->resValPtr
+                && (jpbw->qPtr->resValPtr->xorExprs != NULL))
+                return TRUE;
+        }
     }
     return FALSE;
 }

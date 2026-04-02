@@ -178,6 +178,8 @@ minit(int mbdInitFlags)
     uDataPtrTb = uDataTableCreate();
 
     qDataList = (struct qData *)listCreate("Queue List");
+    h_initTab_(&jobMergedResReqTab, 1023);
+    h_initTab_(&jobEffeResReqTab, 1023);
 
     /* who am I...
      */

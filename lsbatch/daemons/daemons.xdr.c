@@ -586,7 +586,14 @@ xdr_statusReq (XDR *xdrs, struct statusReq *statusReq, struct LSFHeader *hdr)
 
     if (xdrs->x_op == XDR_DECODE) {
 	jobId32To64(&statusReq->jobId,jobArrId,jobArrElemId);
-    }  
+    }
+
+    if (!xdr_int(xdrs, &statusReq->maxMem)) {
+        return (FALSE);
+    }
+    if (!xdr_int(xdrs, &statusReq->avgMem)) {
+        return (FALSE);
+    }
   
     return(TRUE);
 } 
