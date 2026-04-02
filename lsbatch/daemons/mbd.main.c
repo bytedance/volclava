@@ -879,6 +879,7 @@ processClient(struct clientNode *client, int *needFree)
             }
             if (client->lastTime == 0)
                 nSbdConnections++;
+            jobInfoChanged = 1;
             break;
         case BATCH_STATUS_CHUNK:
             TIMEIT(0, (statusReqCC = do_chunkStatusReq(&xdrs, s, &from,

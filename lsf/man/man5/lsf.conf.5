@@ -1334,8 +1334,12 @@ LSB_QMBD_SYNC_NEW_JOBS, LSB_QMBD_SYNC_SHM_SIZE
 .SS Description
 .BR
 .PP
-.PP
-Specifies the maximum lifetime, in seconds, of the qmbd subprocess.
+Specifies the maximum survival time, in seconds, of the query mbd subprocess.
+If a global job information change occurs after exceeding the minimum survival
+time (such as new job submissions or job status changes), the query mbd will
+exit immediately. If no information change occurs, the query mbd will remain
+alive until this time and then exit.
+Note: The minimum survival time of the query mbd is 5 seconds.
 .PP
 This parameter applies only when LSB_QMBD_PORT is enabled.
 .SS Valid Values
@@ -1369,7 +1373,7 @@ LSB_QMBD_PORT
 .BR
 .PP
 .PP
-Specifies the number of worker threads in the qmbd thread pool.
+Specifies the number of worker threads in the query mbd thread pool.
 .PP
 This parameter applies only when LSB_QMBD_PORT is enabled.
 .SS Valid Values
