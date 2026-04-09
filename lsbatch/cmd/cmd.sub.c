@@ -156,139 +156,6 @@ do_sub (int argc, char **argv, int option)
 
 }
 
-void
-do_pack_sub (int option, char **argv, struct submit *req)
-{
-    static char fname[] = "do_pack_sub";
-
-    FILE *fp;
-    int lineNum;
-    int packParsed;
-    int packSubmit;
-    int packError;
-    int parseError = FALSE;
-    char *line;
-//    char *packFile = "";
-
-    int size = 10*PATH_MAX;
-
-    char **packedArgv;
-    int  packedArgc = 0;
-    struct submit  packReq;
-    struct submitReply  packReply;
-    LS_LONG_INT jobId = -1;
-    char tmpBuf[MAXLINELEN];
-
-    if (lsbMaxPackJobs == DEFAULT_LSB_MAX_PACK_JOBS) {
-        fprintf(stderr,  "Pack submission disabled by LSB_MAX_PACK_JOBS in lsf.conf. Job not submitted.\n");
-        return(-1);
-    }
-
-//    if ((packFile = (char *) malloc(size)) == NULL) {
-//        fprintf(stderr, I18N_FUNC_FAIL,fname,"malloc" );
-//        return (FALSE);
-//    }
-
-//    strcpy(packFile, commandline);
-
-    // parse pack file
-    fp = fopen(req->packFile, "r");
-    if (!fp) {
-        lserrno = LSE_NO_FILE;
-        fprintf(stderr,  "Cannot read file <%s>. Job not submitted.\n", req->packFile);
-        return(-1);
-    }
-
-    lineNum = 0;
-    packParsed = 0;
-    packSubmit = 0;
-    packError = 0;
-    while ((line = getNextLineC_(fp, &lineNum, TRUE)) != NULL) {
-        parseError = FALSE;
-        packParsed ++;
-        // current implementation have to print "Line#lineNum" at first, and could not
-        // check print as stdout or stderr due to it calls the function of lsb_submit,
-        // so we just print it at stdout and rewrite it along with the optimize project.
-        fprintf(stdout, "Line#%d ", lineNum);
-
-        sprintf(tmpBuf, "%s %s", argv[0], line);
-        packedArgv = split_commandline(tmpBuf, &packedArgc);
-        if (packedArgv == NULL) {
-            fprintf(stderr,  "failed to parsed line %d. %s. %s\n", lineNum, tmpBuf, req->packFile);
-
-            packError ++;
-            if (packSkipErrFlag) {
-                continue;
-            } else {
-                break;
-            }
-        }
-
-        optind = 1;
-
-        if (fillReq (packedArgc, packedArgv, CMD_BSUB, &packReq, TRUE) < 0){
-            fprintf(stderr,  ". %s.\n",
-                    (_i18n_msg_get(ls_catd,NL_SETN,1551, "Job not submitted")));
-
-            packError ++;
-            if (packSkipErrFlag) {
-                continue;
-            } else {
-                break;
-            }
-        }
-
-        if (packReq.options2 & SUB2_BSUB_BLOCK) {
-            fprintf(stderr,  "Option -K is not supported in -pack job submission file."
-                             " Job not submitted.\n");
-            parseError = TRUE;
-        } else if (packReq.options & SUB_INTERACTIVE){
-            fprintf(stderr,  "Option -I is not supported in -pack job submission file."
-                             " Job not submitted.\n");
-            parseError = TRUE;
-        } else if (packReq.options & SUB_PACK){
-            fprintf(stderr,  "Option -pack is not supported in -pack job submission file."
-                             " Job not submitted.\n");
-            parseError = TRUE;
-        }
-        if (parseError) {
-            packError ++;
-            if (packSkipErrFlag) {
-                continue;
-            } else {
-                break;
-            }
-        }
-
-
-        memset(&packReply, 0, sizeof(struct submitReply));
-
-        TIMEIT(0, (jobId = lsb_submit(&packReq, &packReply)), "lsb_submit");
-        if (jobId < 0) {
-            prtErrMsg (&packReq, &packReply);
-            fprintf(stderr,  ". %s.\n",
-                    (_i18n_msg_get(ls_catd,NL_SETN,1551, "Job not submitted")));
-            packError ++;
-            if (packSkipErrFlag) {
-                continue;
-            } else {
-                break;
-            }
-        } else {
-            packSubmit ++;
-        }
-    }
-
-    fprintf(stdout,  "%d lines parsed, %d jobs submitted, %d errors found.\n",
-            packParsed, packSubmit, packError);
-
-    fclose(fp);
-//    free(packFile);
-
-    return;
-}
-
-
 LS_LONG_INT do_pack_sub_v2(int option, char **argv, struct submit *req)
 {
     static char fname[] = "do_pack_sub_v2()";
@@ -365,6 +232,7 @@ LS_LONG_INT do_pack_sub_v2(int option, char **argv, struct submit *req)
         struct submit packReq;
         char tmpBuf[MAXLINELEN];
         struct lenData ed;
+        struct group *grpEntry = NULL;
 
         packParsedNum++;
 
@@ -397,6 +265,7 @@ LS_LONG_INT do_pack_sub_v2(int option, char **argv, struct submit *req)
             }
         }
 
+        // 1. Parse command line options
         optind = 1;
         if (fillReq(packedArgc, packedArgv, CMD_BSUB, &packReq, TRUE) < 0) {
             snprintf(outputTmp, sizeof(outputTmp), "Line#%d %s. %s.\n", lineNum, lsb_sysmsg(),
@@ -428,7 +297,7 @@ LS_LONG_INT do_pack_sub_v2(int option, char **argv, struct submit *req)
         }
 
         // 2. Set LSB_UNIXGROUP environment variable - simulate single job environment setup
-        struct group *grpEntry = getgrgid(getgid());
+        grpEntry = getgrgid(getgid());
         if (grpEntry != NULL) {
             if (putEnv("LSB_UNIXGROUP", grpEntry->gr_name) < 0) {
                 fprintf(stderr, "Warning: Failed to set LSB_UNIXGROUP environment variable\n");
@@ -447,19 +316,7 @@ LS_LONG_INT do_pack_sub_v2(int option, char **argv, struct submit *req)
             }
         }
 
-        // 5. Modify job information - simulate single job modifyJobInformation call
-        modifyJobInformation(&packReq);
-
-        // 6. Queue default handling (second time) - simulate single job second queue processing
-        if (!(packReq.options & SUB_QUEUE)) {
-            char *queue = getenv("LSB_DEFAULTQUEUE");
-            if (queue != NULL && queue[0] != '\0') {
-                packReq.queue = queue;
-                packReq.options |= SUB_QUEUE;
-            }
-        }
-
-        // 7. Set interactive error handling - simulate single job LSF_INTERACTIVE_STDERR setting
+        // 5. Set interactive error handling - simulate single job LSF_INTERACTIVE_STDERR setting
         if ((lsbParams[LSB_INTERACTIVE_STDERR].paramValue != NULL) &&
             (strcasecmp(lsbParams[LSB_INTERACTIVE_STDERR].paramValue, "y") == 0)) {
             if (putEnv("LSF_INTERACTIVE_STDERR", "y") < 0) {
@@ -468,8 +325,6 @@ LS_LONG_INT do_pack_sub_v2(int option, char **argv, struct submit *req)
         }
 
         memset(&ed, 0, sizeof(ed));
-
-        /* Call runBatchEsub to handle environment variables and resource limits */
         if (runBatchEsub(&ed, &packReq, esubPrintFD) < 0) {
             snprintf(outputTmp, sizeof(outputTmp), "Line#%d Request aborted by esub. Job not submitted.\n", lineNum);
             pack_outputs[packParsedNum-1]->outputMSG = strdup(outputTmp);
@@ -481,9 +336,10 @@ LS_LONG_INT do_pack_sub_v2(int option, char **argv, struct submit *req)
             }
         }
 
+        // 6. Modify job information - simulate single job modifyJobInformation call
+        modifyJobInformation(&packReq);
         /* Cleanup edata */
         FREEUP(ed.data);
-
 
         /* Save job request and file data */
         job_requests[job_count] = malloc(sizeof(struct submit));
@@ -615,9 +471,6 @@ LS_LONG_INT do_pack_sub_v2(int option, char **argv, struct submit *req)
                     continue;
                 }
                 fprintf(stderr, "%s", pack_outputs[i]->outputMSG);
-            } else {
-                // bsub client skipped line due to LSB_PACK_SKIP_ERROR
-//                fprintf(stderr, "Line#%d Job not submitted.\n", pack_outputs[i]->lineNum);
             }
         }
     }
@@ -656,6 +509,7 @@ cleanup:
             FREEUP(job_requests[i]->mailUser);
             FREEUP(job_requests[i]->projectName);
             FREEUP(job_requests[i]->loginShell);
+            FREEUP(job_requests[i]->additionEsubInfo);
             if (job_requests[i]->askedHosts) {
                 for (j = 0; j < job_requests[i]->numAskedHosts; j++) {
                     FREEUP(job_requests[i]->askedHosts[j]);
@@ -776,11 +630,6 @@ fillReq (int argc, char **argv, int operate, struct submit *req, int isInPackFil
 
     if (logclass & (LC_TRACE | LC_EXEC | LC_SCHED))
         ls_syslog(LOG_DEBUG1, "%s: Entering this routine...", fname);
-
-
-
-
-
 
     if (operate == CMD_BRESTART) {
 	req->options = SUB_RESTART;
