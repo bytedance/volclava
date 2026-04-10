@@ -24,7 +24,7 @@
 .br
 \fB-x\fR
 .br
-\fB-a\fR \fIesub_parameters\fR
+\fB-a\fR \fIapplication_name\fR ...
 .br
 \fB-b \fR[[\fImonth\fR\fB:\fR]\fIday\fR\fB:\fR]\fIhour\fR\fB:\fRminute 
 .br
@@ -315,7 +315,15 @@ You can force other batch jobs to run on the host by using the \fB-m\fR
 \fIhost_name\fR option of \fBbrun\fR(1) to explicitly specify the locked host.
 
 .TP
-\fB-a \fIesub_parameters\fR
+\fB-a \fIapplication_name\fR ...
+.IP
+The value of -a must correspond to the application name of an actual esub which
+exist in LSF_SERVERDIR.
+.IP
+For example, to submit a job that invokes the application-specific esub executables
+named esub.app1 and esub.app2, enter:
+.IP
+bsub -a "app1 app2" my_job
 .IP
 The parameter is stored as \fBLSB_SUB_ADDITIONAL\fR in the parameter file of 
 the job (i.e. \fBLSB_SUB_PARM_FILE\fR). This file can be read by an \fBesub\fR.
