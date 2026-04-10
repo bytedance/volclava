@@ -482,8 +482,10 @@ int initQueryDaemon(){
         ls_syslog(LOG_INFO, "%s: query batch server start , channel is %d, sockfd is %d,port is %d", __func__,listenChfd,chanSock_(listenChfd),ntohs(qmbd_port));
     }
     if(qmbdPipe[0] >= 0){
-        if(pthread_create(&tid, NULL, controlPipeMonitorThread, NULL) != 0){
-            ls_syslog(LOG_ERR, "%s: pthread_create for pipe monitor failed %m",__func__);
+        int rc = pthread_create(&tid, NULL, controlPipeMonitorThread, NULL);
+        if (rc != 0) {
+            ls_syslog(LOG_ERR, "%s: pthread_create for pipe monitor failed: %s",
+                      __func__, strerror(rc));
             close(qmbdPipe[0]);
             qmbdPipe[0] = -1;
             return -1;

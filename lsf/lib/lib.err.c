@@ -126,9 +126,9 @@ char *ls_errmsg[] = {
     /* 95 */  "Requested label is above your allowed range",
     /* 96 */  "Request label rejected by /etc/rhost.conf",
     /* 97 */  "Request label doesn't dominate current label",
-    /* 98 */  "Migrant host already known to master LIM"
+    /* 98 */  "Migrant host already known to master LIM",
     /* 99 */  "A epoll system call failed",
-    /* 101 */ "A poll system call failed",
+    /* 100 */ "A poll system call failed",
 };
 
 void

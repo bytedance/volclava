@@ -39,7 +39,7 @@ LSB_PACK_SKIP_ERROR=N
 # process responsible for handling query requests
 # must be enabled manually and port must not
 # be in use by other programs.
-# If not set or set to a value less than or equal to 0,
+# If not set or set to a non-numeric value or one outside 1-65535,
 # the feature will not take effect.
 LSB_QMBD_PORT=6326
 

@@ -2390,8 +2390,10 @@ logFinishedjob(struct jData *job)
 void
 switchELog (void)
 {
+    int ret = 0;
     if (numRemoveJobs >= maxjobnum) {
-        if (switch_log() == 0)
+        ret = switch_log();
+        if (ret == 0)
             numRemoveJobs = 0;
         else
             numRemoveJobs = maxjobnum / 2;
@@ -2508,7 +2510,14 @@ switch_log(void)
     int                    preserved = FALSE;
     int                    totalEventFile;
     char                   indexFile[MAXFILENAMELEN];
-
+    /*
+     * When switch_log is triggered frequently, multiple child processes may simultaneously read and write lsb.event.index. 
+     * It is necessary to ensure that only one child process operates on this index file at any given time.
+     */
+    if (eventIndexRebuildPid != 0 && kill(eventIndexRebuildPid, 0) == 0) {
+        ls_syslog(LOG_DEBUG, "%s: event index rebuild pid=%d still running", __func__, (int)eventIndexRebuildPid);
+        return -2;
+    }
     sprintf(tmpfn, "%s/logdir/lsb.events",
             daemonParams[LSB_SHAREDIR].paramValue);
 
@@ -2741,18 +2750,6 @@ switch_log(void)
         log_logSwitch(nextJobId_t);
     else
         log_logSwitch(nextJobId);
-
-    /*
-     * When switch_log is triggered frequently, multiple child processes may simultaneously read and write lsb.event.index. 
-     * It is necessary to ensure that only one child process operates on this index file at any given time.
-     */
-    if (eventIndexRebuildPid != 0 && kill(eventIndexRebuildPid, 0) == 0) {
-        ls_syslog(LOG_DEBUG, "\
-%s: event index rebuild pid=%d still running",
-                      __func__, (int)eventIndexRebuildPid);
-        return -1;
-    }
-
     if ((totalEventFile = renameElogFiles()) > 0)  {
         eventIndexRebuildPid = fork();
         if (eventIndexRebuildPid == 0) {

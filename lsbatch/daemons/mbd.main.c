@@ -388,15 +388,15 @@ main (int argc, char **argv)
         packSkipErrFlag = TRUE;
     }
 
-    if (daemonParams[LSB_QMBD_PORT].paramValue != NULL) {
-        if (atoi(daemonParams[LSB_QMBD_PORT].paramValue) > 0) {
-            qmbd_port =
-                htons(atoi(daemonParams[LSB_QMBD_PORT].paramValue));
-        } else {
-            ls_syslog(LOG_ERR, "\
-%s: Invalid LSB_QMBD_PORT %s ignored",
-                      __func__,
-                      daemonParams[LSB_QMBD_PORT].paramValue);
+    {
+        int qmbdPortValue = getValidatedNumericParam(__func__,
+                                                     "LSB_QMBD_PORT",
+                                                     daemonParams[LSB_QMBD_PORT].paramValue,
+                                                     LSB_CONF_PORT_MIN,
+                                                     LSB_CONF_PORT_MAX,
+                                                     0);
+        if (qmbdPortValue > 0) {
+            qmbd_port = htons((ushort)qmbdPortValue);
         }
     }
 
@@ -1509,8 +1509,11 @@ static void shmInit(){
 
 static int createShmCleanerThread(){
     pthread_t tid;
-    if(pthread_create(&tid, NULL, shmCleaner, NULL) < 0){
-        ls_syslog(LOG_ERR, "%s failed: %m", __func__);
+    int rc;
+
+    rc = pthread_create(&tid, NULL, shmCleaner, NULL);
+    if (rc != 0) {
+        ls_syslog(LOG_ERR, "%s failed: %s", __func__, strerror(rc));
         return -1;
     }
     pthread_detach(tid);

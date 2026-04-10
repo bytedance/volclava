@@ -1281,13 +1281,13 @@ LSB_SBD_PORT.
 .BR
 .PP
 .PP
-Specifies the TCP port used by the query mbd (qmbd) subprocess.
+Specifies the TCP port used by the query mbd subprocess.
 .PP
-After this parameter is configured, mbatchd can fork a qmbd subprocess
+After this parameter is configured, mbatchd can fork a query mbd subprocess
 to handle query requests.
 .PP
-If this parameter is undefined, or set to a value less than or equal to
-0, qmbd is disabled.
+If this parameter is undefined, non-numeric, or outside the range
+1 to 65535, query mbd is disabled.
 .PP
 The port specified by LSB_QMBD_PORT must not be in use by other
 programs.
@@ -1309,13 +1309,13 @@ The following parameters take effect only when LSB_QMBD_PORT is enabled:
 .BR
 .PP
 .PP
-Any positive integer. If the value is less than or equal to 0, the
-feature is disabled.
+An integer in the range 1 to 65535. If the value is undefined or
+invalid, the feature is disabled.
 .SS Default
 .BR
 .PP
 .PP
-Undefined. qmbd is disabled.
+Undefined. query mbd is disabled.
 .SS See Also
 .BR
 .PP
@@ -1407,7 +1407,7 @@ LSB_QMBD_PORT, LSB_QMBD_MAX_TASK_NUM
 .BR
 .PP
 .PP
-Specifies the capacity of the qmbd thread pool task queue.
+Specifies the capacity of the query mbd thread pool task queue.
 .PP
 This parameter applies only when LSB_QMBD_PORT is enabled.
 .SS Valid Values
@@ -1442,7 +1442,7 @@ LSB_QMBD_PORT, LSB_QMBD_THREAD_NUM
 .PP
 .PP
 Controls whether mbatchd synchronizes newly submitted job information to
-the shared memory area used by qmbd.
+the shared memory area used by query mbd.
 .PP
 Specify \fBy\fR to enable synchronization, or \fBn\fR to disable it.
 .PP
@@ -1474,7 +1474,7 @@ LSB_QMBD_PORT, LSB_QMBD_SYNC_SHM_SIZE
 .PP
 .PP
 Specifies the size, in MB, of the shared memory used to store
-synchronized job information for qmbd.
+synchronized job information for query mbd.
 .PP
 This parameter applies only when LSB_QMBD_PORT is enabled and
 \fBLSB_QMBD_SYNC_NEW_JOBS=y\fR.

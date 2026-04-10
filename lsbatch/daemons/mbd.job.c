@@ -1208,7 +1208,7 @@ int selectJobsFromShm(struct jobInfoReq *jobInfoReq, struct jobMetaData ***jobMe
     int numJobs = 0;
     int arraysize = 0;
     int ret = 0;
-    struct  uData *uPtr;
+    struct  uData *uPtr = NULL;
     int currentIndex = 0, startIndex;
     int i = 0;
     static int currentReaderIndex = -1;
@@ -1596,11 +1596,15 @@ checkJobMatch(void *jobData, struct jobInfoReq *jobInfoReq, char allqueues, char
                 return FALSE;
             else if (!gMember(jpbw->userName, uGrp))
                 return FALSE;
-        }else if(type == JOB_TYPE_METADATA && strcmp(metaData->userName, uPtr->user) != 0){
-            if (uGrp == NULL)
-                return FALSE;
-            else if (!gMember(metaData->userName, uGrp))
-                return FALSE;
+        }else if (type == JOB_TYPE_METADATA) {
+            if (uPtr != NULL && strcmp(metaData->userName, uPtr->user) == 0) {
+                /* Exact user match */
+            } else {
+                if (uGrp == NULL)
+                    return FALSE;
+                else if (!gMember(metaData->userName, uGrp))
+                    return FALSE;
+            }
         }
     }
 
@@ -9925,4 +9929,3 @@ static int staticNumPendJobs (void)
 
     return numPend;
 }
-
