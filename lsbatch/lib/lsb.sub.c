@@ -66,6 +66,9 @@
 #define EMBED_RESTART      0x10
 #define EMBED_QSUB         0x20
 
+#define MAX_ESUB_LIST 16
+#define MAX_APP_NAME 64
+
 #define PRINT_ERRMSG0(errMsg, fmt)\
     {\
 	if (errMsg == NULL)\
@@ -98,7 +101,6 @@
 int  optionFlag = FALSE ;
 char optionFileName[MAXLSFNAMELEN];
 char *loginShell;
-static char *additionEsubInfo=NULL;
 
 extern const char *defaultSpoolDir;
 static const char* getDefaultSpoolDir();
@@ -165,6 +167,9 @@ static int readOptFile(char *filename, char *childLine);
 
 static const LSB_SPOOL_INFO_T * chUserCopySpoolFile(const char * srcFile,
 				    spoolOptions_t fileType);
+
+static int splitAppList(const char* str, char arr[][MAX_APP_NAME], int max_count);
+static int is_executable(const char* path);
 
 extern void makeCleanToRunEsub();
 extern char *translateString(char *);
@@ -255,8 +260,7 @@ lsb_submit(struct submit  *jobSubReq, struct submitReply *submitRep)
 
     makeCleanToRunEsub();
 
-
-    if (getUserInfo(&submitReq, jobSubReq, FALSE) < 0)
+    if (getUserInfo(&submitReq, jobSubReq, TRUE) < 0)
         return (-1);
 
 
@@ -313,7 +317,6 @@ lsb_submit_pack(struct submit **jobSubReqs, int jobCount,
     char **homeDir = NULL, **resReq = NULL, **cmd = NULL, **cwd = NULL;
     LSB_SUB_SPOOL_FILE_T subSpoolFiles;
     int numSubmitJobs = -1;
-    int esubPrintFD = 0;
     int i, loop;
 
     if (logclass & (LC_TRACE | LC_EXEC))
@@ -325,8 +328,6 @@ lsb_submit_pack(struct submit **jobSubReqs, int jobCount,
     }
 
     lsberrno = LSBE_BAD_ARG;
-
-    esubPrintFD = open(LSDEVNULL, O_RDWR, 0);
 
     /* Allocate buffer arrays for each job */
     homeDir = (char **) malloc(jobCount * sizeof(char *));
@@ -377,15 +378,12 @@ lsb_submit_pack(struct submit **jobSubReqs, int jobCount,
     if (!packReq.jobs)
         goto cleanup;
 
-    /* 3. Environment setup (once for all jobs) */
-    makeCleanToRunEsub();
-
     if (authTicketTokens_(&auth, NULL) == -1)
         goto cleanup;
 
     memset(&subSpoolFiles, 0, sizeof(subSpoolFiles));
 
-    /* 4. Process each job */
+    /* 3. Process each job */
     for (i = 0; i < jobCount; i++) {
         struct submitReply jobReply;
         memset(&jobReply, 0, sizeof(jobReply));
@@ -397,28 +395,13 @@ lsb_submit_pack(struct submit **jobSubReqs, int jobCount,
         packReq.jobs[i].command = cmd[i];
         packReq.jobs[i].cwd = cwd[i];
 
-        /* Get working directory */
-        if (mygetwd_(cwd[i]) == NULL) {
-            ls_syslog(LOG_WARNING, "%s: getcwd failed for job %d", fname, i);
-            strcpy(cwd[i], "/tmp");
-        }
-
-        /* First getCommonParams */
-        if (getCommonParams(jobSubReqs[i], &packReq.jobs[i], &jobReply) < 0) {
-            ls_syslog(LOG_ERR, "%s: getCommonParams failed for job %d", fname, i);
-            goto cleanup;
-        }
-
         /* getUserInfo (includes esub processing) */
-        if (getUserInfo(&packReq.jobs[i], jobSubReqs[i], esubPrintFD) < 0) {
+        if (getUserInfo(&packReq.jobs[i], jobSubReqs[i], FALSE) < 0) {
             ls_syslog(LOG_ERR, "%s: getUserInfo failed for job %d", fname, i);
             goto cleanup;
         }
 
-        /* Modify job information */
-        modifyJobInformation(jobSubReqs[i]);
-
-        /* Second getCommonParams */
+        /* call getCommonParams to setup submitReq */
         if (getCommonParams(jobSubReqs[i], &packReq.jobs[i], &jobReply) < 0) {
             ls_syslog(LOG_ERR, "%s: getCommonParams(2nd) failed for job %d", fname, i);
             goto cleanup;
@@ -454,12 +437,10 @@ lsb_submit_pack(struct submit **jobSubReqs, int jobCount,
         }
     }
 
-    /* 5. Send pack request */
+    /* 4. Send pack request */
     numSubmitJobs = send_batch_pack(&packReq, jf_array, jobCount, submitPackRep, &auth);
 
 cleanup:
-    if (esubPrintFD > 0)
-        close(esubPrintFD);
 
     /* Free allocated resources - only jf_array and packReq.jobs need cleanup now */
     for (i = 0; i < jobCount; i++) {
@@ -530,9 +511,9 @@ getCommonParams (struct submit  *jobSubReq, struct submitReq *submitReq,
     if (jobSubReq->options & SUB_QUEUE) {
         if (!jobSubReq->queue) {
             lsberrno = LSBE_BAD_QUEUE;
-	    return (-1);
+            return (-1);
         }
-	submitReq->queue = jobSubReq->queue;
+        submitReq->queue = jobSubReq->queue;
     } else {
         submitReq->queue = "";
     }
@@ -2540,7 +2521,7 @@ acctMapGet(int *fail, char *lsfUserName)
 }
 
 static int
-getUserInfo(struct submitReq *submitReq, struct submit *jobSubReq, int esubPrintFD)
+getUserInfo(struct submitReq *submitReq, struct submit *jobSubReq, int runEsub)
 {
     int childIoFd[2];
     char lsfUserName[MAXLINELEN];
@@ -2605,44 +2586,51 @@ getUserInfo(struct submitReq *submitReq, struct submit *jobSubReq, int esubPrint
 
 
         err.eno = -1;
-        if (read(childIoFd[0], (char *) &err, sizeof(err)) != sizeof(err)) {
-
-            lsberrno = LSBE_SYS_CALL;
-            err.error = TRUE;
-            goto waitforchild;
-        }
-
-        if (err.error) {
-            errno = err.eno;
-            lserrno = err.lserrno;
-            lsberrno = err.lsberrno;
-            goto waitforchild;
-        }
-        err.eno = -1;
 
 
-        if (read(childIoFd[0], (char *) &ed.len, sizeof(ed.len)) !=
-	    sizeof(ed.len)) {
-            err.error = TRUE;
-            lsberrno = LSBE_SYS_CALL;
-            goto waitforchild;
-        }
+        if (runEsub) {
+            if (read(childIoFd[0], (char *) &err, sizeof(err)) != sizeof(err)) {
 
-        FREEUP(ed.data);
-        if (ed.len > 0) {
-            if ((ed.data = (char *) malloc(ed.len)) == NULL) {
+                lsberrno = LSBE_SYS_CALL;
                 err.error = TRUE;
-                lsberrno = LSBE_NO_MEM;
                 goto waitforchild;
             }
-            if (b_read_fix(childIoFd[0], ed.data, ed.len) != ed.len) {
-		FREEUP(ed.data);
+
+            if (err.error) {
+                errno = err.eno;
+                lserrno = err.lserrno;
+                lsberrno = err.lsberrno;
+                goto waitforchild;
+            }
+            err.eno = -1;
+
+
+            if (read(childIoFd[0], (char *) &ed.len, sizeof(ed.len)) !=
+            sizeof(ed.len)) {
                 err.error = TRUE;
                 lsberrno = LSBE_SYS_CALL;
                 goto waitforchild;
             }
-        } else
+
+            FREEUP(ed.data);
+            if (ed.len > 0) {
+                if ((ed.data = (char *) malloc(ed.len)) == NULL) {
+                    err.error = TRUE;
+                    lsberrno = LSBE_NO_MEM;
+                    goto waitforchild;
+                }
+                if (b_read_fix(childIoFd[0], ed.data, ed.len) != ed.len) {
+                    FREEUP(ed.data);
+                    err.error = TRUE;
+                    lsberrno = LSBE_SYS_CALL;
+                    goto waitforchild;
+                }
+            } else
+                ed.data = NULL;
+        } else {
+            ed.len = 0;
             ed.data = NULL;
+        }
 
 
         err.eno = -1;
@@ -2731,27 +2719,34 @@ waitforchild:
         exit(-1);
     }
 
-    if (runBatchEsub(&ed, jobSubReq, esubPrintFD) < 0) {
-        goto errorParent;
-    } else {
-        err.error = FALSE;
-        if (write(childIoFd[1], (char *) &err, sizeof(err)) != sizeof(err)) {
-            close(childIoFd[1]);
-            exit(-1);
+    if (runEsub) {
+        /*No need to redirect output of esub here*/
+        if (runBatchEsub(&ed, jobSubReq, 0) < 0) {
+            goto errorParent;
         }
+    } else {
+        ed.len = 0;
+        ed.data = NULL;
     }
 
-
-    if (write(childIoFd[1], (char *) &ed.len, sizeof(ed.len))
-	!= sizeof(ed.len)) {
+    err.error = FALSE;
+    if (write(childIoFd[1], (char *) &err, sizeof(err)) != sizeof(err)) {
         close(childIoFd[1]);
-        exit (-1);
+        exit(-1);
     }
 
-    if (ed.len > 0) {
-        if (write(childIoFd[1], (char *) ed.data, ed.len) != ed.len) {
+
+    if (runEsub) {
+        if (write(childIoFd[1], (char *) &ed.len, sizeof(ed.len)) != sizeof(ed.len)) {
             close(childIoFd[1]);
             exit (-1);
+        }
+
+        if (ed.len > 0) {
+            if (write(childIoFd[1], (char *) ed.data, ed.len) != ed.len) {
+                close(childIoFd[1]);
+                exit (-1);
+            }
         }
     }
 
@@ -4300,7 +4295,7 @@ setOption_ (int argc, char **argv, char *template, struct submit *req,
         }
         flagPackConflict = 1;
 
-		additionEsubInfo=putstr_(optarg);
+		req->additionEsubInfo=putstr_(optarg);
 		break;
 	case 'V':
         if (isInPackFile) {
@@ -4791,6 +4786,76 @@ checkLimit(int limit, int factor)
         return TRUE;
 }
 
+
+static int aggregateFileContent(
+    const char *deltaFilePath, 
+    char **buffer, 
+    size_t *buffer_size) 
+{
+    static char fname[] = "aggregateFileContent";
+    FILE *fp;
+    long file_size;
+    char *file_content;
+    size_t new_size;
+    char *new_buffer;
+
+    if (access(deltaFilePath, R_OK) != 0) {
+        return 0;
+    }
+
+    fp = fopen(deltaFilePath, "r");
+    if (fp == NULL) {
+        ls_syslog(LOG_WARNING, "%s: Cannot open delta file %s: %m", fname, deltaFilePath);
+        unlink(deltaFilePath);
+        return 0;
+    }
+
+    fseek(fp, 0, SEEK_END);
+    file_size = ftell(fp);
+    fseek(fp, 0, SEEK_SET);
+
+    if (file_size > 0) {
+        file_content = (char *)malloc(file_size + 1);
+        if (file_content == NULL) {
+            ls_syslog(LOG_ERR, "%s: Failed to allocate memory to read delta file %s", fname, deltaFilePath);
+            fclose(fp);
+            unlink(deltaFilePath);
+            return -1;
+        }
+
+        if (fread(file_content, 1, file_size, fp) != file_size) {
+            ls_syslog(LOG_WARNING, "%s: Short read from delta file %s", fname, deltaFilePath);
+            free(file_content);
+            fclose(fp);
+            unlink(deltaFilePath);
+            return 0;
+        }
+        file_content[file_size] = '\0';
+
+        new_size = *buffer_size + file_size;
+        new_buffer = (char *)realloc(*buffer, new_size + 1);
+        if (new_buffer == NULL) {
+            ls_syslog(LOG_ERR, "%s: Failed to reallocate aggregation buffer", fname);
+            free(file_content);
+            fclose(fp);
+            unlink(deltaFilePath);
+            return -1;
+        }
+        
+        memcpy(new_buffer + *buffer_size, file_content, file_size);
+        *buffer = new_buffer;
+        *buffer_size = new_size;
+        (*buffer)[*buffer_size] = '\0';
+
+        free(file_content);
+    }
+    
+    fclose(fp);
+    unlink(deltaFilePath);
+
+    return 0;
+}
+
 int
 runBatchEsub(struct lenData *ed, struct submit *jobSubReq, int esubPrintFD)
 {
@@ -4814,6 +4879,15 @@ runBatchEsub(struct lenData *ed, struct submit *jobSubReq, int esubPrintFD)
 #define LSB_SUB_COMMANDNAME 0
     struct config_param myParams[] = { {"LSB_SUB_COMMANDNAME", NULL},
                                        {NULL, NULL} };
+
+    char esub_path[MAXFILENAMELEN];
+    char* esub_method;
+    char *parmDeltaFile;
+    char *envDeltaFile;
+    char *aggregated_parms;
+    size_t aggregated_parms_size;
+    char *aggregated_envs;
+    size_t aggregated_envs_size;
 
 
 
@@ -4917,13 +4991,6 @@ char ch, next, *tmp_str=NULL; \
 		fprintf(parmfp, "%s=%d\n", name, (int) field); \
 	    } \
 	}
-
-
-
-    sprintf (esub, "%s/%s", lsbParams[LSB_SERVERDIR].paramValue, ESUBNAME);
-    if (stat(esub, &sbuf) < 0)
-	return (0);
-
 
     sprintf(parmFile, "%s/.lsbsubparm.%d", LSTMPDIR, (int)getpid());
 
@@ -5120,8 +5187,8 @@ char ch, next, *tmp_str=NULL; \
 	}
     }
 
-    if(additionEsubInfo!=NULL) {
-	fprintf(parmfp,"LSB_SUB_ADDITIONAL=\"%s\"\n",additionEsubInfo);
+    if(jobSubReq->additionEsubInfo!=NULL) {
+	fprintf(parmfp,"LSB_SUB_ADDITIONAL=\"%s\"\n",jobSubReq->additionEsubInfo);
     }
 
     fclose(parmfp);
@@ -5129,36 +5196,120 @@ char ch, next, *tmp_str=NULL; \
     putEnv("LSB_SUB_ABORT_VALUE", "97");
     putEnv("LSB_SUB_PARM_FILE", parmFile);
 
-    if ((cc = runEsub_(ed, NULL, esubPrintFD)) < 0) {
-	if (logclass & LC_TRACE)
-	    ls_syslog(LOG_DEBUG, "%s: runEsub_() failed %d: %M", fname, cc);
-	if (cc == -2) {
-            char *deltaFileName=NULL;
-            struct stat stbuf;
+    cc = 0;
+    esub_method = getenv("LSB_ESUB_METHOD");
+    parmDeltaFile = getenv("LSB_SUB_MODIFY_FILE");
+    envDeltaFile = getenv("LSB_SUB_MODIFY_ENVFILE");
 
-	    lsberrno = LSBE_ESUB_ABORT;
-	    unlink(parmFile);
+    aggregated_parms = (char *)malloc(1);
+    if (aggregated_parms) aggregated_parms[0] = '\0';
+    aggregated_parms_size = 0;
 
+    aggregated_envs = (char *)malloc(1);
+    if (aggregated_envs) aggregated_envs[0] = '\0';
+    aggregated_envs_size = 0;
 
-            if( (deltaFileName=getenv("LSB_SUB_MODIFY_FILE")) != NULL )
-            {
-                if(stat(deltaFileName, &stbuf)!=ENOENT)
-               	    unlink(deltaFileName);
-            }
-
-            deltaFileName=NULL;
-            if( (deltaFileName=getenv("LSB_SUB_MODIFY_ENVFILE")) != NULL )
-            {
-                if(stat(deltaFileName, &stbuf)!=ENOENT)
-                    unlink(deltaFileName);
-            }
-	    return(-1);
-	}
+    if (!aggregated_parms || !aggregated_envs) {
+        lsberrno = LSBE_NO_MEM;
+        cc = -1;
+        goto cleanup_and_exit;
     }
 
-    unlink(parmFile);
+    if(!esub_method) {
+        struct config_param esubParam[] = { {"LSB_ESUB_METHOD", NULL}, {NULL, NULL} };
+        if (ls_readconfenv(esubParam, NULL) == 0 && esubParam[0].paramValue) {
+            setenv("LSB_ESUB_METHOD", esubParam[0].paramValue, 1);
+            esub_method = esubParam[0].paramValue;
+        }
+    }
 
-    return (0);
+    snprintf(esub_path, sizeof(esub_path), "%s/" ESUBNAME, lsbParams[LSB_SERVERDIR].paramValue);
+    if (is_executable(esub_path)) {
+        cc = runEsub_(ed, NULL, esubPrintFD);
+        if (cc >= 0) {
+            if (aggregateFileContent(parmDeltaFile, &aggregated_parms, &aggregated_parms_size) != 0) cc = -1;
+        }
+        if (cc >= 0) {
+            if (aggregateFileContent(envDeltaFile, &aggregated_envs, &aggregated_envs_size) != 0) cc = -1;
+        }
+        if (cc < 0) goto handle_esub_error;
+    }
+
+    if (esub_method && strlen(esub_method) > 0) {
+        char app_list[MAX_ESUB_LIST][MAX_APP_NAME];
+        int app_count = splitAppList(esub_method, app_list, MAX_ESUB_LIST);
+        int i;
+        for (i = 0; i < app_count; ++i) {
+            snprintf(esub_path, sizeof(esub_path), "%s/" ESUBNAME ".%s", lsbParams[LSB_SERVERDIR].paramValue, app_list[i]);            
+            if (is_executable(esub_path)) {
+                cc = runEsub_(ed, esub_path, esubPrintFD);
+                if (cc >= 0) {
+                    if (aggregateFileContent(parmDeltaFile, &aggregated_parms, &aggregated_parms_size) != 0) cc = -1;
+                }
+                if (cc >= 0) {
+                    if (aggregateFileContent(envDeltaFile, &aggregated_envs, &aggregated_envs_size) != 0) cc = -1;
+                }
+                if (cc < 0) goto handle_esub_error;
+            }
+        }
+    }
+
+    if (jobSubReq->additionEsubInfo && strlen(jobSubReq->additionEsubInfo) > 0) {
+        char app_list[MAX_ESUB_LIST][MAX_APP_NAME];
+        int app_count = splitAppList(jobSubReq->additionEsubInfo, app_list, MAX_ESUB_LIST);
+        int i;
+        for (i = 0; i < app_count; ++i) {
+            snprintf(esub_path, sizeof(esub_path), "%s/" ESUBNAME ".%s", lsbParams[LSB_SERVERDIR].paramValue, app_list[i]);
+            if (is_executable(esub_path)) {
+                cc = runEsub_(ed, esub_path, esubPrintFD);
+                if (cc >= 0) {
+                    if (aggregateFileContent(parmDeltaFile, &aggregated_parms, &aggregated_parms_size) != 0) cc = -1;
+                }
+                if (cc >= 0) {
+                    if (aggregateFileContent(envDeltaFile, &aggregated_envs, &aggregated_envs_size) != 0) cc = -1;
+                }
+                if (cc < 0) goto handle_esub_error;
+            }
+        }
+    }
+
+    goto cleanup_and_exit;
+
+handle_esub_error:
+    if (logclass & LC_TRACE)
+        ls_syslog(LOG_DEBUG, "%s: runEsub_() or aggregation failed, cc=%d: %M", fname, cc);
+    if (cc == -2) {
+        lsberrno = LSBE_ESUB_ABORT;
+    }
+    goto cleanup_and_exit;
+
+cleanup_and_exit:
+    if (aggregated_parms_size > 0) {
+        FILE *final_parm_fp = fopen(parmDeltaFile, "w");
+        if (final_parm_fp) {
+            fwrite(aggregated_parms, 1, aggregated_parms_size, final_parm_fp);
+            fclose(final_parm_fp);
+        } else {
+             ls_syslog(LOG_ERR, "%s: Failed to write aggregated parm file %s: %m", fname, parmDeltaFile);
+             if (cc >= 0) cc = -1;
+        }
+    }
+    if (aggregated_envs_size > 0) {
+        FILE *final_env_fp = fopen(envDeltaFile, "w");
+        if (final_env_fp) {
+            fwrite(aggregated_envs, 1, aggregated_envs_size, final_env_fp);
+            fclose(final_env_fp);
+        } else {
+            ls_syslog(LOG_ERR, "%s: Failed to write aggregated env file %s: %m", fname, envDeltaFile);
+            if (cc >= 0) cc = -1;
+        }
+    }
+    
+    free(aggregated_parms);
+    free(aggregated_envs);
+    unlink(parmFile);
+    
+    return (cc < 0) ? -1 : 0;
 
 }
 
@@ -6097,4 +6248,108 @@ static void trimSpaces(char *str)
         *ptr = '\0';
         ptr--;
     }
+}
+
+static int splitAppList(const char* str, char arr[][MAX_APP_NAME], int max_count) {
+    int count = 0;
+    char *tmp;
+    char *token;
+    int hasLongToken = 0;
+    
+    if (!str) return 0;
+    tmp = strdup(str);
+    if (!tmp) return 0;
+    
+    token = strtok(tmp, " ");
+    
+    while (token && count < max_count) {
+        char normalizedToken[MAX_APP_NAME];
+        int isDuplicate;
+        
+        size_t len = strlen(token);
+        if (len > MAX_APP_NAME - 1) {
+            if (!hasLongToken) {
+                hasLongToken = 1;
+                fprintf(stderr, "Warning: App name '%.*s...' exceeds max length %d, truncated to %d characters\n",
+                        (int)len > 40 ? 40 : (int)len, token, MAX_APP_NAME, MAX_APP_NAME - 1);
+            }
+        }
+        
+        strncpy(normalizedToken, token, MAX_APP_NAME-1);
+        normalizedToken[MAX_APP_NAME-1] = '\0';
+        size_t normLen = strlen(normalizedToken);
+        if (normLen > 0 && (normalizedToken[0] == '"' || normalizedToken[0] == '\'')) {
+            memmove(normalizedToken, normalizedToken+1, normLen);
+            normLen--;
+        }
+        if (normLen > 0 && (normalizedToken[normLen-1] == '"' || normalizedToken[normLen-1] == '\'')) {
+            normalizedToken[normLen-1] = '\0';
+        }
+        
+        /* Check for duplicates - compare normalized names */
+        isDuplicate = 0;
+        int i;
+        for (i = 0; i < count; i++) {
+            char normalizedExisting[MAX_APP_NAME];
+            strncpy(normalizedExisting, arr[i], MAX_APP_NAME-1);
+            normalizedExisting[MAX_APP_NAME-1] = '\0';
+            size_t existLen = strlen(normalizedExisting);
+            if (existLen > 0 && (normalizedExisting[0] == '"' || normalizedExisting[0] == '\'')) {
+                memmove(normalizedExisting, normalizedExisting+1, existLen);
+                existLen--;
+            }
+            if (existLen > 0 && (normalizedExisting[existLen-1] == '"' || normalizedExisting[existLen-1] == '\'')) {
+                normalizedExisting[existLen-1] = '\0';
+            }
+            if (strcmp(normalizedExisting, normalizedToken) == 0) {
+                isDuplicate = 1;
+                break;
+            }
+        }
+        
+        if (!isDuplicate) {
+            strncpy(arr[count], token, MAX_APP_NAME-1);
+            arr[count][MAX_APP_NAME-1] = '\0';
+            count++;
+        }
+        
+        if (count >= max_count) {
+            /* Check if there are more tokens remaining */
+            token = strtok(NULL, " ");
+            if (token) {
+                int skipped = 1;
+                while ((token = strtok(NULL, " ")) != NULL) {
+                    skipped++;
+                }
+                fprintf(stderr, "Warning: Too many apps specified, exceeding max count %d. %d app(s) skipped\n",
+                        max_count, skipped);
+            }
+            break;
+        } else {
+            token = strtok(NULL, " ");
+        }
+    }
+    
+    if (count > 0) {
+        int len0;
+        int last;
+        int lenLast;
+        
+        len0 = strlen(arr[0]);
+        if (len0 > 0 && (arr[0][0] == '"' || arr[0][0] == '\'')) {
+            memmove(arr[0], arr[0]+1, len0);
+        }
+        last = count - 1;
+        lenLast = strlen(arr[last]);
+        if (lenLast > 0 && (arr[last][lenLast-1] == '"' || arr[last][lenLast-1] == '\'')) {
+            arr[last][lenLast-1] = '\0';
+        }
+    }
+    free(tmp);
+    return count;
+}
+
+static int is_executable(const char* path) {
+    struct stat sbuf;
+    return (stat(path, &sbuf) == 0 && (sbuf.st_mode & (S_IXUSR | S_IXGRP | S_IXOTH)));
 }

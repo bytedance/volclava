@@ -568,6 +568,7 @@ struct submit {
     int    maxNumProcessors;
     char   *loginShell;
     int    userPriority;
+    char   *additionEsubInfo;
 };
 
 struct submitReply {
