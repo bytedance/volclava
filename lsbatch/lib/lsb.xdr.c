@@ -55,8 +55,17 @@ xdr_submitReq (XDR *xdrs, struct submitReq *submitReq, struct LSFHeader *hdr)
 {
 
     int i, nLimits;
-    static int numAskedHosts = 0;
-    static char **askedHosts = NULL;
+
+    if (xdrs->x_op == XDR_FREE) {
+        if (submitReq->numAskedHosts > 0 && submitReq->askedHosts != NULL) {
+            for (i = 0; i < submitReq->numAskedHosts; i++) {
+                FREEUP(submitReq->askedHosts[i]);
+            }
+            FREEUP(submitReq->askedHosts);
+            submitReq->askedHosts = NULL;
+        }
+        submitReq->numAskedHosts = 0;
+    }
 
     if (xdrs->x_op == XDR_DECODE) {
 	submitReq->fromHost[0] = '\0';
@@ -84,12 +93,14 @@ xdr_submitReq (XDR *xdrs, struct submitReq *submitReq, struct LSFHeader *hdr)
 	FREEUP (submitReq->loginShell);
 	FREEUP (submitReq->schedHostType);
 
-	if (numAskedHosts > 0) {
-	    for (i = 0; i < numAskedHosts; i++)
-		FREEUP (askedHosts[i]);
-            FREEUP (askedHosts);
+	/* Clean up existing askedHosts array if it exists */
+	if (submitReq->numAskedHosts > 0 && submitReq->askedHosts != NULL) {
+	    for (i = 0; i < submitReq->numAskedHosts; i++)
+		FREEUP (submitReq->askedHosts[i]);
+            FREEUP (submitReq->askedHosts);
+            submitReq->askedHosts = NULL;
         }
-        numAskedHosts = 0;
+        submitReq->numAskedHosts = 0;
     }
 
 
@@ -196,10 +207,7 @@ xdr_submitReq (XDR *xdrs, struct submitReq *submitReq, struct LSFHeader *hdr)
 	goto Error1;
 
 
-    if (xdrs->x_op == XDR_DECODE) {
-        numAskedHosts = submitReq->numAskedHosts;
-        askedHosts = submitReq->askedHosts;
-    }
+    /* No need to track askedHosts with static variables */
 
 
     if (!xdr_int(xdrs, &submitReq->options2))
