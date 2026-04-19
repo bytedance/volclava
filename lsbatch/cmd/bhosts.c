@@ -584,7 +584,7 @@ prtLoad (struct hostInfoEnt  *hPtrs, struct lsInfo *lsInfo)
     for (i=0; i < last; i++) {
 	loadval[i] = malloc(MAXFIELDSIZE);
 	loadval1[i] = malloc(MAXFIELDSIZE);
-	if (loadval[i] == NULL || loadval[i] == NULL) {
+	if (loadval[i] == NULL || loadval1[i] == NULL) {
 	    lserrno=LSE_MALLOC;
 	    lsb_perror(fname);
 	    exit(-1);

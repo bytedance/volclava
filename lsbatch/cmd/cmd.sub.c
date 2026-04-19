@@ -1201,7 +1201,7 @@ prtErrMsg (struct submit *req, struct submitReply *reply)
     case LSBE_JOB_MAX_PEND:
     case LSBE_SLOTS_MAX_PEND:
         if (strlen(reply->pendLimitReason) == 0) {
-            sprintf(tmpBuf, "User <%s>", getenv("USER"));
+            { const char *_u = getenv("USER"); sprintf(tmpBuf, "User <%s>", _u ? _u : "unknown"); }
             sub_perror (tmpBuf);
         } else {
             sub_perror (reply->pendLimitReason);

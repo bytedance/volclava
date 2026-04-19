@@ -1341,7 +1341,7 @@ openStdFiles(char *lsbDir, char *chkpntDir, struct jobCard *jobCardPtr, struct h
             }
 
 
-            jobCardPtr->spooledExec = malloc(strlen(spooledExecName+1));
+            jobCardPtr->spooledExec = malloc(strlen(spooledExecName) + 1);
             if (jobCardPtr->spooledExec != NULL ) {
                 strcpy(jobCardPtr->spooledExec, spooledExecName);
             }
@@ -2233,7 +2233,7 @@ static void saveCreatedPaths(char ***pathList, int *size, char * newPath, int *l
         *pathList = newList;
     }
 
-    (*pathList)[*len] = calloc(strlen(newPath+1), sizeof(char));
+    (*pathList)[*len] = calloc(strlen(newPath) + 1, sizeof(char));
     strcpy((*pathList)[*len], newPath);
     (*len)++;
     return;
