@@ -253,6 +253,7 @@ touchElock(void)
         ls_syslog(LOG_ERR, I18N_FUNC_S_D_FAIL_M, fname, "lseek",
                   lockfile,
                   lock_fd);
+        close(lock_fd);
         return(MASTER_FATAL);
     }
     else if ((cc = read(lock_fd, buf, 1)) != 1)
@@ -266,6 +267,7 @@ touchElock(void)
         else
             ls_syslog(LOG_ERR, I18N_FUNC_S_FAIL, fname, "read",
                       lockfile);
+        close(lock_fd);
         return(MASTER_FATAL);
     }
     else if (lseek(lock_fd, 0, SEEK_SET) != 0)
@@ -274,6 +276,7 @@ touchElock(void)
         ls_syslog(LOG_ERR, I18N_FUNC_S_D_FAIL_M, fname, "lseek",
                   lockfile,
                   lock_fd);
+        close(lock_fd);
         return(MASTER_FATAL);
     }
     else if ((cc = write(lock_fd, buf, 1)) != 1)
@@ -286,6 +289,7 @@ touchElock(void)
         else
             ls_syslog(LOG_ERR, I18N_FUNC_S_FAIL, fname, "write",
                       lockfile);
+        close(lock_fd);
         return(MASTER_FATAL);
     }
 

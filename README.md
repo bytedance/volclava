@@ -93,7 +93,7 @@ Congratulates, installation is done and enjoy the journey!
 lim pid: <5922>
 res pid: <5924>
 sbatchd pid: <5927>
-lim mbatchd: <5940>
+mbatchd pid: <5940>
 
 [root@master-test ~]# lsid  ##check cluster status
 volclava project 2.1.1, Nov 11 2025
@@ -139,4 +139,4 @@ The following article offers plentiful user and administrator operation guides, 
 ## Contact Us
 We welcome inquiries and collaboration opportunities regarding the advanced applications of our scheduler, such as developing new features and coming up with new product design. Let's jointly promote the growth of VolcLava. Please feel free to contact us at volclava@picoheart.com
 
-&copy; Copyright (C) 2021-2025 ByteBance Ltd. and/or its affiliates
+&copy; Copyright (C) 2021-2025 ByteDance Ltd. and/or its affiliates

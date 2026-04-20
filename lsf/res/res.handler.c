@@ -5958,6 +5958,7 @@ resUpdatetty(struct LSFHeader msgHdr) {
     if (!xdr_resStty(&xdrs, &restty, &msgHdr)) {
         ls_syslog(LOG_ERR, I18N_FUNC_FAIL, fname, "xdr_resStty");
         xdr_destroy(&xdrs);
+        free(tempBuf);
         return(-1);
     }
     xdr_destroy(&xdrs);
