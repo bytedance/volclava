@@ -359,7 +359,24 @@ LS_LONG_INT do_pack_sub_v2(int option, char **argv, struct submit *req)
         job_requests[job_count]->options = packReq.options;
         job_requests[job_count]->options2 = packReq.options2;
         job_requests[job_count]->numAskedHosts = packReq.numAskedHosts;
-        job_requests[job_count]->askedHosts = packReq.askedHosts;
+        if (packReq.numAskedHosts > 0 && packReq.askedHosts != NULL) {
+            job_requests[job_count]->askedHosts = malloc(packReq.numAskedHosts * sizeof(char *));
+            if (job_requests[job_count]->askedHosts == NULL) {
+                snprintf(outputTmp, sizeof(outputTmp), "Line#%d Memory allocation failed for askedHosts. Job not submitted.\n", lineNum);
+                pack_outputs[packParsedNum-1]->outputMSG = strdup(outputTmp);
+                packParseError++;
+                if (packSkipErrFlag) {
+                    continue;
+                } else {
+                    break;
+                }
+            }
+            for (j = 0; j < packReq.numAskedHosts; j++) {
+                job_requests[job_count]->askedHosts[j] = packReq.askedHosts[j] ? strdup(packReq.askedHosts[j]) : NULL;
+            }
+        } else {
+            job_requests[job_count]->askedHosts = NULL;
+        }
         job_requests[job_count]->rLimits[0] = packReq.rLimits[0];
         job_requests[job_count]->rLimits[1] = packReq.rLimits[1];
         job_requests[job_count]->rLimits[2] = packReq.rLimits[2];
@@ -424,12 +441,9 @@ LS_LONG_INT do_pack_sub_v2(int option, char **argv, struct submit *req)
 
     fclose(fp);
 
-    submitPackRep.numJobs = 0;
-    submitPackRep.numSuccess = 0;
-    submitPackRep.numFailed = 0;
+    memset(&submitPackRep, 0, sizeof(submitPackRep));
 
     if (job_count > 0) {
-        memset(&submitPackRep, 0, sizeof(submitPackRep));
         submitPackRep.submitReps = (struct submitReply *)calloc(job_count, sizeof(struct submitReply));
         if (!submitPackRep.submitReps) {
             fprintf(stderr, "Memory allocation failed\n");
