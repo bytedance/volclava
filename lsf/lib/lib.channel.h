@@ -130,6 +130,7 @@ int chanAllocBuf_(struct Buffer **buf, int size);
 int chanFreeBuf_(struct Buffer *buf);
 int chanFreeStashedBuf_(struct Buffer *buf);
 int chanOpenSock_(int , int);
+int chanOpenPassiveSock_(int, int);
 int chanSetMode_(int, int);
 
 int chanEventsReady(int chfd, int events);

@@ -1744,6 +1744,7 @@ struct syncJobShm {
 
 extern int            startQueryDaemon(int *);
 extern int            listenChfd;               /*query mbd's connection listening channel index*/
+extern int            qmbdListenSock;          /*query mbd listening socket held by the main mbd*/
 extern int            qmbdAliveTime;            /*Alive time (in seconds) for the qmbd subprocess*/
 extern int            qmbdThreadNum;            /*Maximum number of threads in qmbd's thread pool*/
 extern int            qmbdMaxTaskNum;           /*Capacity of qmbd's thread pool task queue*/

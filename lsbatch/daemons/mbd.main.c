@@ -163,8 +163,7 @@ static struct jData *jobData = NULL;
 static time_t lastSchedTime = 0;
 static time_t nextSchedTime = 0;
 
-static time_t nextQmbdcheckedTime = 0; /*Next time to check query mbd */
-static time_t nextQmbdstartedTime = 0; /*Next time to re-fork query mbd */
+static time_t qmbdStartedTime = 0; /* Time when the current query mbd was forked */
 static int jobInfoChanged = 0;
 
 void setJobPriUpdIntvl(void);
@@ -199,12 +198,14 @@ long long syncShmXdrBufferSize;
 long long syncShmJobNameBufferSize;
 int syncShmJobCapacity;
 int syncNewJobs = 1;
+int qmbdListenSock = -1;    /* Listening socket reserved by the main mbd for qmbd */
 int qmbdPipe[2] = {-1, -1};   /* Pipe for communication between main mbd and query mbd [0]=read, [1]=write */
 struct syncJobShm *shm = NULL;
 static int qmbdCtlChfd = -1;
 static int qmbdIsAlive = 0;   /* Flag indicating if any query mbd process is alive */
 static pid_t qmbdPid = 0;     /* PID corresponding to qmbd */
 static int processQmbd();
+static int initQmbdListenSock(void);
 static void shmInit();
 static int createShmCleanerThread();
 static void *shmCleaner(void *arg);
@@ -515,12 +516,21 @@ main (int argc, char **argv)
     setJobPriUpdIntvl();
     if(syncNewJobs)
         shmInit();
+    if (qmbd_port && initQmbdListenSock() < 0) {
+        ls_syslog(LOG_ERR, "%s: cannot initialize query mbd listening socket", __func__);
+    }
     for (;;) {
         int maxfd;
+        time_t qmbdElapsedTime = 0;
 
         maxfd = sysconf(_SC_OPEN_MAX);
         now = time(0);
-        if(qmbd_port && (now >= nextQmbdstartedTime || (now >= nextQmbdcheckedTime && jobInfoChanged) || qmbdIsAlive == 0)){
+        if (qmbdStartedTime > 0) {
+            qmbdElapsedTime = now - qmbdStartedTime;
+        }
+        if (qmbd_port && (qmbdIsAlive == 0
+            || qmbdElapsedTime >= qmbdAliveTime
+            || (jobInfoChanged && qmbdElapsedTime >= DEF_QMBD_ALIVE_TIME))) {
             ls_syslog(LOG_DEBUG,"%s: re-fork query mbd",__func__);
             processQmbd();
         }
@@ -1462,6 +1472,9 @@ updateJobPriorityInPJL(void)
  * and fork query mbd again.
  */
 static int processQmbd() {
+    if (initQmbdListenSock() < 0) {
+        return -1;
+    }
     if(qmbdPipe[0] >= 0){
         close(qmbdPipe[0]);
         qmbdPipe[0] = -1;
@@ -1493,9 +1506,51 @@ static int processQmbd() {
         return -1;
     }
     qmbdIsAlive = 1;
-    nextQmbdstartedTime = time(0) + qmbdAliveTime;
-    nextQmbdcheckedTime = time(0) + DEF_QMBD_ALIVE_TIME;
+    qmbdStartedTime = time(0);
     jobInfoChanged = 0;
+    return 0;
+}
+
+static int
+initQmbdListenSock(void)
+{
+    struct sockaddr_in sin;
+    int logLevel;
+    int one = 1;
+
+    if (qmbdListenSock >= 0) {
+        return 0;
+    }
+
+    qmbdListenSock = socket(AF_INET, SOCK_STREAM, 0);
+    if (qmbdListenSock < 0) {
+        ls_syslog(LOG_ERR, "%s: socket() failed for qmbd listen socket %m", __func__);
+        return -1;
+    }
+
+    setsockopt(qmbdListenSock, SOL_SOCKET, SO_REUSEADDR,
+               (char *)&one, sizeof(one));
+
+    memset((char *)&sin, 0, sizeof(sin));
+    sin.sin_family = AF_INET;
+    sin.sin_port = qmbd_port;
+    sin.sin_addr.s_addr = htonl(INADDR_ANY);
+
+    if (bind(qmbdListenSock, (struct sockaddr *)&sin, sizeof(sin)) < 0) {
+        logLevel = (errno == EADDRINUSE) ? LOG_DEBUG : LOG_ERR;
+        ls_syslog(logLevel, "%s: bind() failed for qmbd listen socket %m", __func__);
+        close(qmbdListenSock);
+        qmbdListenSock = -1;
+        return -1;
+    }
+
+    if (listen(qmbdListenSock, 1024) < 0) {
+        ls_syslog(LOG_ERR, "%s: listen() failed for qmbd listen socket %m", __func__);
+        close(qmbdListenSock);
+        qmbdListenSock = -1;
+        return -1;
+    }
+
     return 0;
 }
 

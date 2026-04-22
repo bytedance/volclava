@@ -22,6 +22,7 @@ int qmbdThreadNum = DEF_QMBD_THREAD_NUM;
 int qmbdMaxTaskNum = DEF_QMBD_MAX_TASK_NUM;
 threadPool_t  *lightQueryPool, *heavyQueryPool;
 extern short qmbd_port;
+extern int qmbdListenSock;
 
 static int exitStatus = 0;                             /*Flag:1.query mbd should exit after processing remaining requests；2.query mbd should force exit*/
 static int initQueryDaemon();                                                   
@@ -33,9 +34,8 @@ static void shutdownClient(struct clientNode *client);
 static void handleDaemonExpiration();
 static void alarmHandler(int sig);
 static void exitQmbd();
-static int initListenSocket(u_short port);
+static int initListenSocket(void);
 static void* controlPipeMonitorThread(void* arg);
-static void preciseSleep(struct timespec req);
 
 extern int authRequest(struct lsfAuth *, XDR *, struct LSFHeader *,
                        struct sockaddr_in *, struct sockaddr_in *,
@@ -227,17 +227,13 @@ static void* controlPipeMonitorThread(void* arg){
     pfd.events = POLLIN;
     /* After reading data from the pipe, close the listen socket, close the read end of the pipe, and exit the thread */
     while(1){
-        /* Wait up to survival time; if no event is ready, the query mbd is considered expired. */
-        ret = poll(&pfd, 1, qmbdAliveTime * 1500);
+        /* Wait indefinitely for the main mbd to close the control pipe. */
+        ret = poll(&pfd, 1, -1);
         if(ret < 0){
             if(errno == EINTR){
                 continue;
             }
             ls_syslog(LOG_ERR, "%s: poll failed: %m", __func__);
-            handleDaemonExpiration();
-            break;
-        } else if(ret == 0){
-            ls_syslog(LOG_WARNING, "%s: query mbd lifetime expired, and the main mbd has not notified the query mbd to exit", __func__);
             handleDaemonExpiration();
             break;
         }
@@ -251,8 +247,10 @@ static void handleDaemonExpiration(){
     struct itimerval timer;
     exitStatus = 1;
     /* Close the listen socket and stop accepting new connections */
-    close(chanSock_(listenChfd));
-    listenChfd = -1;
+    if (listenChfd != -1) {
+        chanClose_(listenChfd);
+        listenChfd = -1;
+    }
     if(qmbdPipe[0] >= 0){
         close(qmbdPipe[0]);
         qmbdPipe[0] = -1;
@@ -411,7 +409,6 @@ int initQueryDaemon(){
     int i = 0;
     struct clientNode *cliPtr = NULL;
     struct clientNode *nextClient = NULL;
-    struct timespec req;
     sigset_t empty_set;
     pthread_t tid;
 
@@ -448,7 +445,7 @@ int initQueryDaemon(){
     }
     
     for(i = 3; i < sysconf(_SC_OPEN_MAX); i++){
-        if(i != qmbdPipe[0])
+        if(i != qmbdPipe[0] && i != qmbdListenSock)
             close(i);
     }
     Signal_(SIGCHLD, (SIGFUNCTYPE) child_handler);
@@ -467,14 +464,7 @@ int initQueryDaemon(){
         ls_syslog(LOG_ERR, "%s: createThreadPool failed: %m");
         return -1;
     }
-    for(i = 0; i < max_retry; i++){
-        listenChfd = initListenSocket(qmbd_port);
-        if(listenChfd >= 0)
-            break;
-        req.tv_sec = 0;
-        req.tv_nsec = 50000000;
-        preciseSleep(req);
-    }
+    listenChfd = initListenSocket();
     if (listenChfd < 0) {
         ls_syslog(LOG_ERR, "%s: Cannot get query batch server socket... %M", __func__);
         return -1;
@@ -583,7 +573,7 @@ shutdownClient(struct clientNode *client)
  */
 static void exitQmbd(){
     if (listenChfd != -1) {
-        close(chanSock_(listenChfd));
+        chanClose_(listenChfd);
         listenChfd = -1;
     }
     if(lightQueryPool)
@@ -601,28 +591,26 @@ static void exitQmbd(){
 
 /*
  * Initialize listening socket for query mbd daemon
- * Creates server socket and registers it with epoll
- * @param[in] port: Port number to listen on
+ * Adopts the listening socket inherited from the main mbd and registers it with epoll
  * @return: Channel descriptor on success, -1 on failure
  */
 int
-initListenSocket(u_short port)
+initListenSocket(void)
 {
     int ch = 0;
-    int logLevel = 0;
     
     if (chanEpollInit() < 0) {
         ls_syslog(LOG_ERR, "%s: chanEpollInit_() failed %m", __func__);
         return -1;
     }
-    ch = chanServSocket_(SOCK_STREAM, ntohs(port), 1024, CHAN_OP_SOREUSE);
+    if (qmbdListenSock < 0) {
+        ls_syslog(LOG_ERR, "%s: qmbd listen socket is not initialized", __func__);
+        return -1;
+    }
+    ch = chanOpenPassiveSock_(qmbdListenSock, 0);
     if (ch < 0) {
-        if(errno == EADDRINUSE)
-            logLevel = LOG_DEBUG;
-        else 
-            logLevel = LOG_ERR;
-        ls_syslog(logLevel, "\
-%s: chanServSocket_() failed to get socket %m", __func__);
+        ls_syslog(LOG_ERR, "%s: chanOpenPassiveSock_() failed to adopt socket %m",
+                  __func__);
         return -1;
     }
     if(chanRegisterEpoll_(ch, EPOLLIN|EPOLLERR) < 0){
@@ -632,16 +620,4 @@ initListenSocket(u_short port)
     }
 
     return ch;
-}
-
-/*
- * Precise sleep function using nanosleep
- * Sleeps for the specified duration, handling interruptions
- * @param[in] req: Timespec structure specifying sleep duration
- */
-static void preciseSleep(struct timespec req) {
-    struct timespec rem;
-    while (nanosleep(&req, &rem) == -1  && errno == EINTR) {
-        req = rem;
-    }
 }

@@ -583,6 +583,29 @@ chanOpenSock_(int s, int options)
     return(i);
 }
 
+int
+chanOpenPassiveSock_(int s, int options)
+{
+    int i;
+
+    if ((i = findAFreeChannel()) < 0) {
+        lserrno = LSE_NO_CHAN;
+        return(-1);
+    }
+
+    if ((options & CHAN_OP_NONBLOCK) &&
+        (io_nonblock_(s) < 0)) {
+        lserrno = LSE_SOCK_SYS;
+        return(-1);
+    }
+
+    channels[i].type = CH_TYPE_PASSIVE;
+    channels[i].handle = s;
+    channels[i].state = CH_WAIT;
+
+    return(i);
+}
+
 /*
  * Close a channel and release associated resources
  * 1. Unregister the channel from epoll (if epoll is initialized)

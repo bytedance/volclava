@@ -25,5 +25,4 @@ typedef struct {
 threadPool_t *createThreadPool(int threadCount, int queueSize); 
 int addTaskToThreadPool(threadPool_t *pool, void* (*function)(void *), void *arg); 
 void destroyThreadPool(threadPool_t *pool); 
-int createAndRunThread(void* (*function)(void*), void* arg);
 #endif /* LSB_THREAD_POOL_H */

@@ -491,7 +491,7 @@ callmbd(char *clusterName,
 		     CALL_SERVER_NO_HANDSHAKE);
         if (logclass & (LC_TRACE|LC_COMM)) {
             if (cc < 0){
-                ls_syslog (LOG_DEBUG, "%s: called qmbd failed: %M", fname);
+                ls_syslog (LOG_WARNING, "%s: called qmbd failed: %M", fname);
             }
         }
     }
