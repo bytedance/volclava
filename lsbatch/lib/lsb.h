@@ -56,7 +56,7 @@ extern int sig_encode(int);
 
 
 #define DEFAULT_API_CONNTIMEOUT 10
-#define DEFAULT_API_RECVTIMEOUT 0
+#define DEFAULT_API_RECVTIMEOUT 10
 
 #define LSB_DEBUG         0
 #define LSB_SHAREDIR      1

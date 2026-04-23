@@ -489,10 +489,8 @@ callmbd(char *clusterName,
 		     postSndFunc,
 		     postSndFuncArg,
 		     CALL_SERVER_NO_HANDSHAKE);
-        if (logclass & (LC_TRACE|LC_COMM)) {
-            if (cc < 0){
-                ls_syslog (LOG_WARNING, "%s: called qmbd failed: %M", fname);
-            }
+        if (cc < 0){
+            ls_syslog (LOG_WARNING, "%s: called qeury mbd failed: %M", fname);
         }
     }
     
@@ -510,6 +508,9 @@ callmbd(char *clusterName,
                 postSndFunc,
                 postSndFuncArg,
                 CALL_SERVER_NO_HANDSHAKE);
+        if (cc < 0){
+            ls_syslog (LOG_WARNING, "%s: called mbd failed: %M", fname);
+        }
     }
 
     if (logclass & LC_TRACE)
