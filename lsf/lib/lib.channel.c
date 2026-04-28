@@ -583,6 +583,13 @@ chanOpenSock_(int s, int options)
     return(i);
 }
 
+/*
+ * Open a passive socket channel for incoming connections
+ * This function initializes a channel for a passive socket (listening socket)
+ * @param[in] s: Socket file descriptor to associate with the channel
+ * @param[in] options: Channel options (e.g., CHAN_OP_NONBLOCK)
+ * @return: Channel index on success, -1 on failure
+ */
 int
 chanOpenPassiveSock_(int s, int options)
 {
@@ -688,6 +695,17 @@ chanCloseAllBut_(int chfd)
             chanClose_(i);
 }
 
+/*
+ * Poll and dispatch epoll events on registered channels
+ * This function waits for epoll events, then dispatches them:
+ *   - For connected channels with buffers: performs read/write via doreadEpoll/dowriteEpoll
+ *   - For pre-connect channels: transitions state to CH_CONN and allocates buffers
+ *   - For listening/UDP channels: marks ready events without I/O
+ * Finally returns indices of channels with readable or error events
+ * @param[out] readyfds: Pointer to array storing indices of ready channels
+ * @param[in] timeout: Maximum time to wait for events (NULL for infinite timeout)
+ * @return: Number of ready channels on success, 0 on timeout, -1 on error
+ */
 int
 chanEpoll_(int **readyfds, struct timeval *timeout)
 {
@@ -1010,6 +1028,16 @@ chanRead_(int chfd, char *buf, int len)
 
 }
 
+/*
+ * Write data to a channel with a timeout
+ * Wrapper around nb_write_timeout that writes to the underlying socket
+ * of the specified channel descriptor
+ * @param[in] chfd: Channel file descriptor
+ * @param[in] buf: Buffer containing data to write
+ * @param[in] len: Number of bytes to write
+ * @param[in] timeout: Timeout in seconds for the write operation
+ * @return: Number of bytes written on success, -1 on failure
+ */
 int
 chanWriteNonBlock_(int chfd, char *buf, int len, int timeout)
 {
@@ -1265,6 +1293,11 @@ doread(int chfd, struct Masks *chanmask)
 }
 
 
+/*
+ * Handle read operations for a channel in epoll mode
+ * This function processes incoming data from a channel using epoll event notification
+ * @param[in] chfd: Channel index to read from
+ */
 static void
 doreadEpoll(int chfd)
 {
@@ -1387,6 +1420,11 @@ dowrite(int chfd, struct Masks *chanmask)
     return;
 }
 
+/*
+ * Handle write operations for a channel in epoll mode
+ * This function sends data from a channel's send buffer using epoll event notification
+ * @param[in] chfd: Channel index to write to
+ */
 static void
 dowriteEpoll(int chfd)
 {

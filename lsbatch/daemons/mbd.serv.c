@@ -577,6 +577,14 @@ packJgrpInfo(struct jgTreeNode * jgNode, int remain, char **replyBuf, int schedu
 
 }
 
+/*
+ * Write job XDR data from shared memory to a channel
+ * Handles circular buffer wrap-around: if the XDR data spans the end of the
+ * buffer, sends it in two separate write operations
+ * @param[in] chfd: Channel file descriptor to write to
+ * @param[in] jobMeta: Pointer to job metadata containing XDR offset and length
+ * @return: 0 on success, -1 on write failure
+ */
 static int chanWritejobXdrFromShm(int chfd, struct jobMetaData *jobMeta){
     int res, len;
     len = jobMeta->xdrLen;
@@ -654,6 +662,19 @@ jobInfoReplyXdrBufLen(struct jobInfoReply *jobInfoReplyPtr)
     return(len);
 }
 
+/*
+ * Serialize job information into an XDR-encoded reply buffer
+ * Constructs a jobInfoReply structure from the job data, including
+ * scheduling reasons, load values, and host information, then encodes
+ * it into a reply buffer for sending to the client
+ * @param[in] jobData: Pointer to the job data structure
+ * @param[in] remain: Remaining number of jobs to pack in this batch
+ * @param[out] replyBuf: Pointer to the encoded reply buffer
+ * @param[in] schedule: Scheduling flag
+ * @param[in] options: Query options
+ * @param[in] version: Protocol version
+ * @return: Length of the encoded reply buffer
+ */
 int
 packJobInfo(struct jData * jobData,
             int remain,

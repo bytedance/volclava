@@ -408,6 +408,15 @@ stripClusterName(char *str)
 }
 
 
+/*
+ * Set up a child process to capture and check job output file content
+ * Forks a child process that reads the job output file and pipes it back
+ * to the parent. The parent reads from the pipe to check if the file exists
+ * and has content before displaying it
+ * @param[in] jobId: Job ID for logging purposes
+ * @param[in] jobFile: Path to the job output file
+ * @return: PID of the child capture process, or -1 on failure
+ */
 static int
 setupOutputCaptureAndCheck(LS_LONG_INT jobId, char * jobFile)
 {
@@ -473,6 +482,11 @@ setupOutputCaptureAndCheck(LS_LONG_INT jobId, char * jobFile)
     return capturePid;
 }
 
+/*
+ * Clean up the output capture child process
+ * Closes stdout and waits for the capture child process to terminate
+ * @param[in] capturePid: PID of the child capture process
+ */
 static void
 cleanupOutputCaptureAndCheck(int capturePid)
 {

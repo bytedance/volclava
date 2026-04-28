@@ -1499,6 +1499,14 @@ reorderSJL1 (struct jData *job)
 
 }
 
+/*
+ * Check if a job's status matches the requested status filter options
+ * Supports filtering by: ALL, CUR/LAST (non-finished), DONE, PEND,
+ * SUSP, RUN, and ZOMBIE status flags
+ * @param[in] options: Bitmask of job status filter options
+ * @param[in] jStatus: Actual job status to check against
+ * @return: TRUE if the status matches, FALSE otherwise
+ */
 static int
 matchJobStatus(int options, int jStatus)
 {

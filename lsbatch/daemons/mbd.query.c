@@ -243,6 +243,11 @@ static void* controlPipeMonitorThread(void* arg){
     return NULL;
 }
 
+/*
+ * Handle qmbd daemon expiration when alive timer fires
+ * Closes the listen socket and control pipe, then sets a force-exit timer
+ * to allow pending requests to complete before forced shutdown
+ */
 static void handleDaemonExpiration(){
     struct itimerval timer;
     exitStatus = 1;
@@ -263,6 +268,11 @@ static void handleDaemonExpiration(){
     setitimer(ITIMER_REAL, &timer, NULL);
 }
 
+/*
+ * SIGALRM handler for forced qmbd exit
+ * Sets exitStatus to 2 to signal that the graceful shutdown period has expired
+ * and the daemon must exit immediately
+ */
 static void
 alarmHandler(int sig){
     int saveErrno = 0;

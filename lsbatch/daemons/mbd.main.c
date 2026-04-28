@@ -210,6 +210,18 @@ static void shmInit();
 static int createShmCleanerThread();
 static void *shmCleaner(void *arg);
 
+/*
+ * Validate and return a numeric parameter value within a specified range
+ * If the value is NULL, non-numeric, or out of range, returns the default value
+ * and logs an error message
+ * @param[in] func: Name of the calling function (for logging)
+ * @param[in] paramName: Name of the parameter (for logging)
+ * @param[in] paramValue: String representation of the parameter value
+ * @param[in] minValue: Minimum allowed value
+ * @param[in] maxValue: Maximum allowed value
+ * @param[in] defaultValue: Default value to use on validation failure
+ * @return: Validated integer value, or defaultValue on failure
+ */
 int
 getValidatedNumericParam(const char *func,
                          char *paramName,
@@ -659,6 +671,14 @@ acceptConnection(int socket)
               __func__, client->fromHost, client->chanfd);
 }
 
+/*
+ * Dispatch I/O events for all connected clients and sbd daemons
+ * Iterates over sbd nodes and client nodes, checks for ready events
+ * (read/error) via chanEventsReady, and processes them accordingly:
+ *   - For sbd nodes: calls processSbdNode
+ *   - For client nodes with errors: shuts down the client
+ *   - For client nodes with read events: calls processClient
+ */
 static void
 clientIO()
 {
@@ -715,6 +735,15 @@ clientIO()
     }
 }
 
+/*
+ * Process a single client request
+ * Reads the request from the client channel, decodes the XDR header,
+ * authenticates the client, and dispatches the request to the appropriate
+ * handler based on the opcode. May fork a child process for certain request types
+ * @param[in] client: Pointer to the client node
+ * @param[out] needFree: Set to TRUE if the client should be freed after processing
+ * @return: 0 on success, -1 on failure
+ */
 int
 processClient(struct clientNode *client, int *needFree)
 {
@@ -849,7 +878,6 @@ processClient(struct clientNode *client, int *needFree)
 
         case BATCH_JOB_SIG:
             TIMEIT(0, do_signalReq(&xdrs, s, &from, client->fromHost, &reqHdr, &auth),"do_signalReq()");
-            jobInfoChanged = 1;
             break;
         case BATCH_JOB_MSG:
             NEW_BUCKET(bucket,buf);
@@ -861,7 +889,6 @@ processClient(struct clientNode *client, int *needFree)
             break;
         case BATCH_QUE_CTRL:
             TIMEIT(0, do_queueControlReq (&xdrs, s, &from, client->fromHost, &reqHdr, &auth),"do_queueControlReq()");
-            jobInfoChanged = 1;
             break;
         case BATCH_DEBUG:
             TIMEIT(0, do_debugReq (&xdrs, s, &from, client->fromHost, &reqHdr, &auth),"do_debugReq()");
@@ -875,7 +902,6 @@ processClient(struct clientNode *client, int *needFree)
             if (mSchedStage == 0) {
                 setNextSchedTimeWhenJobFinish();
             }
-            jobInfoChanged = 1;
             break;
         case BATCH_STATUS_MSG_ACK:
         case BATCH_STATUS_JOB:
@@ -889,7 +915,6 @@ processClient(struct clientNode *client, int *needFree)
             }
             if (client->lastTime == 0)
                 nSbdConnections++;
-            jobInfoChanged = 1;
             break;
         case BATCH_STATUS_CHUNK:
             TIMEIT(0, (statusReqCC = do_chunkStatusReq(&xdrs, s, &from,
@@ -901,22 +926,18 @@ processClient(struct clientNode *client, int *needFree)
             }
             if (client->lastTime == 0)
                 nSbdConnections++;
-            jobInfoChanged = 1;
             break;
         case BATCH_SLAVE_RESTART:
             TIMEIT(0, do_restartReq(&xdrs, s, &from, &reqHdr),"do_restartReq()");
             break;
         case BATCH_HOST_CTRL:
             TIMEIT(0, do_hostControlReq(&xdrs, s, &from, client->fromHost, &reqHdr, &auth),"do_hostControlReq()");
-            jobInfoChanged = 1;
             break;
         case BATCH_JOB_SWITCH:
             TIMEIT(3, do_jobSwitchReq(&xdrs, s, &from, client->fromHost,&reqHdr, &auth),"do_jobSwitchReq()");
-            jobInfoChanged = 1;
             break;
         case BATCH_JOB_MOVE:
             TIMEIT(3, do_jobMoveReq(&xdrs, s, &from, client->fromHost, &reqHdr, &auth),"do_jobMoveReq()");
-            jobInfoChanged = 1;
             break;
         case BATCH_SET_JOB_ATTR:
             do_setJobAttr(&xdrs, s, &from, client->fromHost, &reqHdr, &auth);
@@ -924,7 +945,6 @@ processClient(struct clientNode *client, int *needFree)
         case BATCH_JOB_MODIFY:
             TIMEIT(3, do_modifyReq(&xdrs, s, &from, client->fromHost, &reqHdr,
                                    &auth),"do_modifyReq()");
-            jobInfoChanged = 1;
             break;
 
         case BATCH_JOB_PEEK:
@@ -955,7 +975,6 @@ processClient(struct clientNode *client, int *needFree)
             TIMEIT(0,
                    do_runJobReq(&xdrs, s, &from, &auth, &reqHdr),
                    "do_runJobReq()");
-            jobInfoChanged = 1;
             break;
         default:
             errorBack(s, LSBE_PROTOCOL, &from);
@@ -1198,6 +1217,19 @@ child_handler (int sig)
 }
 
 
+/*
+ * Authenticate an incoming client request
+ * For write-type operations (submit, signal, queue control, etc.), verifies
+ * the client's authentication credentials using LSF authentication mechanism
+ * @param[in,out] auth: Pointer to lsfAuth structure to store authentication info
+ * @param[in] xdrs: XDR stream for decoding the auth data
+ * @param[in] reqHdr: Request header containing the operation code
+ * @param[in] from: Client's socket address
+ * @param[in] local: Local socket address
+ * @param[in] hostName: Client's hostname
+ * @param[in] s: Socket file descriptor
+ * @return: LSBE_NO_ERROR on success, or an LSF error code on failure
+ */
 int
 authRequest(struct lsfAuth *auth,
             XDR *xdrs,
@@ -1511,6 +1543,15 @@ static int processQmbd() {
     return 0;
 }
 
+/*
+ * Initialize the qmbd listen socket
+ * Creates a TCP socket, sets SO_REUSEADDR, binds to the qmbd port,
+ * and starts listening for incoming connections.
+ * Note: This function only creates and binds the listen socket;
+ * it does NOT call accept(). The actual accept of incoming connections
+ * happens later in the query mbd (qmbd) process after fork
+ * @return: 0 on success, -1 on failure
+ */
 static int
 initQmbdListenSock(void)
 {

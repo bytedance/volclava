@@ -366,7 +366,16 @@ nb_read_timeout(int s, char *buf, int len, int timeout)
 
 } 
 
-
+/*
+ * Write data to a socket with a timeout using non-blocking loop writes
+ * Repeatedly attempts to write until all data is sent or the timeout expires.
+ * Uses direct loop writing instead of poll for higher efficiency in practice
+ * @param[in] s: Socket file descriptor
+ * @param[in] buf: Buffer containing data to write
+ * @param[in] len: Number of bytes to write
+ * @param[in] timeout: Timeout in seconds for the write operation
+ * @return: Total bytes written on success, -1 on failure or timeout
+ */
 int nb_write_timeout(int s, char* buf, int len, int timeout) {
     if (buf == NULL || len <= 0 || timeout < 0) {
         lserrno = LSE_SOCK_SYS;

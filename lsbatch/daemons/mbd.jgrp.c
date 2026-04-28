@@ -1115,6 +1115,20 @@ isJobOwner(struct lsfAuth *auth, struct jData *job)
 
 }
 
+/*
+ * Check if a job group from shared memory matches the query criteria
+ * Matches against job ID (including array job indices), queue name,
+ * user name (or user group), and host. Newly submitted jobs without
+ * a dispatched host will not match host-specific queries
+ * @param[in] jobInfoReq: Job query request with filter criteria
+ * @param[in] jobMeta: Job metadata from shared memory to check
+ * @param[in] allqueues: Whether to match all queues
+ * @param[in] allusers: Whether to match all users
+ * @param[in] allhosts: Whether to match all hosts
+ * @param[in] uGrp: User group for user matching (NULL if not applicable)
+ * @param[in] idxList: Index list for array job matching
+ * @return: TRUE if the job matches, FALSE otherwise
+ */
 static int checkJgrpMatch(struct jobInfoReq *jobInfoReq, struct jobMetaData *jobMeta, char allqueues, char allusers, char allhosts, struct gData *uGrp, struct idxList *idxList){
     int i;
     if(jobInfoReq->jobId != 0 && (jobInfoReq->options & JGRP_ARRAY_INFO)){
@@ -1155,6 +1169,15 @@ static int checkJgrpMatch(struct jobInfoReq *jobInfoReq, struct jobMetaData *job
     return(TRUE);
 }
 
+/*
+ * Select job groups from shared memory that match the query criteria
+ * Iterates through the shared memory job metadata queue, using the reader's
+ * current read position, and collects all matching job groups into a list
+ * @param[in] jobInfoReq: Job query request with filter criteria
+ * @param[out] jobMetaDataList: Pointer to array of matching job metadata pointers
+ * @param[out] listSize: Number of matching jobs found
+ * @return: LSBE_NO_ERROR on success, LSBE_NO_JOB if no reader slot found
+ */
 int selectJgrpsFromShm(struct jobInfoReq *jobInfoReq, struct jobMetaData ***jobMetaDataList,int *listSize){
     char allqueues, allusers, allhosts;
     int arraysize = 0, tmpIndex = 0, retError = LSBE_NO_ERROR, currentIndex = 0, numJobs = 0, maxJLimit, i;

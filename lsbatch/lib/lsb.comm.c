@@ -229,7 +229,7 @@ call_server (char * host,
 	if ( cc < 0 ) {
 	    lsberrno = LSBE_LSLIB;
 	    CLOSECD(serverSock);
-	    return(-1);
+	    return(-2);
 	}
     }
 
@@ -383,6 +383,12 @@ get_sbd_port(void)
 #endif
 }
 
+/*
+ * Get the qmbd listen port number from configuration
+ * Reads LSB_QMBD_PORT parameter, validates it as a positive integer,
+ * and returns it in network byte order. Result is cached for subsequent calls
+ * @return: Port number in network byte order on success, 0 on failure
+ */
 ushort
 get_qmbd_port(void)
 {
@@ -489,8 +495,8 @@ callmbd(char *clusterName,
 		     postSndFunc,
 		     postSndFuncArg,
 		     CALL_SERVER_NO_HANDSHAKE);
-        if (cc < 0){
-            ls_syslog (LOG_WARNING, "%s: called qeury mbd failed: %M", fname);
+        if (cc < 0 && (logclass & LC_TRACE)){
+            ls_syslog (LOG_DEBUG1, "%s: called query mbd failed: %M", fname);
         }
     }
     
@@ -508,8 +514,8 @@ callmbd(char *clusterName,
                 postSndFunc,
                 postSndFuncArg,
                 CALL_SERVER_NO_HANDSHAKE);
-        if (cc < 0){
-            ls_syslog (LOG_WARNING, "%s: called mbd failed: %M", fname);
+        if (cc < 0 && (logclass & LC_TRACE)){
+            ls_syslog (LOG_DEBUG1, "%s: called mbd failed: %M", fname);
         }
     }
 
