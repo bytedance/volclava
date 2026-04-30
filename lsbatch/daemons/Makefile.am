@@ -6,11 +6,12 @@ AM_CPPFLAGS = -I$(top_srcdir)/lsf  -I$(top_srcdir)/lsf/lib \
            -I$(top_srcdir)/lsbatch  -I$(top_srcdir)/lsbatch/lib -I./
 
 sbin_PROGRAMS = mbatchd sbatchd
+mbatchd_LDFLAGS = -pthread
 mbatchd_SOURCES  = \
 mbd.policy.c mbd.comm.c mbd.host.c mbd.jgrp.c mbd.main.c mbd.proxy.c \
 mbd.resource.c mbd.dep.c mbd.init.c mbd.job.c mbd.misc.c mbd.queue.c \
 mbd.serv.c mbd.grp.c mbd.jarray.c mbd.log.c mbd.requeue.c mbd.window.c \
-mbd.fairshare.c mbd.resreq.c elock.c misc.c mail.c daemons.c daemons.xdr.c \
+mbd.fairshare.c mbd.resreq.c elock.c misc.c mail.c daemons.c daemons.xdr.c mbd.query.c mbd.shm.c \
 mbd.h daemonout.h daemons.h jgrp.h proxy.h mbd.profcnt.def mbd.fairshare.h
 
 mbatchd_LDADD = ../lib/liblsbatch.a \

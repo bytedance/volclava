@@ -132,7 +132,7 @@ b_read_fix(int s, char *buf, int len)
 
     return(length);
 } 
-
+
 int
 b_write_fix(int s, char *buf, int len)
 {
@@ -144,7 +144,7 @@ b_write_fix(int s, char *buf, int len)
         if ((cc = write(s, buf, len)) > 0) {
             len -= cc;
             buf += cc;
-        } else if (cc < 0 && errno != EINTR) {
+        } else if (cc < 0 && errno != EINTR && errno != EAGAIN && errno != EWOULDBLOCK) {
 	    lserrno = LSE_SOCK_SYS;
             return (-1);
         }
@@ -365,3 +365,65 @@ nb_read_timeout(int s, char *buf, int len, int timeout)
     return (length);
 
 } 
+
+/*
+ * Write data to a socket with a timeout using non-blocking loop writes
+ * Repeatedly attempts to write until all data is sent or the timeout expires.
+ * Uses direct loop writing instead of poll for higher efficiency in practice
+ * @param[in] s: Socket file descriptor
+ * @param[in] buf: Buffer containing data to write
+ * @param[in] len: Number of bytes to write
+ * @param[in] timeout: Timeout in seconds for the write operation
+ * @return: Total bytes written on success, -1 on failure or timeout
+ */
+int nb_write_timeout(int s, char* buf, int len, int timeout) {
+    if (buf == NULL || len <= 0 || timeout < 0) {
+        lserrno = LSE_SOCK_SYS;
+        return -1;
+    }
+    static struct timespec sleepTime = {.tv_sec = 0, .tv_nsec = 1000 * 1000};
+    int totalSent = 0;
+    struct timeval start;
+    struct timeval now;
+    long long elapsedUs, timeoutUs;
+    timeoutUs = timeout * 1000000;
+
+    gettimeofday(&start, NULL);
+    /* Tests have shown that directly looping write operations is more efficient 
+     * than using poll to check if the socket is writable each time before writing. 
+     * Therefore, we directly use loop writing
+     */
+    while (totalSent < len) {
+        ssize_t cc = write(s, buf + totalSent, len - totalSent);
+
+        if (cc > 0) {
+            totalSent += cc;
+            continue;
+        } else if (cc == -1) {
+            if (errno == EINTR) {
+                continue;
+            } else if (errno != EAGAIN && errno != EWOULDBLOCK) {
+                lserrno = LSE_SOCK_SYS;
+                return -1;
+            }
+        } else {
+            lserrno = LSE_MSG_SYS;
+            errno = ECONNRESET;
+            return -1;
+        }
+
+        gettimeofday(&now, NULL);
+        elapsedUs = US_DIFF(start, now);
+        if (elapsedUs >= timeoutUs) {
+            lserrno = LSE_TIME_OUT;
+            return -1;
+        }
+        nanosleep(&sleepTime, NULL);
+    }
+    if (totalSent < len) {
+        lserrno = LSE_SOCK_SYS;
+        return -1;
+    }
+
+    return totalSent;
+}

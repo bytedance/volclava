@@ -163,14 +163,17 @@ static struct jData *jobData = NULL;
 static time_t lastSchedTime = 0;
 static time_t nextSchedTime = 0;
 
+static time_t qmbdStartedTime = 0; /* Time when the current query mbd was forked */
+static int jobInfoChanged = 0;
+
 void setJobPriUpdIntvl(void);
 static void updateJobPriorityInPJL(void);
 static void houseKeeping (int *);
 static void periodicCheck (void);
-static int authRequest(struct lsfAuth *, XDR *, struct LSFHeader *,
+int authRequest(struct lsfAuth *, XDR *, struct LSFHeader *,
                        struct sockaddr_in *, struct sockaddr_in *,
                        char *, int);
-static int processClient(struct clientNode *, int *);
+int processClient(struct clientNode *, int *);
 
 static void clientIO();
 static int forkOnRequest(mbdReqType);
@@ -187,7 +190,74 @@ extern int do_setJobAttr(XDR *, int, struct sockaddr_in *, char *,
                          struct LSFHeader *, struct lsfAuth *);
 extern void chanCloseAllBut_(int);
 extern int initLimSock_(void);
+short qmbd_port;                                        /* Port of the query mbd process */
+int isQmbd = 0;                                         /* Flag indicating if the current process is query mbd */
+int qmbdAliveTime = DEF_QMBD_ALIVE_TIME;                /* Lifetime (in seconds) of the query mbd process */
+long long syncShmSize = DEF_QMBD_SYNC_SHM_SIZE_MB;
+long long syncShmXdrBufferSize;
+long long syncShmJobNameBufferSize;
+int syncShmJobCapacity;
+int syncNewJobs = 1;
+int qmbdListenSock = -1;    /* Listening socket reserved by the main mbd for qmbd */
+int qmbdPipe[2] = {-1, -1};   /* Pipe for communication between main mbd and query mbd [0]=read, [1]=write */
+struct syncJobShm *shm = NULL;
+static int qmbdCtlChfd = -1;
+static int qmbdIsAlive = 0;   /* Flag indicating if any query mbd process is alive */
+static pid_t qmbdPid = 0;     /* PID corresponding to qmbd */
+static int processQmbd();
+static int initQmbdListenSock(void);
+static void shmInit();
+static int createShmCleanerThread();
+static void *shmCleaner(void *arg);
+static void initDaemonParams(void);
 
+/*
+ * Validate and return a numeric parameter value within a specified range
+ * If the value is NULL, non-numeric, or out of range, returns the default value
+ * and logs an error message
+ * @param[in] func: Name of the calling function (for logging)
+ * @param[in] paramName: Name of the parameter (for logging)
+ * @param[in] paramValue: String representation of the parameter value
+ * @param[in] minValue: Minimum allowed value
+ * @param[in] maxValue: Maximum allowed value
+ * @param[in] defaultValue: Default value to use on validation failure
+ * @return: Validated integer value, or defaultValue on failure
+ */
+int
+getValidatedNumericParam(const char *func,
+                         char *paramName,
+                         char *paramValue,
+                         int minValue,
+                         int maxValue,
+                         int defaultValue)
+{
+    int value;
+
+    if (paramValue == NULL) {
+        return defaultValue;
+    }
+
+    if (!isint_(paramValue)) {
+        ls_syslog(LOG_ERR,
+                  "%s: Invalid %s=%s, using default %d",
+                  func, paramName, paramValue, defaultValue);
+        if (lsb_CheckMode)
+            lsb_CheckError = WARNING_ERR;
+        return defaultValue;
+    }
+
+    value = atoi(paramValue);
+    if (value < minValue || value > maxValue) {
+        ls_syslog(LOG_ERR,
+                  "%s: Invalid %s=%s, valid range is [%d,%d], using default %d",
+                  func, paramName, paramValue, minValue, maxValue, defaultValue);
+        if (lsb_CheckMode)
+            lsb_CheckError = WARNING_ERR;
+        return defaultValue;
+    }
+
+    return value;
+}
 
 int
 main (int argc, char **argv)
@@ -269,72 +339,7 @@ main (int argc, char **argv)
     if (logclass)
         ls_syslog(LOG_DEBUG, "%s: logclass=%x", __func__, logclass);
 
-
-    if (isint_(daemonParams[LSB_MBD_CONNTIMEOUT].paramValue))
-        connTimeout = atoi(daemonParams[LSB_MBD_CONNTIMEOUT].paramValue);
-    else
-        connTimeout = 5;
-
-    glMigToPendFlag = FALSE;
-
-    if (isint_(daemonParams[LSB_MBD_MIGTOPEND].paramValue))
-        if (atoi(daemonParams[LSB_MBD_MIGTOPEND].paramValue) != 0)
-            glMigToPendFlag = TRUE;
-
-    if (isint_(daemonParams[LSB_MIG2PEND].paramValue)) {
-        if (atoi(daemonParams[LSB_MIG2PEND].paramValue) != 0) {
-            glMigToPendFlag = TRUE;
-        }
-    }
-
-    if (isint_(daemonParams[LSB_REQUEUE_TO_BOTTOM].paramValue)) {
-        if (atoi(daemonParams[LSB_REQUEUE_TO_BOTTOM].paramValue) != 0)
-            requeueToBottom = TRUE;
-    }
-
-    if (isint_(daemonParams[LSB_ARRAY_SCHED_ORDER].paramValue)) {
-        if (atoi(daemonParams[LSB_ARRAY_SCHED_ORDER].paramValue) != 0)
-            arraySchedOrder = TRUE;
-    }
-
-    if (daemonParams[LSB_HJOB_PER_SESSION].paramValue != NULL) {
-        if (atoi(daemonParams[LSB_HJOB_PER_SESSION].paramValue) > 0) {
-            maxJobPerSession =
-                atoi(daemonParams[LSB_HJOB_PER_SESSION].paramValue);
-        } else {
-            ls_syslog(LOG_ERR, "\
-%s: Invalid LSB_HJOB_PER_SESSION %s ignored",
-                      __func__,
-                      daemonParams[LSB_HJOB_PER_SESSION].paramValue);
-        }
-    }
-
-    if ((daemonParams[LSB_MOD_ALL_JOBS].paramValue != NULL)
-        && (strcasecmp(daemonParams[LSB_MOD_ALL_JOBS].paramValue, "y") == 0
-            || strcasecmp(
-                daemonParams[LSB_MOD_ALL_JOBS].paramValue, "yes") == 0)) {
-        lsbModifyAllJobs = TRUE;
-    }
-
-    if (daemonParams[LSB_PTILE_PACK].paramValue != NULL
-        && (strcasecmp(daemonParams[LSB_PTILE_PACK].paramValue, "y") == 0)) {
-
-
-        setLsbPtilePack(TRUE);
-    }
-
-    if (daemonParams[LSF_UNIT_FOR_LIMITS].paramValue != NULL) {
-
-        strToUpper_(daemonParams[LSF_UNIT_FOR_LIMITS].paramValue);
-
-        unitForLimits = setUnitForLimits(daemonParams[LSF_UNIT_FOR_LIMITS].paramValue);
-
-    }
-
-    if (daemonParams[LSB_PACK_SKIP_ERROR].paramValue != NULL
-        && (strcasecmp(daemonParams[LSB_PACK_SKIP_ERROR].paramValue, "y") == 0)) {
-        packSkipErrFlag = TRUE;
-    }
+    initDaemonParams();
 
     daemon_doinit();
 
@@ -419,11 +424,26 @@ main (int argc, char **argv)
     lastElockTouch = time(0) - msleeptime;
     schedulerInit();
     setJobPriUpdIntvl();
+    if(syncNewJobs)
+        shmInit();
+    if (qmbd_port && initQmbdListenSock() < 0) {
+        ls_syslog(LOG_ERR, "%s: cannot initialize query mbd listening socket", __func__);
+    }
     for (;;) {
         int maxfd;
+        time_t qmbdElapsedTime = 0;
 
         maxfd = sysconf(_SC_OPEN_MAX);
         now = time(0);
+        if (qmbdStartedTime > 0) {
+            qmbdElapsedTime = now - qmbdStartedTime;
+        }
+        if (qmbd_port && (qmbdIsAlive == 0
+            || qmbdElapsedTime >= qmbdAliveTime
+            || (jobInfoChanged && qmbdElapsedTime >= DEF_QMBD_ALIVE_TIME))) {
+            ls_syslog(LOG_DEBUG,"%s: re-fork query mbd",__func__);
+            processQmbd();
+        }
 
         if ( (now - lastSchedTime >= msleeptime)
              || (now >= nextSchedTime) ) {
@@ -479,8 +499,17 @@ main (int argc, char **argv)
         timeout.tv_sec  = 0;
         timeout.tv_usec = 0;
 
-        if (chanEventsReady(batchSock, EPOLL_EVENT_READ)) {
+        if(chanEventsReady(batchSock, EPOLL_EVENT_READ)){
             acceptConnection(batchSock);
+        }
+
+        /*
+         * If the query mbd child process exits abnormally, the write end of the pipe will trigger the EPOLLERR event.
+         * After detecting this event, the query mbd process will be restarted.
+         */
+        if (qmbd_port && chanEventsReady(qmbdCtlChfd, EPOLL_EVENT_ERROR)) {
+            ls_syslog(LOG_WARNING, "query mbd exited unexpectedly");
+            qmbdIsAlive = 0;
         }
 
         clientIO();
@@ -540,6 +569,14 @@ acceptConnection(int socket)
               __func__, client->fromHost, client->chanfd);
 }
 
+/*
+ * Dispatch I/O events for all connected clients and sbd daemons
+ * Iterates over sbd nodes and client nodes, checks for ready events
+ * (read/error) via chanEventsReady, and processes them accordingly:
+ *   - For sbd nodes: calls processSbdNode
+ *   - For client nodes with errors: shuts down the client
+ *   - For client nodes with read events: calls processClient
+ */
 static void
 clientIO()
 {
@@ -596,7 +633,16 @@ clientIO()
     }
 }
 
-static int
+/*
+ * Process a single client request
+ * Reads the request from the client channel, decodes the XDR header,
+ * authenticates the client, and dispatches the request to the appropriate
+ * handler based on the opcode. May fork a child process for certain request types
+ * @param[in] client: Pointer to the client node
+ * @param[out] needFree: Set to TRUE if the client should be freed after processing
+ * @return: 0 on success, -1 on failure
+ */
+int
 processClient(struct clientNode *client, int *needFree)
 {
     static char          fname[]="processClient()";
@@ -719,11 +765,13 @@ processClient(struct clientNode *client, int *needFree)
             TIMEIT(0, do_submitReq(&xdrs, s, &from, client->fromHost, &reqHdr, &laddr, &auth, &schedule1, dispatch, &jobData), "do_submitReq()");
             setNextSchedTimeUponNewJob(jobData);
             statusChanged = 1;
+            jobInfoChanged = 1;
             break;
 
          case BATCH_JOB_SUB_PACK:
             TIMEIT(0, do_submitPackReq(&xdrs, s, &from, client->fromHost, &reqHdr, &auth, &schedule1, dispatch), "do_submitPackReq()");
             statusChanged = 1;
+            jobInfoChanged = 1;
             break;
 
         case BATCH_JOB_SIG:
@@ -1022,13 +1070,13 @@ periodicCheck(void)
     if ((now - last_hostInfoRefreshTime > 10 * 60) || fastUpdHostInfo) {
         getLsbHostInfo();
         last_hostInfoRefreshTime = now;
-        if (fastUpdHostInfo) {
+    if (fastUpdHostInfo) {
             if (logclass & LC_COMM) {
                  ls_syslog(LOG_DEBUG, "%s: Some hosts need updating their static host information. Fetch it from the LIM.", __func__);
-            }
+}
         }
         fastUpdHostInfo = 0;
-    }
+            }
 }
 
 void
@@ -1067,7 +1115,20 @@ child_handler (int sig)
 }
 
 
-static int
+/*
+ * Authenticate an incoming client request
+ * For write-type operations (submit, signal, queue control, etc.), verifies
+ * the client's authentication credentials using LSF authentication mechanism
+ * @param[in,out] auth: Pointer to lsfAuth structure to store authentication info
+ * @param[in] xdrs: XDR stream for decoding the auth data
+ * @param[in] reqHdr: Request header containing the operation code
+ * @param[in] from: Client's socket address
+ * @param[in] local: Local socket address
+ * @param[in] hostName: Client's hostname
+ * @param[in] s: Socket file descriptor
+ * @return: LSBE_NO_ERROR on success, or an LSF error code on failure
+ */
+int
 authRequest(struct lsfAuth *auth,
             XDR *xdrs,
             struct LSFHeader *reqHdr,
@@ -1333,5 +1394,348 @@ updateJobPriorityInPJL(void)
          jp != jDataList[PJL]; jp = jp->forw) {
         unsigned int newVal = jp->jobPriority + priority;
         jp->jobPriority = MIN(newVal, (unsigned int)MAX_JOB_PRIORITY);
+    }
+}
+
+/* 
+ *If the survival time of query mbd is exceeded, notify query mbd by close pipe,
+ * and fork query mbd again.
+ */
+static int processQmbd() {
+    if (initQmbdListenSock() < 0) {
+        return -1;
+    }
+    if(qmbdPipe[0] >= 0){
+        close(qmbdPipe[0]);
+        qmbdPipe[0] = -1;
+    }
+    /*
+     *Since the write-side file descriptor is registered with the channel and epoll, 
+     *it is necessary to call chanClose to unregister it.
+     */
+    if(qmbdPipe[1] >= 0){
+        chanClose_(qmbdCtlChfd);
+        qmbdCtlChfd = -1;
+        qmbdPipe[1] = -1;
+    }
+    if(pipe(qmbdPipe) < 0){
+        ls_syslog(LOG_ERR,"%s: create pipe for qmbd failed %m",__func__);
+        return -1;
+    }
+    if((qmbdCtlChfd = chanOpenSock_(qmbdPipe[1], CHAN_OP_NONBLOCK)) < 0){
+        ls_syslog(LOG_ERR, "%s: bind sokcet %d to channel failed:%m", __func__, qmbdPipe[1]);
+        return -1;
+    }
+    if(chanRegisterEpoll_(qmbdCtlChfd, EPOLLERR|EPOLLHUP) < 0){
+        ls_syslog(LOG_ERR, "%s: chanRegisterEpoll_() failed", __func__);
+        return -1;
+    }
+    
+    if(startQueryDaemon(&qmbdPid) < 0){
+        ls_syslog(LOG_ERR, "%s: query mbd start failed %m", __func__);
+        return -1;
+    }
+    qmbdIsAlive = 1;
+    qmbdStartedTime = time(0);
+    jobInfoChanged = 0;
+    return 0;
+}
+
+/*
+ * Initialize the qmbd listen socket
+ * Creates a TCP socket, sets SO_REUSEADDR, binds to the qmbd port,
+ * and starts listening for incoming connections.
+ * Note: This function only creates and binds the listen socket;
+ * it does NOT call accept(). The actual accept of incoming connections
+ * happens later in the query mbd (qmbd) process after fork
+ * @return: 0 on success, -1 on failure
+ */
+static int
+initQmbdListenSock(void)
+{
+    struct sockaddr_in sin;
+    int logLevel;
+    int one = 1;
+
+    if (qmbdListenSock >= 0) {
+        return 0;
+    }
+
+    qmbdListenSock = socket(AF_INET, SOCK_STREAM, 0);
+    if (qmbdListenSock < 0) {
+        ls_syslog(LOG_ERR, "%s: socket() failed for qmbd listen socket %m", __func__);
+        return -1;
+    }
+
+    setsockopt(qmbdListenSock, SOL_SOCKET, SO_REUSEADDR,
+               (char *)&one, sizeof(one));
+
+    memset((char *)&sin, 0, sizeof(sin));
+    sin.sin_family = AF_INET;
+    sin.sin_port = qmbd_port;
+    sin.sin_addr.s_addr = htonl(INADDR_ANY);
+
+    if (bind(qmbdListenSock, (struct sockaddr *)&sin, sizeof(sin)) < 0) {
+        logLevel = (errno == EADDRINUSE) ? LOG_DEBUG : LOG_ERR;
+        ls_syslog(logLevel, "%s: bind() failed for qmbd listen socket %m", __func__);
+        close(qmbdListenSock);
+        qmbdListenSock = -1;
+        return -1;
+    }
+
+    if (listen(qmbdListenSock, 1024) < 0) {
+        ls_syslog(LOG_ERR, "%s: listen() failed for qmbd listen socket %m", __func__);
+        close(qmbdListenSock);
+        qmbdListenSock = -1;
+        return -1;
+    }
+
+    return 0;
+}
+
+static void shmInit(){
+    shm = initSyncShm();
+    if(shm == NULL)
+        mbdDie(MASTER_FATAL);
+    if(createShmCleanerThread() < 0)
+        mbdDie(MASTER_FATAL);
+}
+
+static int createShmCleanerThread(){
+    pthread_t tid;
+    int rc;
+
+    rc = pthread_create(&tid, NULL, shmCleaner, NULL);
+    if (rc != 0) {
+        ls_syslog(LOG_ERR, "%s failed: %s", __func__, strerror(rc));
+        return -1;
+    }
+    pthread_detach(tid);
+    return 0;
+}
+
+void *shmCleaner(void *arg){
+    struct timespec req, rem;
+    while(TRUE){
+        req.tv_sec = 1;
+        req.tv_nsec = 0;
+        while (nanosleep(&req, &rem) == -1 && errno == EINTR) {
+            req = rem;
+        }
+        pruneOldJobs();
+    }
+}
+
+static void
+initDaemonParams(void)
+{
+    if (isint_(daemonParams[LSB_MBD_CONNTIMEOUT].paramValue))
+        connTimeout = atoi(daemonParams[LSB_MBD_CONNTIMEOUT].paramValue);
+    else
+        connTimeout = 5;
+
+    glMigToPendFlag = FALSE;
+
+    if (isint_(daemonParams[LSB_MBD_MIGTOPEND].paramValue))
+        if (atoi(daemonParams[LSB_MBD_MIGTOPEND].paramValue) != 0)
+            glMigToPendFlag = TRUE;
+
+    if (isint_(daemonParams[LSB_MIG2PEND].paramValue)) {
+        if (atoi(daemonParams[LSB_MIG2PEND].paramValue) != 0) {
+            glMigToPendFlag = TRUE;
+        }
+    }
+
+    if (isint_(daemonParams[LSB_REQUEUE_TO_BOTTOM].paramValue)) {
+        if (atoi(daemonParams[LSB_REQUEUE_TO_BOTTOM].paramValue) != 0)
+            requeueToBottom = TRUE;
+    }
+
+    if (isint_(daemonParams[LSB_ARRAY_SCHED_ORDER].paramValue)) {
+        if (atoi(daemonParams[LSB_ARRAY_SCHED_ORDER].paramValue) != 0)
+            arraySchedOrder = TRUE;
+    }
+
+    if (daemonParams[LSB_HJOB_PER_SESSION].paramValue != NULL) {
+        if (atoi(daemonParams[LSB_HJOB_PER_SESSION].paramValue) > 0) {
+            maxJobPerSession =
+                atoi(daemonParams[LSB_HJOB_PER_SESSION].paramValue);
+        } else {
+            ls_syslog(LOG_ERR, "\
+%s: Invalid LSB_HJOB_PER_SESSION %s ignored",
+                      __func__,
+                      daemonParams[LSB_HJOB_PER_SESSION].paramValue);
+        }
+    }
+
+    if ((daemonParams[LSB_MOD_ALL_JOBS].paramValue != NULL)
+        && (strcasecmp(daemonParams[LSB_MOD_ALL_JOBS].paramValue, "y") == 0
+            || strcasecmp(
+                daemonParams[LSB_MOD_ALL_JOBS].paramValue, "yes") == 0)) {
+        lsbModifyAllJobs = TRUE;
+    }
+
+    if (daemonParams[LSB_PTILE_PACK].paramValue != NULL
+        && (strcasecmp(daemonParams[LSB_PTILE_PACK].paramValue, "y") == 0)) {
+        setLsbPtilePack(TRUE);
+    }
+
+    if (daemonParams[LSF_UNIT_FOR_LIMITS].paramValue != NULL) {
+        strToUpper_(daemonParams[LSF_UNIT_FOR_LIMITS].paramValue);
+        unitForLimits = setUnitForLimits(daemonParams[LSF_UNIT_FOR_LIMITS].paramValue);
+    }
+
+    if (daemonParams[LSB_PACK_SKIP_ERROR].paramValue != NULL
+        && (strcasecmp(daemonParams[LSB_PACK_SKIP_ERROR].paramValue, "y") == 0)) {
+        packSkipErrFlag = TRUE;
+    }
+
+    int qmbdPortValue = getValidatedNumericParam(__func__,
+                                                    "LSB_QMBD_PORT",
+                                                    daemonParams[LSB_QMBD_PORT].paramValue,
+                                                    LSB_CONF_PORT_MIN,
+                                                    LSB_CONF_PORT_MAX,
+                                                    0);
+    if (qmbdPortValue > 0) {
+        qmbd_port = htons((ushort)qmbdPortValue);
+    }
+
+    if (qmbd_port == 0) {
+        if (daemonParams[LSB_QMBD_ALIVE_TIME].paramValue != NULL) {
+            ls_syslog(LOG_WARNING,
+                      "%s: LSB_QMBD_ALIVE_TIME is set but LSB_QMBD_PORT is not enabled, ignored",
+                      __func__);
+            if (lsb_CheckMode)
+                lsb_CheckError = WARNING_ERR;
+        }
+        if (daemonParams[LSB_QMBD_THREAD_NUM].paramValue != NULL) {
+            ls_syslog(LOG_WARNING,
+                      "%s: LSB_QMBD_THREAD_NUM is set but LSB_QMBD_PORT is not enabled, ignored",
+                      __func__);
+            if (lsb_CheckMode)
+                lsb_CheckError = WARNING_ERR;
+        }
+        if (daemonParams[LSB_QMBD_MAX_TASK_NUM].paramValue != NULL) {
+            ls_syslog(LOG_WARNING,
+                      "%s: LSB_QMBD_MAX_TASK_NUM is set but LSB_QMBD_PORT is not enabled, ignored",
+                      __func__);
+            if (lsb_CheckMode)
+                lsb_CheckError = WARNING_ERR;
+        }
+        if (daemonParams[LSB_QMBD_SYNC_NEW_JOBS].paramValue != NULL) {
+            ls_syslog(LOG_WARNING,
+                      "%s: LSB_QMBD_SYNC_NEW_JOBS is set but LSB_QMBD_PORT is not enabled, ignored",
+                      __func__);
+            if (lsb_CheckMode)
+                lsb_CheckError = WARNING_ERR;
+        }
+        if (daemonParams[LSB_QMBD_SYNC_SHM_SIZE].paramValue != NULL) {
+            ls_syslog(LOG_WARNING,
+                      "%s: LSB_QMBD_SYNC_SHM_SIZE is set but LSB_QMBD_PORT is not enabled, ignored",
+                      __func__);
+            if (lsb_CheckMode)
+                lsb_CheckError = WARNING_ERR;
+        }
+        return;
+    }
+
+    if (daemonParams[LSB_QMBD_ALIVE_TIME].paramValue != NULL) {
+        qmbdAliveTime = getValidatedNumericParam(__func__,
+                                                 "LSB_QMBD_ALIVE_TIME",
+                                                 daemonParams[LSB_QMBD_ALIVE_TIME].paramValue,
+                                                 MIN_QMBD_ALIVE_TIME,
+                                                 MAX_QMBD_ALIVE_TIME,
+                                                 DEF_QMBD_ALIVE_TIME);
+    } else {
+        ls_syslog(LOG_INFO,
+                  "%s: LSB_QMBD_ALIVE_TIME not set, using default %d",
+                  __func__, DEF_QMBD_ALIVE_TIME);
+    }
+
+    if (daemonParams[LSB_QMBD_THREAD_NUM].paramValue != NULL) {
+        qmbdThreadNum = getValidatedNumericParam(__func__,
+                                                 "LSB_QMBD_THREAD_NUM",
+                                                 daemonParams[LSB_QMBD_THREAD_NUM].paramValue,
+                                                 MIN_QMBD_THREAD_NUM,
+                                                 MAX_QMBD_THREAD_NUM,
+                                                 0);
+    }
+    if (qmbdThreadNum == 0) {
+        int cpuCores = sysconf(_SC_NPROCESSORS_ONLN);
+        qmbdThreadNum = cpuCores;
+        if (qmbdThreadNum < MIN_QMBD_THREAD_NUM) {
+            ls_syslog(LOG_WARNING,
+                      "%s: CPU core count %d is below minimum %d, using minimum %d",
+                      __func__, cpuCores, MIN_QMBD_THREAD_NUM, MIN_QMBD_THREAD_NUM);
+            qmbdThreadNum = MIN_QMBD_THREAD_NUM;
+        }
+        if (qmbdThreadNum > MAX_QMBD_THREAD_NUM) {
+            ls_syslog(LOG_WARNING,
+                      "%s: CPU core count %d exceeds maximum %d, using maximum %d",
+                      __func__, cpuCores, MAX_QMBD_THREAD_NUM, MAX_QMBD_THREAD_NUM);
+            qmbdThreadNum = MAX_QMBD_THREAD_NUM;
+        }
+        ls_syslog(LOG_INFO,
+                  "%s: LSB_QMBD_THREAD_NUM not set, using CPU core count %d",
+                  __func__, qmbdThreadNum);
+    }
+
+    if (daemonParams[LSB_QMBD_MAX_TASK_NUM].paramValue != NULL) {
+        qmbdMaxTaskNum = getValidatedNumericParam(__func__,
+                                                  "LSB_QMBD_MAX_TASK_NUM",
+                                                  daemonParams[LSB_QMBD_MAX_TASK_NUM].paramValue,
+                                                  MIN_QMBD_MAX_TASK_NUM,
+                                                  MAX_QMBD_MAX_TASK_NUM,
+                                                  DEF_QMBD_MAX_TASK_NUM);
+    } else {
+        ls_syslog(LOG_INFO,
+                  "%s: LSB_QMBD_MAX_TASK_NUM not set, using default %d",
+                  __func__, DEF_QMBD_MAX_TASK_NUM);
+    }
+
+    if ((daemonParams[LSB_QMBD_SYNC_NEW_JOBS].paramValue != NULL)
+        && (strcasecmp(daemonParams[LSB_QMBD_SYNC_NEW_JOBS].paramValue, "n") == 0
+            || strcasecmp(
+                daemonParams[LSB_QMBD_SYNC_NEW_JOBS].paramValue, "no") == 0)) {
+        syncNewJobs = 0;
+    } else if (daemonParams[LSB_QMBD_SYNC_NEW_JOBS].paramValue != NULL
+               && strcasecmp(daemonParams[LSB_QMBD_SYNC_NEW_JOBS].paramValue, "y") != 0
+               && strcasecmp(daemonParams[LSB_QMBD_SYNC_NEW_JOBS].paramValue, "yes") != 0) {
+        ls_syslog(LOG_ERR,
+                  "%s: Invalid LSB_QMBD_SYNC_NEW_JOBS=%s, valid values are y/yes/n/no, using default y",
+                  __func__, daemonParams[LSB_QMBD_SYNC_NEW_JOBS].paramValue);
+        if (lsb_CheckMode)
+            lsb_CheckError = WARNING_ERR;
+    } else if (daemonParams[LSB_QMBD_SYNC_NEW_JOBS].paramValue == NULL) {
+        ls_syslog(LOG_INFO,
+                  "%s: LSB_QMBD_SYNC_NEW_JOBS not set, using default y",
+                  __func__);
+    }
+
+    if (syncNewJobs) {
+        if (daemonParams[LSB_QMBD_SYNC_SHM_SIZE].paramValue != NULL) {
+            syncShmSize = getValidatedNumericParam(__func__,
+                                                   "LSB_QMBD_SYNC_SHM_SIZE",
+                                                   daemonParams[LSB_QMBD_SYNC_SHM_SIZE].paramValue,
+                                                   MIN_QMBD_SYNC_SHM_SIZE_MB,
+                                                   MAX_QMBD_SYNC_SHM_SIZE_MB,
+                                                   DEF_QMBD_SYNC_SHM_SIZE_MB);
+        } else {
+            ls_syslog(LOG_INFO,
+                      "%s: LSB_QMBD_SYNC_SHM_SIZE not set, using default %d",
+                      __func__, DEF_QMBD_SYNC_SHM_SIZE_MB);
+        }
+        syncShmSize = syncShmSize * 1024 * 1024;
+        syncShmJobCapacity = syncShmSize / 1024 / 10;
+        syncShmJobNameBufferSize = syncShmSize / 8;
+        syncShmXdrBufferSize = syncShmSize - syncShmJobNameBufferSize - syncShmJobCapacity * sizeof(struct jobMetaData);
+    } else {
+        if (daemonParams[LSB_QMBD_SYNC_SHM_SIZE].paramValue != NULL) {
+            ls_syslog(LOG_WARNING,
+                      "%s: LSB_QMBD_SYNC_SHM_SIZE is set but LSB_QMBD_SYNC_NEW_JOBS is disabled, ignored",
+                      __func__);
+            if (lsb_CheckMode)
+                lsb_CheckError = WARNING_ERR;
+        }
     }
 }

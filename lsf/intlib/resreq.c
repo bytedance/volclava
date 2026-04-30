@@ -18,7 +18,7 @@
  */
 
 #include "intlibout.h"
-
+#include <pthread.h> 
 struct sections {
     char   *select;
     char   *order;
@@ -208,6 +208,10 @@ getKeyEntry(char *key)
     return(*x);
 }
 
+/* 
+ * Thread-safety issues occur when processing hosts -R requests in a multi-threaded environment;
+ * we resolve this by adding a lock mechanism.
+ */
 int
 parseResReq(char *resReq,
             struct resVal *resVal,
@@ -218,7 +222,9 @@ parseResReq(char *resReq,
     static char       fname[] = "parseResReq()";
     int               cc;
     struct sections   reqSect;
-
+    static pthread_mutex_t parseMutex = PTHREAD_MUTEX_INITIALIZER;
+    pthread_mutex_lock(&parseMutex);
+    
     if (logclass & (LC_TRACE | LC_SCHED))
         ls_syslog(LOG_DEBUG3, "%s: resReq=%s", fname, resReq);
 
@@ -228,11 +234,15 @@ parseResReq(char *resReq,
                  resVal->selectStrSize,
                  MAX(3*strlen(resReq) + 1, MAXLINELEN + MAXLSFNAMELEN));
 
-    if ((cc = parseSection(resReq, &reqSect)) != PARSE_OK)
+    if ((cc = parseSection(resReq, &reqSect)) != PARSE_OK){
+        pthread_mutex_unlock(&parseMutex);
         return(cc);
+    }
 
-    if ((cc = setDefaults(resVal, lsInfo, options)) < 0)
+    if ((cc = setDefaults(resVal, lsInfo, options)) < 0){
+        pthread_mutex_unlock(&parseMutex);
         return (cc);
+    }
 
     if (options & PR_SELECT) {
 
@@ -242,47 +252,59 @@ parseResReq(char *resReq,
                                   lsInfo,
                                   TRUE,
                                   options,
-                                  unitForLimits)) != PARSE_OK)
+                                  unitForLimits)) != PARSE_OK){
+                pthread_mutex_unlock(&parseMutex);
                 return(cc);
+            }
         } else {
             if ((cc = parseSelect(reqSect.select,
                                   resVal,
                                   lsInfo,
                                   FALSE,
                                   options,
-                                  unitForLimits)) != PARSE_OK)
+                                  unitForLimits)) != PARSE_OK){
+                pthread_mutex_unlock(&parseMutex);
                 return(cc);
         }
+	}
     }
 
     if (options & PR_ORDER) {
         if ((cc = parseOrder(reqSect.order,
                              resVal,
-                             lsInfo)) != PARSE_OK)
+                             lsInfo)) != PARSE_OK){
+            pthread_mutex_unlock(&parseMutex);
             return(cc);
+        }
     }
 
     if (options & PR_RUSAGE) {
         if ((cc = parseUsage(reqSect.rusage,
                              resVal,
                              lsInfo,
-                             unitForLimits)) != PARSE_OK)
+                             unitForLimits)) != PARSE_OK){
+            pthread_mutex_unlock(&parseMutex);
             return(cc);
+        }
     }
 
     if (options & PR_FILTER) {
         if ((cc = parseFilter(reqSect.filter,
                               resVal,
-                              lsInfo)) != PARSE_OK)
+                              lsInfo)) != PARSE_OK){
+            pthread_mutex_unlock(&parseMutex);
             return(cc);
+        }
     }
 
     if (options & PR_SPAN) {
         if ((cc = parseSpan(reqSect.span,
-                            resVal)) != PARSE_OK)
+                            resVal)) != PARSE_OK){
+            pthread_mutex_unlock(&parseMutex);
             return(cc);
+        }
     }
-
+    pthread_mutex_unlock(&parseMutex);
     return(PARSE_OK);
 }
 

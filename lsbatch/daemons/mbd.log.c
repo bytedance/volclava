@@ -668,10 +668,6 @@ replay_startjob(char *filename, int lineNum, int preExecStart)
         updHostLeftRusageMem(jp, -1);
     }
 
-    if (jp->shared->jobBill.options & SUB_EXCLUSIVE)
-        for (i = 0; i < jp->numHostPtr; i ++)
-            jp->hPtr[i]->hStatus |= HOST_STAT_EXCLUSIVE;
-
     if (preExecStart)
         jp->jStatus |= JOB_STAT_PRE_EXEC;
 
@@ -2394,8 +2390,10 @@ logFinishedjob(struct jData *job)
 void
 switchELog (void)
 {
+    int ret = 0;
     if (numRemoveJobs >= maxjobnum) {
-        if (switch_log() == 0)
+        ret = switch_log();
+        if (ret == 0)
             numRemoveJobs = 0;
         else
             numRemoveJobs = maxjobnum / 2;
@@ -2501,6 +2499,7 @@ int
 switch_log(void)
 {
     static char fname[] = "switch_log";
+    static pid_t            eventIndexRebuildPid = 0;
     char                    tmpfn[MAXFILENAMELEN];
     int                     i, lineNum = 0, errnoSv;
     LS_LONG_INT             jobId = 0;
@@ -2510,7 +2509,15 @@ switch_log(void)
     long                   pos;
     int                    preserved = FALSE;
     int                    totalEventFile;
-
+    char                   indexFile[MAXFILENAMELEN];
+    /*
+     * When switch_log is triggered frequently, multiple child processes may simultaneously read and write lsb.event.index. 
+     * It is necessary to ensure that only one child process operates on this index file at any given time.
+     */
+    if (eventIndexRebuildPid != 0 && kill(eventIndexRebuildPid, 0) == 0) {
+        ls_syslog(LOG_DEBUG, "%s: event index rebuild pid=%d still running", __func__, (int)eventIndexRebuildPid);
+        return -2;
+    }
     sprintf(tmpfn, "%s/logdir/lsb.events",
             daemonParams[LSB_SHAREDIR].paramValue);
 
@@ -2743,11 +2750,10 @@ switch_log(void)
         log_logSwitch(nextJobId_t);
     else
         log_logSwitch(nextJobId);
-
     if ((totalEventFile = renameElogFiles()) > 0)  {
-
-        if (fork() == 0) {
-            char  indexFile[MAXFILENAMELEN];
+        eventIndexRebuildPid = fork();
+        if (eventIndexRebuildPid == 0) {
+            closeExceptFD(-1);
 
             sprintf(indexFile, "%s/logdir/%s",
                     daemonParams[LSB_SHAREDIR].paramValue,

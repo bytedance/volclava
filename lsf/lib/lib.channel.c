@@ -32,7 +32,7 @@
 #define NL_SETN   23
 #define EPOLL_EVENT_MAX_SIZE 2048
 
-#define CLOSEIT(i) {                                    \
+#define CLOSEIT(i) {                                    \                                      
         CLOSESOCKET(channels[i].handle);                \
         channels[i].state = CH_DISC;                    \
         channels[i].readyEvents = EPOLL_EVENT_NONE;     \
@@ -371,7 +371,6 @@ chanSendDgram_(int chfd, char *buf, int len, struct sockaddr_in *peer)
 
     if (SOCK_CALL_FAIL(cc)) {
         lserrno = LSE_MSG_SYS;
-        printf("send or sendto error");
         return(-1);
     }
 
@@ -585,6 +584,36 @@ chanOpenSock_(int s, int options)
 }
 
 /*
+ * Open a passive socket channel for incoming connections
+ * This function initializes a channel for a passive socket (listening socket)
+ * @param[in] s: Socket file descriptor to associate with the channel
+ * @param[in] options: Channel options (e.g., CHAN_OP_NONBLOCK)
+ * @return: Channel index on success, -1 on failure
+ */
+int
+chanOpenPassiveSock_(int s, int options)
+{
+    int i;
+
+    if ((i = findAFreeChannel()) < 0) {
+        lserrno = LSE_NO_CHAN;
+        return(-1);
+    }
+
+    if ((options & CHAN_OP_NONBLOCK) &&
+        (io_nonblock_(s) < 0)) {
+        lserrno = LSE_SOCK_SYS;
+        return(-1);
+    }
+
+    channels[i].type = CH_TYPE_PASSIVE;
+    channels[i].handle = s;
+    channels[i].state = CH_WAIT;
+
+    return(i);
+}
+
+/*
  * Close a channel and release associated resources
  * 1. Unregister the channel from epoll (if epoll is initialized)
  * 2. Close socket
@@ -622,8 +651,7 @@ chanClose_(int chfd)
         for (buf = channels[chfd].send->forw;
              buf != channels[chfd].send; buf = nextbuf) {
             nextbuf = buf->forw;
-            if(buf->freeDataAfterSend == TRUE)
-                FREEUP(buf->data);
+            FREEUP(buf->data);
             FREEUP(buf);
         }
     }
@@ -667,6 +695,17 @@ chanCloseAllBut_(int chfd)
             chanClose_(i);
 }
 
+/*
+ * Poll and dispatch epoll events on registered channels
+ * This function waits for epoll events, then dispatches them:
+ *   - For connected channels with buffers: performs read/write via doreadEpoll/dowriteEpoll
+ *   - For pre-connect channels: transitions state to CH_CONN and allocates buffers
+ *   - For listening/UDP channels: marks ready events without I/O
+ * Finally returns indices of channels with readable or error events
+ * @param[out] readyfds: Pointer to array storing indices of ready channels
+ * @param[in] timeout: Maximum time to wait for events (NULL for infinite timeout)
+ * @return: Number of ready channels on success, 0 on timeout, -1 on error
+ */
 int
 chanEpoll_(int **readyfds, struct timeval *timeout)
 {
@@ -744,7 +783,7 @@ chanEpoll_(int **readyfds, struct timeval *timeout)
             }
             if (epoll_events[i].events & EPOLLOUT)
                 channels[chfd].readyEvents |= EPOLL_EVENT_WRITE;
-            if (epoll_events[i].events & (EPOLLERR)){
+            if (epoll_events[i].events & EPOLLERR){
                 channels[chfd].readyEvents |= EPOLL_EVENT_ERROR;
                 addToReady = 1;
             }
@@ -988,6 +1027,24 @@ chanRead_(int chfd, char *buf, int len)
     return (b_read_fix(channels[chfd].handle, buf, len));
 
 }
+
+/*
+ * Write data to a channel with a timeout
+ * Wrapper around nb_write_timeout that writes to the underlying socket
+ * of the specified channel descriptor
+ * @param[in] chfd: Channel file descriptor
+ * @param[in] buf: Buffer containing data to write
+ * @param[in] len: Number of bytes to write
+ * @param[in] timeout: Timeout in seconds for the write operation
+ * @return: Number of bytes written on success, -1 on failure
+ */
+int
+chanWriteNonBlock_(int chfd, char *buf, int len, int timeout)
+{
+
+    return (nb_write_timeout(channels[chfd].handle, buf, len, timeout));
+}
+
 
 int
 chanWrite_(int chfd, char *buf, int len)
@@ -1236,6 +1293,11 @@ doread(int chfd, struct Masks *chanmask)
 }
 
 
+/*
+ * Handle read operations for a channel in epoll mode
+ * This function processes incoming data from a channel using epoll event notification
+ * @param[in] chfd: Channel index to read from
+ */
 static void
 doreadEpoll(int chfd)
 {
@@ -1352,13 +1414,17 @@ dowrite(int chfd, struct Masks *chanmask)
     sendbuf->pos += cc;
     if (sendbuf->pos == sendbuf->len) {
         dequeue_(sendbuf);
-        if(sendbuf->freeDataAfterSend == TRUE)
-            free(sendbuf->data);
+        free(sendbuf->data);
         free(sendbuf);
     }
     return;
 }
 
+/*
+ * Handle write operations for a channel in epoll mode
+ * This function sends data from a channel's send buffer using epoll event notification
+ * @param[in] chfd: Channel index to write to
+ */
 static void
 dowriteEpoll(int chfd)
 {
@@ -1389,8 +1455,7 @@ dowriteEpoll(int chfd)
 
     if (sendbuf->pos == sendbuf->len) {
         dequeue_(sendbuf);
-        if(sendbuf->freeDataAfterSend)
-            free(sendbuf->data);
+        free(sendbuf->data);
         free(sendbuf);
     }
     /*When the sendbuf becomes empty, the listener for the writable event should be removed.*/
@@ -1414,7 +1479,6 @@ newBuf(void)
     newbuf->len  = newbuf->pos = 0;
     newbuf->data = NULL;
     newbuf->stashed = FALSE;
-    newbuf->freeDataAfterSend = TRUE;
     return newbuf;
 }
 
@@ -1440,9 +1504,7 @@ chanFreeBuf_(struct Buffer *buf)
     if (buf) {
         if (buf->stashed) return 0;
 
-        if (buf->data && buf->freeDataAfterSend)
-            free(buf->data);
-
+        free(buf->data);
         free(buf);
     }
     return(0);
@@ -1631,7 +1693,7 @@ chanResetRevent4Chans()
  */
 void
 chanClearReadyEvents(int chfd, int events)
-{
+{   
     if (chfd < 0 || chfd >= chanMaxSize) {
         channels[chfd].chanerr = CHANE_BADCHFD;
         return ;
@@ -1648,13 +1710,8 @@ chanClearReadyEvents(int chfd, int events)
 int
 chanEventsReady(int chfd, int events)
 {
-    if (chfd < 0 || chfd >= chanMaxSize) {
-        channels[chfd].chanerr = CHANE_BADCHFD;
-        return -1;
-    }
-
-    if (channels[chfd].state == CH_FREE || channels[chfd].handle == INVALID_HANDLE) {
-        channels[chfd].chanerr = CHANE_BADCHFD;
+    if (chfd < 0 || chfd >= chanMaxSize || channels[chfd].state == CH_FREE || channels[chfd].handle == INVALID_HANDLE) {
+        channels[chfd].chanerr = CHANE_BADCHAN;
         return -1;
     }
 

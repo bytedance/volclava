@@ -120,12 +120,12 @@ Timeout in seconds when waiting for a reply from the Batch system.
 .BR
 .PP
 .PP
-Any positive integer or zero
+Any non-negative integer. A value of 0 indicates blocking
 .SS Default
 .BR
 .PP
 .PP
-0
+10
 .SS See Also
 .BR
 .PP
@@ -1268,6 +1268,237 @@ If otherwise undefined, then 0 (disabled).
 .PP
 See LSF_LIM_PORT, LSF_RES_PORT, LSB_MBD_PORT, 
 LSB_SBD_PORT.
+.SH LSB_QMBD_PORT
+.BR
+.PP
+.SS Syntax
+.BR
+.PP
+.PP
+\fBLSB_QMBD_PORT=\fR\fIport_number
+\fR
+.SS Description
+.BR
+.PP
+.PP
+Specifies the TCP port used by the query mbd subprocess.
+.PP
+After this parameter is configured, mbatchd can fork a query mbd subprocess
+to handle query requests.
+.PP
+If this parameter is undefined, non-numeric, or outside the range
+1 to 65535, query mbd is disabled.
+.PP
+The port specified by LSB_QMBD_PORT must not be in use by other
+programs.
+.PP
+The following parameters take effect only when LSB_QMBD_PORT is enabled:
+.RS
+.HP 2
+\(bu LSB_QMBD_ALIVE_TIME
+.HP 2
+\(bu LSB_QMBD_THREAD_NUM
+.HP 2
+\(bu LSB_QMBD_MAX_TASK_NUM
+.HP 2
+\(bu LSB_QMBD_SYNC_NEW_JOBS
+.HP 2
+\(bu LSB_QMBD_SYNC_SHM_SIZE
+.RE
+.SS Valid Values
+.BR
+.PP
+.PP
+An integer in the range 1 to 65535. If the value is undefined or
+invalid, the feature is disabled.
+.SS Default
+.BR
+.PP
+.PP
+Undefined. query mbd is disabled.
+.SS See Also
+.BR
+.PP
+.PP
+LSB_QMBD_ALIVE_TIME, LSB_QMBD_THREAD_NUM, LSB_QMBD_MAX_TASK_NUM,
+LSB_QMBD_SYNC_NEW_JOBS, LSB_QMBD_SYNC_SHM_SIZE
+.SH LSB_QMBD_ALIVE_TIME
+.BR
+.PP
+.SS Syntax
+.BR
+.PP
+.PP
+\fBLSB_QMBD_ALIVE_TIME=\fR\fItime_seconds
+\fR
+.SS Description
+.BR
+.PP
+Specifies the maximum survival time, in seconds, of the query mbd subprocess.
+If a global job information change occurs after exceeding the minimum survival
+time (such as new job submissions or job status changes), the query mbd will
+exit immediately. If no information change occurs, the query mbd will remain
+alive until this time and then exit.
+Note: The minimum survival time of the query mbd is 5 seconds.
+.PP
+This parameter applies only when LSB_QMBD_PORT is enabled.
+.SS Valid Values
+.BR
+.PP
+.PP
+An integer in the range 5 to 300.
+.PP
+If the value is not an integer, or is outside this range, the default
+value is used.
+.SS Default
+.BR
+.PP
+.PP
+5
+.SS See Also
+.BR
+.PP
+.PP
+LSB_QMBD_PORT
+.SH LSB_QMBD_THREAD_NUM
+.BR
+.PP
+.SS Syntax
+.BR
+.PP
+.PP
+\fBLSB_QMBD_THREAD_NUM=\fR\fIthread_number
+\fR
+.SS Description
+.BR
+.PP
+.PP
+Specifies the number of worker threads in the query mbd thread pool.
+.PP
+This parameter applies only when LSB_QMBD_PORT is enabled.
+.SS Valid Values
+.BR
+.PP
+.PP
+An integer in the range 1 to 256.
+.PP
+It is recommended to set this value to the number of CPU cores
+on the system for optimal performance.
+.PP
+If the value is not an integer, or is outside this range, the default
+value is used.
+.SS Default
+.BR
+.PP
+.PP
+The number of online CPU cores on the system.
+.SS See Also
+.BR
+.PP
+.PP
+LSB_QMBD_PORT, LSB_QMBD_MAX_TASK_NUM
+.SH LSB_QMBD_MAX_TASK_NUM
+.BR
+.PP
+.SS Syntax
+.BR
+.PP
+.PP
+\fBLSB_QMBD_MAX_TASK_NUM=\fR\fItask_number
+\fR
+.SS Description
+.BR
+.PP
+.PP
+Specifies the capacity of the query mbd thread pool task queue.
+.PP
+This parameter applies only when LSB_QMBD_PORT is enabled.
+.SS Valid Values
+.BR
+.PP
+.PP
+An integer in the range 500 to 5000.
+.PP
+If the value is not an integer, or is outside this range, the default
+value is used.
+.SS Default
+.BR
+.PP
+.PP
+2000
+.SS See Also
+.BR
+.PP
+.PP
+LSB_QMBD_PORT, LSB_QMBD_THREAD_NUM
+.SH LSB_QMBD_SYNC_NEW_JOBS
+.BR
+.PP
+.SS Syntax
+.BR
+.PP
+.PP
+\fBLSB_QMBD_SYNC_NEW_JOBS=y\fR | \fBn
+\fR
+.SS Description
+.BR
+.PP
+.PP
+Controls whether mbatchd synchronizes newly submitted job information to
+the shared memory area used by query mbd.
+.PP
+Specify \fBy\fR to enable synchronization, or \fBn\fR to disable it.
+.PP
+This parameter applies only when LSB_QMBD_PORT is enabled.
+.PP
+LSB_QMBD_SYNC_SHM_SIZE takes effect only when
+\fBLSB_QMBD_SYNC_NEW_JOBS=y\fR.
+.SS Default
+.BR
+.PP
+.PP
+y
+.SS See Also
+.BR
+.PP
+.PP
+LSB_QMBD_PORT, LSB_QMBD_SYNC_SHM_SIZE
+.SH LSB_QMBD_SYNC_SHM_SIZE
+.BR
+.PP
+.SS Syntax
+.BR
+.PP
+.PP
+\fBLSB_QMBD_SYNC_SHM_SIZE=\fR\fIsize_in_mb
+\fR
+.SS Description
+.BR
+.PP
+.PP
+Specifies the size, in MB, of the shared memory used to store
+synchronized job information for query mbd.
+.PP
+This parameter applies only when LSB_QMBD_PORT is enabled and
+\fBLSB_QMBD_SYNC_NEW_JOBS=y\fR.
+.PP
+If the value is not an integer, or is outside the supported range, the
+default value is used.
+.SS Valid Values
+.BR
+.PP
+.PP
+An integer in the range 512 to 2048.
+.SS Default
+.BR
+.PP
+.PP
+1024
+.SS See Also
+.BR
+.PP
+.PP
+LSB_QMBD_PORT, LSB_QMBD_SYNC_NEW_JOBS
 .SH LSB_MEMLIMIT_ENFORCE
 .BR
 .PP

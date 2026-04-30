@@ -58,18 +58,22 @@ freeIdxList(struct idxList *idxList)
 struct idxList *
 parseJobArrayIndex(char *job_name, int *error, int *maxJLimit)
 {
-
+    /* 
+    idxparse relies on numerous global variables, which can lead to thread-safety vulnerabilities
+    therefore, lock mechanisms must be added 
+    */
+    static pthread_mutex_t parseMutex = PTHREAD_MUTEX_INITIALIZER;
     struct idxList *idxList = NULL, *idx;
     char   *index;
     int    arraySize = 0;
-
     index = strchr(job_name, '[');
     *error = LSBE_NO_ERROR;
     if (!index)
         return(NULL);
-    yybuff = index;
 
     *maxJLimit = INFINIT_INT;
+    pthread_mutex_lock(&parseMutex);
+    yybuff = index;
 
     if (idxparse(&idxList, maxJLimit)) {
         freeIdxList(idxList);
@@ -77,8 +81,10 @@ parseJobArrayIndex(char *job_name, int *error, int *maxJLimit)
             *error = LSBE_NO_MEM;
         else
             *error = LSBE_BAD_JOB;
+        pthread_mutex_unlock(&parseMutex);
         return(NULL);
-    }    
+    }
+    pthread_mutex_unlock(&parseMutex);
     
     for (idx = idxList; idx; idx = idx->next) {
 	
@@ -254,6 +260,7 @@ handleNewJobArray(struct jData *jarray, struct idxList *idxList, int maxJLimit)
     struct jData          *jPtr;
     int  numJobs = 0, i;
     int userPending = 0;
+    int jobArrayIndex = 0;
 
     
     addJobIdHT(jarray);
@@ -337,6 +344,15 @@ handleNewJobArray(struct jData *jarray, struct idxList *idxList, int maxJLimit)
     ARRAY_DATA(jarray->jgrpNode)->counts[getIndexOfJStatus(jarray->nextJob->jStatus)] = numJobs;
     ARRAY_DATA(jarray->jgrpNode)->counts[JGRP_COUNT_NJOBS] = numJobs;
     updJgrpCountByOp(jarray->jgrpNode, 1);
+    if(mSchedStage != M_STAGE_REPLAY && syncNewJobs){
+        for(jPtr = jarray; jPtr != NULL; jPtr = jPtr->nextJob){
+            if(jPtr == jarray)
+                jobArrayIndex = addJobToSyncShm(jPtr, -1);
+            else{
+                addJobToSyncShm(jPtr, jobArrayIndex);
+            }
+        }
+    }
 
     return;
 } 

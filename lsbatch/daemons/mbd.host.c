@@ -950,6 +950,11 @@ getLsbHostInfo(void)
     ls_syslog(LOG_DEBUG, "%s: Entering this routine...", __func__);
 
     getLsfHostInfo(FALSE);
+    if (LIMhosts == NULL || numLIMhosts <= 0) {
+        ls_syslog(LOG_WARNING, "%s: Failed to get LIM host info", 
+                  __func__);
+        return;
+    }
 
     numofprocs = 0;
     for (i = 0; i < numLIMhosts; i++) {
