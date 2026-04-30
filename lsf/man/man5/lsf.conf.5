@@ -1346,7 +1346,7 @@ This parameter applies only when LSB_QMBD_PORT is enabled.
 .BR
 .PP
 .PP
-An integer in the range 5 to 50.
+An integer in the range 5 to 300.
 .PP
 If the value is not an integer, or is outside this range, the default
 value is used.
@@ -1380,7 +1380,10 @@ This parameter applies only when LSB_QMBD_PORT is enabled.
 .BR
 .PP
 .PP
-An integer in the range 10 to 50.
+An integer in the range 1 to 256.
+.PP
+It is recommended to set this value to the number of CPU cores
+on the system for optimal performance.
 .PP
 If the value is not an integer, or is outside this range, the default
 value is used.
@@ -1388,7 +1391,7 @@ value is used.
 .BR
 .PP
 .PP
-10
+The number of online CPU cores on the system.
 .SS See Also
 .BR
 .PP

@@ -429,24 +429,6 @@ int initQueryDaemon(){
     isQmbd = 1;
     exitStatus = 0;
 
-    if (daemonParams[LSB_QMBD_THREAD_NUM].paramValue != NULL) {
-        qmbdThreadNum = getValidatedNumericParam(__func__,
-                                                 "LSB_QMBD_THREAD_NUM",
-                                                 daemonParams[LSB_QMBD_THREAD_NUM].paramValue,
-                                                 MIN_QMBD_THREAD_NUM,
-                                                 MAX_QMBD_THREAD_NUM,
-                                                 DEF_QMBD_THREAD_NUM);
-    }
-
-    if (daemonParams[LSB_QMBD_MAX_TASK_NUM].paramValue != NULL) {
-        qmbdMaxTaskNum = getValidatedNumericParam(__func__,
-                                                  "LSB_QMBD_MAX_TASK_NUM",
-                                                  daemonParams[LSB_QMBD_MAX_TASK_NUM].paramValue,
-                                                  MIN_QMBD_MAX_TASK_NUM,
-                                                  MAX_QMBD_MAX_TASK_NUM,
-                                                  DEF_QMBD_MAX_TASK_NUM);
-    }
-
     sigemptyset(&empty_set);
     sigprocmask(SIG_SETMASK, &empty_set, NULL);
     for(cliPtr=clientList->forw; cliPtr != clientList; cliPtr=nextClient) {

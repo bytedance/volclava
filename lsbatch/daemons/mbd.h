@@ -1635,10 +1635,10 @@ extern struct resVal*       dupResVal(struct resVal *src);
 /*query_port*/
 #define DEF_QMBD_ALIVE_TIME        5
 #define MIN_QMBD_ALIVE_TIME        5
-#define MAX_QMBD_ALIVE_TIME        50
-#define DEF_QMBD_THREAD_NUM        10
-#define MIN_QMBD_THREAD_NUM        10
-#define MAX_QMBD_THREAD_NUM        50
+#define MAX_QMBD_ALIVE_TIME        300
+#define DEF_QMBD_THREAD_NUM        0
+#define MIN_QMBD_THREAD_NUM        1
+#define MAX_QMBD_THREAD_NUM        256
 #define DEF_QMBD_MAX_TASK_NUM      2000
 #define MIN_QMBD_MAX_TASK_NUM      500
 #define MAX_QMBD_MAX_TASK_NUM      5000

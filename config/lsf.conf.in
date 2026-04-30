@@ -44,9 +44,9 @@ LSB_PACK_SKIP_ERROR=N
 LSB_QMBD_PORT=6326
 
 #The following parameters take effect only after LSB_QMBD_PORT is set
-LSB_QMBD_ALIVE_TIME=5         #maximum alive time (in seconds) for the qmbd subprocess,default is 5
-LSB_QMBD_THREAD_NUM=10         #number of threads in qmbd's thread pool,default is 10
-LSB_QMBD_MAX_TASK_NUM=2000     #capacity of qmbd's thread pool task queue,default is 2000
+LSB_QMBD_ALIVE_TIME=5          #maximum alive time (in seconds) for the qmbd subprocess, valid range [5,300], default is 5
+LSB_QMBD_THREAD_NUM=10         #number of threads in qmbd's thread pool, valid range [1,256], default is the number of CPU cores; recommended to set to CPU core count
+LSB_QMBD_MAX_TASK_NUM=2000     #capacity of qmbd's thread pool task queue, valid range [500,5000], default is 2000
 LSB_QMBD_SYNC_NEW_JOBS=y       #value: y = enable syncing new jobs; n = disable syncing new jobs,default is y
 LSB_QMBD_SYNC_SHM_SIZE=1024    #size of shared memory for storing synchronized job information, default is 1024 unit: MB; only valid when LSB_QMBD_SYNC_NEW_JOBS=y
 #

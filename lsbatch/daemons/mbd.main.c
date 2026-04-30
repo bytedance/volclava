@@ -209,6 +209,7 @@ static int initQmbdListenSock(void);
 static void shmInit();
 static int createShmCleanerThread();
 static void *shmCleaner(void *arg);
+static void initDaemonParams(void);
 
 /*
  * Validate and return a numeric parameter value within a specified range
@@ -240,6 +241,8 @@ getValidatedNumericParam(const char *func,
         ls_syslog(LOG_ERR,
                   "%s: Invalid %s=%s, using default %d",
                   func, paramName, paramValue, defaultValue);
+        if (lsb_CheckMode)
+            lsb_CheckError = WARNING_ERR;
         return defaultValue;
     }
 
@@ -248,6 +251,8 @@ getValidatedNumericParam(const char *func,
         ls_syslog(LOG_ERR,
                   "%s: Invalid %s=%s, valid range is [%d,%d], using default %d",
                   func, paramName, paramValue, minValue, maxValue, defaultValue);
+        if (lsb_CheckMode)
+            lsb_CheckError = WARNING_ERR;
         return defaultValue;
     }
 
@@ -334,114 +339,7 @@ main (int argc, char **argv)
     if (logclass)
         ls_syslog(LOG_DEBUG, "%s: logclass=%x", __func__, logclass);
 
-
-    if (isint_(daemonParams[LSB_MBD_CONNTIMEOUT].paramValue))
-        connTimeout = atoi(daemonParams[LSB_MBD_CONNTIMEOUT].paramValue);
-    else
-        connTimeout = 5;
-
-    glMigToPendFlag = FALSE;
-
-    if (isint_(daemonParams[LSB_MBD_MIGTOPEND].paramValue))
-        if (atoi(daemonParams[LSB_MBD_MIGTOPEND].paramValue) != 0)
-            glMigToPendFlag = TRUE;
-
-    if (isint_(daemonParams[LSB_MIG2PEND].paramValue)) {
-        if (atoi(daemonParams[LSB_MIG2PEND].paramValue) != 0) {
-            glMigToPendFlag = TRUE;
-        }
-    }
-
-    if (isint_(daemonParams[LSB_REQUEUE_TO_BOTTOM].paramValue)) {
-        if (atoi(daemonParams[LSB_REQUEUE_TO_BOTTOM].paramValue) != 0)
-            requeueToBottom = TRUE;
-    }
-
-    if (isint_(daemonParams[LSB_ARRAY_SCHED_ORDER].paramValue)) {
-        if (atoi(daemonParams[LSB_ARRAY_SCHED_ORDER].paramValue) != 0)
-            arraySchedOrder = TRUE;
-    }
-
-    if (daemonParams[LSB_HJOB_PER_SESSION].paramValue != NULL) {
-        if (atoi(daemonParams[LSB_HJOB_PER_SESSION].paramValue) > 0) {
-            maxJobPerSession =
-                atoi(daemonParams[LSB_HJOB_PER_SESSION].paramValue);
-        } else {
-            ls_syslog(LOG_ERR, "\
-%s: Invalid LSB_HJOB_PER_SESSION %s ignored",
-                      __func__,
-                      daemonParams[LSB_HJOB_PER_SESSION].paramValue);
-        }
-    }
-
-    if ((daemonParams[LSB_MOD_ALL_JOBS].paramValue != NULL)
-        && (strcasecmp(daemonParams[LSB_MOD_ALL_JOBS].paramValue, "y") == 0
-            || strcasecmp(
-                daemonParams[LSB_MOD_ALL_JOBS].paramValue, "yes") == 0)) {
-        lsbModifyAllJobs = TRUE;
-    }
-
-    if (daemonParams[LSB_PTILE_PACK].paramValue != NULL
-        && (strcasecmp(daemonParams[LSB_PTILE_PACK].paramValue, "y") == 0)) {
-
-
-        setLsbPtilePack(TRUE);
-    }
-
-    if (daemonParams[LSF_UNIT_FOR_LIMITS].paramValue != NULL) {
-
-        strToUpper_(daemonParams[LSF_UNIT_FOR_LIMITS].paramValue);
-
-        unitForLimits = setUnitForLimits(daemonParams[LSF_UNIT_FOR_LIMITS].paramValue);
-
-    }
-
-    if (daemonParams[LSB_PACK_SKIP_ERROR].paramValue != NULL
-        && (strcasecmp(daemonParams[LSB_PACK_SKIP_ERROR].paramValue, "y") == 0)) {
-        packSkipErrFlag = TRUE;
-    }
-
-    {
-        int qmbdPortValue = getValidatedNumericParam(__func__,
-                                                     "LSB_QMBD_PORT",
-                                                     daemonParams[LSB_QMBD_PORT].paramValue,
-                                                     LSB_CONF_PORT_MIN,
-                                                     LSB_CONF_PORT_MAX,
-                                                     0);
-        if (qmbdPortValue > 0) {
-            qmbd_port = htons((ushort)qmbdPortValue);
-        }
-    }
-
-    if (daemonParams[LSB_QMBD_ALIVE_TIME].paramValue != NULL) {
-        qmbdAliveTime = getValidatedNumericParam(__func__,
-                                                 "LSB_QMBD_ALIVE_TIME",
-                                                 daemonParams[LSB_QMBD_ALIVE_TIME].paramValue,
-                                                 MIN_QMBD_ALIVE_TIME,
-                                                 MAX_QMBD_ALIVE_TIME,
-                                                 DEF_QMBD_ALIVE_TIME);
-    }
-
-    if (daemonParams[LSB_QMBD_SYNC_SHM_SIZE].paramValue != NULL) {
-        syncShmSize = getValidatedNumericParam(__func__,
-                                               "LSB_QMBD_SYNC_SHM_SIZE",
-                                               daemonParams[LSB_QMBD_SYNC_SHM_SIZE].paramValue,
-                                               MIN_QMBD_SYNC_SHM_SIZE_MB,
-                                               MAX_QMBD_SYNC_SHM_SIZE_MB,
-                                               DEF_QMBD_SYNC_SHM_SIZE_MB);
-    }
-    syncShmSize = syncShmSize * 1024 * 1024;
-    syncShmJobCapacity = syncShmSize / 1024 / 10;
-    syncShmJobNameBufferSize = syncShmSize / 8;
-    syncShmXdrBufferSize = syncShmSize - syncShmJobNameBufferSize - syncShmJobCapacity * sizeof(struct jobMetaData);
-
-    if ((daemonParams[LSB_QMBD_SYNC_NEW_JOBS].paramValue != NULL)
-        && (strcasecmp(daemonParams[LSB_QMBD_SYNC_NEW_JOBS].paramValue, "n") == 0
-            || strcasecmp(
-                daemonParams[LSB_QMBD_SYNC_NEW_JOBS].paramValue, "no") == 0)) {
-        syncNewJobs = 0;
-    }
-
+    initDaemonParams();
 
     daemon_doinit();
 
@@ -1625,5 +1523,219 @@ void *shmCleaner(void *arg){
             req = rem;
         }
         pruneOldJobs();
+    }
+}
+
+static void
+initDaemonParams(void)
+{
+    if (isint_(daemonParams[LSB_MBD_CONNTIMEOUT].paramValue))
+        connTimeout = atoi(daemonParams[LSB_MBD_CONNTIMEOUT].paramValue);
+    else
+        connTimeout = 5;
+
+    glMigToPendFlag = FALSE;
+
+    if (isint_(daemonParams[LSB_MBD_MIGTOPEND].paramValue))
+        if (atoi(daemonParams[LSB_MBD_MIGTOPEND].paramValue) != 0)
+            glMigToPendFlag = TRUE;
+
+    if (isint_(daemonParams[LSB_MIG2PEND].paramValue)) {
+        if (atoi(daemonParams[LSB_MIG2PEND].paramValue) != 0) {
+            glMigToPendFlag = TRUE;
+        }
+    }
+
+    if (isint_(daemonParams[LSB_REQUEUE_TO_BOTTOM].paramValue)) {
+        if (atoi(daemonParams[LSB_REQUEUE_TO_BOTTOM].paramValue) != 0)
+            requeueToBottom = TRUE;
+    }
+
+    if (isint_(daemonParams[LSB_ARRAY_SCHED_ORDER].paramValue)) {
+        if (atoi(daemonParams[LSB_ARRAY_SCHED_ORDER].paramValue) != 0)
+            arraySchedOrder = TRUE;
+    }
+
+    if (daemonParams[LSB_HJOB_PER_SESSION].paramValue != NULL) {
+        if (atoi(daemonParams[LSB_HJOB_PER_SESSION].paramValue) > 0) {
+            maxJobPerSession =
+                atoi(daemonParams[LSB_HJOB_PER_SESSION].paramValue);
+        } else {
+            ls_syslog(LOG_ERR, "\
+%s: Invalid LSB_HJOB_PER_SESSION %s ignored",
+                      __func__,
+                      daemonParams[LSB_HJOB_PER_SESSION].paramValue);
+        }
+    }
+
+    if ((daemonParams[LSB_MOD_ALL_JOBS].paramValue != NULL)
+        && (strcasecmp(daemonParams[LSB_MOD_ALL_JOBS].paramValue, "y") == 0
+            || strcasecmp(
+                daemonParams[LSB_MOD_ALL_JOBS].paramValue, "yes") == 0)) {
+        lsbModifyAllJobs = TRUE;
+    }
+
+    if (daemonParams[LSB_PTILE_PACK].paramValue != NULL
+        && (strcasecmp(daemonParams[LSB_PTILE_PACK].paramValue, "y") == 0)) {
+        setLsbPtilePack(TRUE);
+    }
+
+    if (daemonParams[LSF_UNIT_FOR_LIMITS].paramValue != NULL) {
+        strToUpper_(daemonParams[LSF_UNIT_FOR_LIMITS].paramValue);
+        unitForLimits = setUnitForLimits(daemonParams[LSF_UNIT_FOR_LIMITS].paramValue);
+    }
+
+    if (daemonParams[LSB_PACK_SKIP_ERROR].paramValue != NULL
+        && (strcasecmp(daemonParams[LSB_PACK_SKIP_ERROR].paramValue, "y") == 0)) {
+        packSkipErrFlag = TRUE;
+    }
+
+    int qmbdPortValue = getValidatedNumericParam(__func__,
+                                                    "LSB_QMBD_PORT",
+                                                    daemonParams[LSB_QMBD_PORT].paramValue,
+                                                    LSB_CONF_PORT_MIN,
+                                                    LSB_CONF_PORT_MAX,
+                                                    0);
+    if (qmbdPortValue > 0) {
+        qmbd_port = htons((ushort)qmbdPortValue);
+    }
+
+    if (qmbd_port == 0) {
+        if (daemonParams[LSB_QMBD_ALIVE_TIME].paramValue != NULL) {
+            ls_syslog(LOG_WARNING,
+                      "%s: LSB_QMBD_ALIVE_TIME is set but LSB_QMBD_PORT is not enabled, ignored",
+                      __func__);
+            if (lsb_CheckMode)
+                lsb_CheckError = WARNING_ERR;
+        }
+        if (daemonParams[LSB_QMBD_THREAD_NUM].paramValue != NULL) {
+            ls_syslog(LOG_WARNING,
+                      "%s: LSB_QMBD_THREAD_NUM is set but LSB_QMBD_PORT is not enabled, ignored",
+                      __func__);
+            if (lsb_CheckMode)
+                lsb_CheckError = WARNING_ERR;
+        }
+        if (daemonParams[LSB_QMBD_MAX_TASK_NUM].paramValue != NULL) {
+            ls_syslog(LOG_WARNING,
+                      "%s: LSB_QMBD_MAX_TASK_NUM is set but LSB_QMBD_PORT is not enabled, ignored",
+                      __func__);
+            if (lsb_CheckMode)
+                lsb_CheckError = WARNING_ERR;
+        }
+        if (daemonParams[LSB_QMBD_SYNC_NEW_JOBS].paramValue != NULL) {
+            ls_syslog(LOG_WARNING,
+                      "%s: LSB_QMBD_SYNC_NEW_JOBS is set but LSB_QMBD_PORT is not enabled, ignored",
+                      __func__);
+            if (lsb_CheckMode)
+                lsb_CheckError = WARNING_ERR;
+        }
+        if (daemonParams[LSB_QMBD_SYNC_SHM_SIZE].paramValue != NULL) {
+            ls_syslog(LOG_WARNING,
+                      "%s: LSB_QMBD_SYNC_SHM_SIZE is set but LSB_QMBD_PORT is not enabled, ignored",
+                      __func__);
+            if (lsb_CheckMode)
+                lsb_CheckError = WARNING_ERR;
+        }
+        return;
+    }
+
+    if (daemonParams[LSB_QMBD_ALIVE_TIME].paramValue != NULL) {
+        qmbdAliveTime = getValidatedNumericParam(__func__,
+                                                 "LSB_QMBD_ALIVE_TIME",
+                                                 daemonParams[LSB_QMBD_ALIVE_TIME].paramValue,
+                                                 MIN_QMBD_ALIVE_TIME,
+                                                 MAX_QMBD_ALIVE_TIME,
+                                                 DEF_QMBD_ALIVE_TIME);
+    } else {
+        ls_syslog(LOG_INFO,
+                  "%s: LSB_QMBD_ALIVE_TIME not set, using default %d",
+                  __func__, DEF_QMBD_ALIVE_TIME);
+    }
+
+    if (daemonParams[LSB_QMBD_THREAD_NUM].paramValue != NULL) {
+        qmbdThreadNum = getValidatedNumericParam(__func__,
+                                                 "LSB_QMBD_THREAD_NUM",
+                                                 daemonParams[LSB_QMBD_THREAD_NUM].paramValue,
+                                                 MIN_QMBD_THREAD_NUM,
+                                                 MAX_QMBD_THREAD_NUM,
+                                                 0);
+    }
+    if (qmbdThreadNum == 0) {
+        int cpuCores = sysconf(_SC_NPROCESSORS_ONLN);
+        qmbdThreadNum = cpuCores;
+        if (qmbdThreadNum < MIN_QMBD_THREAD_NUM) {
+            ls_syslog(LOG_WARNING,
+                      "%s: CPU core count %d is below minimum %d, using minimum %d",
+                      __func__, cpuCores, MIN_QMBD_THREAD_NUM, MIN_QMBD_THREAD_NUM);
+            qmbdThreadNum = MIN_QMBD_THREAD_NUM;
+        }
+        if (qmbdThreadNum > MAX_QMBD_THREAD_NUM) {
+            ls_syslog(LOG_WARNING,
+                      "%s: CPU core count %d exceeds maximum %d, using maximum %d",
+                      __func__, cpuCores, MAX_QMBD_THREAD_NUM, MAX_QMBD_THREAD_NUM);
+            qmbdThreadNum = MAX_QMBD_THREAD_NUM;
+        }
+        ls_syslog(LOG_INFO,
+                  "%s: LSB_QMBD_THREAD_NUM not set, using CPU core count %d",
+                  __func__, qmbdThreadNum);
+    }
+
+    if (daemonParams[LSB_QMBD_MAX_TASK_NUM].paramValue != NULL) {
+        qmbdMaxTaskNum = getValidatedNumericParam(__func__,
+                                                  "LSB_QMBD_MAX_TASK_NUM",
+                                                  daemonParams[LSB_QMBD_MAX_TASK_NUM].paramValue,
+                                                  MIN_QMBD_MAX_TASK_NUM,
+                                                  MAX_QMBD_MAX_TASK_NUM,
+                                                  DEF_QMBD_MAX_TASK_NUM);
+    } else {
+        ls_syslog(LOG_INFO,
+                  "%s: LSB_QMBD_MAX_TASK_NUM not set, using default %d",
+                  __func__, DEF_QMBD_MAX_TASK_NUM);
+    }
+
+    if ((daemonParams[LSB_QMBD_SYNC_NEW_JOBS].paramValue != NULL)
+        && (strcasecmp(daemonParams[LSB_QMBD_SYNC_NEW_JOBS].paramValue, "n") == 0
+            || strcasecmp(
+                daemonParams[LSB_QMBD_SYNC_NEW_JOBS].paramValue, "no") == 0)) {
+        syncNewJobs = 0;
+    } else if (daemonParams[LSB_QMBD_SYNC_NEW_JOBS].paramValue != NULL
+               && strcasecmp(daemonParams[LSB_QMBD_SYNC_NEW_JOBS].paramValue, "y") != 0
+               && strcasecmp(daemonParams[LSB_QMBD_SYNC_NEW_JOBS].paramValue, "yes") != 0) {
+        ls_syslog(LOG_ERR,
+                  "%s: Invalid LSB_QMBD_SYNC_NEW_JOBS=%s, valid values are y/yes/n/no, using default y",
+                  __func__, daemonParams[LSB_QMBD_SYNC_NEW_JOBS].paramValue);
+        if (lsb_CheckMode)
+            lsb_CheckError = WARNING_ERR;
+    } else if (daemonParams[LSB_QMBD_SYNC_NEW_JOBS].paramValue == NULL) {
+        ls_syslog(LOG_INFO,
+                  "%s: LSB_QMBD_SYNC_NEW_JOBS not set, using default y",
+                  __func__);
+    }
+
+    if (syncNewJobs) {
+        if (daemonParams[LSB_QMBD_SYNC_SHM_SIZE].paramValue != NULL) {
+            syncShmSize = getValidatedNumericParam(__func__,
+                                                   "LSB_QMBD_SYNC_SHM_SIZE",
+                                                   daemonParams[LSB_QMBD_SYNC_SHM_SIZE].paramValue,
+                                                   MIN_QMBD_SYNC_SHM_SIZE_MB,
+                                                   MAX_QMBD_SYNC_SHM_SIZE_MB,
+                                                   DEF_QMBD_SYNC_SHM_SIZE_MB);
+        } else {
+            ls_syslog(LOG_INFO,
+                      "%s: LSB_QMBD_SYNC_SHM_SIZE not set, using default %d",
+                      __func__, DEF_QMBD_SYNC_SHM_SIZE_MB);
+        }
+        syncShmSize = syncShmSize * 1024 * 1024;
+        syncShmJobCapacity = syncShmSize / 1024 / 10;
+        syncShmJobNameBufferSize = syncShmSize / 8;
+        syncShmXdrBufferSize = syncShmSize - syncShmJobNameBufferSize - syncShmJobCapacity * sizeof(struct jobMetaData);
+    } else {
+        if (daemonParams[LSB_QMBD_SYNC_SHM_SIZE].paramValue != NULL) {
+            ls_syslog(LOG_WARNING,
+                      "%s: LSB_QMBD_SYNC_SHM_SIZE is set but LSB_QMBD_SYNC_NEW_JOBS is disabled, ignored",
+                      __func__);
+            if (lsb_CheckMode)
+                lsb_CheckError = WARNING_ERR;
+        }
     }
 }
