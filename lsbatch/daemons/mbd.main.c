@@ -197,7 +197,7 @@ long long syncShmSize = DEF_QMBD_SYNC_SHM_SIZE_MB;
 long long syncShmXdrBufferSize;
 long long syncShmJobNameBufferSize;
 int syncShmJobCapacity;
-int syncNewJobs = 1;
+int syncNewJobs = 0;
 int qmbdListenSock = -1;    /* Listening socket reserved by the main mbd for qmbd */
 int qmbdPipe[2] = {-1, -1};   /* Pipe for communication between main mbd and query mbd [0]=read, [1]=write */
 struct syncJobShm *shm = NULL;
@@ -1590,14 +1590,25 @@ initDaemonParams(void)
         packSkipErrFlag = TRUE;
     }
 
-    int qmbdPortValue = getValidatedNumericParam(__func__,
-                                                    "LSB_QMBD_PORT",
-                                                    daemonParams[LSB_QMBD_PORT].paramValue,
-                                                    LSB_CONF_PORT_MIN,
-                                                    LSB_CONF_PORT_MAX,
-                                                    0);
-    if (qmbdPortValue > 0) {
-        qmbd_port = htons((ushort)qmbdPortValue);
+    if (daemonParams[LSB_QMBD_PORT].paramValue != NULL) {
+        if (!isint_(daemonParams[LSB_QMBD_PORT].paramValue)) {
+            ls_syslog(LOG_ERR,
+                      "%s: Invalid LSB_QMBD_PORT=%s, valid range is [%d,%d], query mbd is disabled",
+                      __func__, daemonParams[LSB_QMBD_PORT].paramValue, LSB_CONF_PORT_MIN, LSB_CONF_PORT_MAX);
+            if (lsb_CheckMode)
+                lsb_CheckError = WARNING_ERR;
+        } else {
+            int qmbdPortValue = atoi(daemonParams[LSB_QMBD_PORT].paramValue);
+            if (qmbdPortValue < LSB_CONF_PORT_MIN || qmbdPortValue > LSB_CONF_PORT_MAX) {
+                ls_syslog(LOG_ERR,
+                          "%s: Invalid LSB_QMBD_PORT=%s, valid range is [%d,%d], query mbd is disabled",
+                          __func__, daemonParams[LSB_QMBD_PORT].paramValue, LSB_CONF_PORT_MIN, LSB_CONF_PORT_MAX);
+                if (lsb_CheckMode)
+                    lsb_CheckError = WARNING_ERR;
+            } else {
+                qmbd_port = htons((ushort)qmbdPortValue);
+            }
+        }
     }
 
     if (qmbd_port == 0) {
@@ -1646,10 +1657,6 @@ initDaemonParams(void)
                                                  MIN_QMBD_ALIVE_TIME,
                                                  MAX_QMBD_ALIVE_TIME,
                                                  DEF_QMBD_ALIVE_TIME);
-    } else {
-        ls_syslog(LOG_INFO,
-                  "%s: LSB_QMBD_ALIVE_TIME not set, using default %d",
-                  __func__, DEF_QMBD_ALIVE_TIME);
     }
 
     if (daemonParams[LSB_QMBD_THREAD_NUM].paramValue != NULL) {
@@ -1675,9 +1682,6 @@ initDaemonParams(void)
                       __func__, cpuCores, MAX_QMBD_THREAD_NUM, MAX_QMBD_THREAD_NUM);
             qmbdThreadNum = MAX_QMBD_THREAD_NUM;
         }
-        ls_syslog(LOG_INFO,
-                  "%s: LSB_QMBD_THREAD_NUM not set, using CPU core count %d",
-                  __func__, qmbdThreadNum);
     }
 
     if (daemonParams[LSB_QMBD_MAX_TASK_NUM].paramValue != NULL) {
@@ -1687,29 +1691,20 @@ initDaemonParams(void)
                                                   MIN_QMBD_MAX_TASK_NUM,
                                                   MAX_QMBD_MAX_TASK_NUM,
                                                   DEF_QMBD_MAX_TASK_NUM);
-    } else {
-        ls_syslog(LOG_INFO,
-                  "%s: LSB_QMBD_MAX_TASK_NUM not set, using default %d",
-                  __func__, DEF_QMBD_MAX_TASK_NUM);
     }
 
-    if ((daemonParams[LSB_QMBD_SYNC_NEW_JOBS].paramValue != NULL)
-        && (strcasecmp(daemonParams[LSB_QMBD_SYNC_NEW_JOBS].paramValue, "n") == 0
-            || strcasecmp(
-                daemonParams[LSB_QMBD_SYNC_NEW_JOBS].paramValue, "no") == 0)) {
-        syncNewJobs = 0;
-    } else if (daemonParams[LSB_QMBD_SYNC_NEW_JOBS].paramValue != NULL
-               && strcasecmp(daemonParams[LSB_QMBD_SYNC_NEW_JOBS].paramValue, "y") != 0
-               && strcasecmp(daemonParams[LSB_QMBD_SYNC_NEW_JOBS].paramValue, "yes") != 0) {
-        ls_syslog(LOG_ERR,
-                  "%s: Invalid LSB_QMBD_SYNC_NEW_JOBS=%s, valid values are y/yes/n/no, using default y",
-                  __func__, daemonParams[LSB_QMBD_SYNC_NEW_JOBS].paramValue);
-        if (lsb_CheckMode)
-            lsb_CheckError = WARNING_ERR;
-    } else if (daemonParams[LSB_QMBD_SYNC_NEW_JOBS].paramValue == NULL) {
-        ls_syslog(LOG_INFO,
-                  "%s: LSB_QMBD_SYNC_NEW_JOBS not set, using default y",
-                  __func__);
+    if (daemonParams[LSB_QMBD_SYNC_NEW_JOBS].paramValue != NULL) {
+        if (strcasecmp(daemonParams[LSB_QMBD_SYNC_NEW_JOBS].paramValue, "y") == 0) {
+            syncNewJobs = 1;
+        } else if (strcasecmp(daemonParams[LSB_QMBD_SYNC_NEW_JOBS].paramValue, "n") == 0) {
+            syncNewJobs = 0;
+        } else {
+            ls_syslog(LOG_ERR,
+                      "%s: Invalid LSB_QMBD_SYNC_NEW_JOBS=%s, valid values are y or n, using default n",
+                      __func__, daemonParams[LSB_QMBD_SYNC_NEW_JOBS].paramValue);
+            if (lsb_CheckMode)
+                lsb_CheckError = WARNING_ERR;
+        }
     }
 
     if (syncNewJobs) {
@@ -1720,10 +1715,6 @@ initDaemonParams(void)
                                                    MIN_QMBD_SYNC_SHM_SIZE_MB,
                                                    MAX_QMBD_SYNC_SHM_SIZE_MB,
                                                    DEF_QMBD_SYNC_SHM_SIZE_MB);
-        } else {
-            ls_syslog(LOG_INFO,
-                      "%s: LSB_QMBD_SYNC_SHM_SIZE not set, using default %d",
-                      __func__, DEF_QMBD_SYNC_SHM_SIZE_MB);
         }
         syncShmSize = syncShmSize * 1024 * 1024;
         syncShmJobCapacity = syncShmSize / 1024 / 10;
