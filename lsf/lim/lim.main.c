@@ -863,7 +863,7 @@ initSock(int checkMode)
 
     lim_port = htons(lim_port);
 
-    limTcpSock = chanServSocket_(SOCK_STREAM, 0, 10, 0);
+    limTcpSock = chanServSocket_(SOCK_STREAM, 0, 1024, 0);
     if (limTcpSock < 0) {
         ls_syslog(LOG_ERR, "%s: chanServSocket_() failed %M", __func__);
         return -1;

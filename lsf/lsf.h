@@ -692,7 +692,9 @@ struct hostEntryLog {
 #define LSE_MLS_RHOST           96
 #define LSE_MLS_DOMINATE        97
 #define LSE_HOST_EXIST          98
-#define LSE_NERR                99
+#define LSE_EPOLL_SYS           99
+#define LSE_POLL_SYS           100
+#define LSE_NERR               101
 
 #define LSE_ISBAD_RESREQ(s)     (((s) == LSE_BAD_EXP)                   \
                                  || ((s) == LSE_UNKWN_RESNAME)          \

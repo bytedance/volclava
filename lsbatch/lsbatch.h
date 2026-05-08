@@ -33,6 +33,8 @@
 #define  MAX_CMD_DESC_LEN    256
 #define  MAX_USER_EQUIVALENT 128
 #define  DEFAULT_MSG_DESC    "no description"
+#define  LSB_CONF_PORT_MIN   1
+#define  LSB_CONF_PORT_MAX   65535
 
 #define HOST_STAT_OK         0x0
 #define HOST_STAT_BUSY       0x01

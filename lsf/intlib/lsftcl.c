@@ -28,6 +28,7 @@
 #endif
 #include "lsftcl.h"
 #include "../lib/lproto.h"
+#include <pthread.h>
 
 static struct tclHostData   *hPtr;
 static struct Tcl_Interp    *globinterp;
@@ -587,7 +588,9 @@ initTcl:indexNames=%s, i =%d", funcPtr->name, funcPtr->clientData);
     return 0;
 }
 
-/* evalResReq()
+/* 
+ * Thread-safety issues occur when processing hosts -R requests in a multi-threaded environment;
+ * we resolve this by adding a lock mechanism.
  */
 int
 evalResReq(char *resReq,
@@ -595,6 +598,8 @@ evalResReq(char *resReq,
            char useFromType)
 {
     int code, i, resBits;
+    static pthread_mutex_t tclMutex = PTHREAD_MUTEX_INITIALIZER;
+    pthread_mutex_lock(&tclMutex);
 
     hPtr = hPtr2;
 
@@ -609,6 +614,7 @@ evalResReq: resReq=%s, host = %s", resReq, hPtr->hostName);
 
     code = Tcl_Eval(globinterp, resReq);
     if (code != TCL_OK) {
+        pthread_mutex_unlock(&tclMutex);
         return -1;
     }
 
@@ -623,22 +629,30 @@ evalResReq: resReq=%s, host = %s", resReq, hPtr->hostName);
             resBits = 0;
             for (i = 0; i < GET_INTNUM(nRes); i++)
                 resBits += hPtr->resBitMaps[i] & hPtr->DResBitMaps[i];
-            if (resBits == 0)
+            if (resBits == 0){
+                pthread_mutex_unlock(&tclMutex);
                 return 0;
+            }
         }
     }
 
     if (!overRideFromType && useFromType) {
-        if (strcmp(hPtr->hostType, hPtr->fromHostType) != 0)
+        if (strcmp(hPtr->hostType, hPtr->fromHostType) != 0){
+            pthread_mutex_unlock(&tclMutex);
             return 0;
+        }
     }
 
-    if (runTimeDataQueried && LS_ISUNAVAIL(hPtr->status))
+    if (runTimeDataQueried && LS_ISUNAVAIL(hPtr->status)){
+        pthread_mutex_unlock(&tclMutex);
         return 0;
+    }
 
-    if (strcmp(Tcl_GetStringResult(globinterp), "0") == 0)
+    if (strcmp(Tcl_GetStringResult(globinterp), "0") == 0){
+        pthread_mutex_unlock(&tclMutex);
         return 0;
-
+    }
+    pthread_mutex_unlock(&tclMutex);
     return 1;
 }
 

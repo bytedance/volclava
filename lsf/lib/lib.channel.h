@@ -53,7 +53,6 @@ struct Buffer {
     int    pos;
     int    len;
     int stashed;
-    int freeDataAfterSend;
 };
 
 struct Masks {
@@ -125,12 +124,13 @@ int chanRpc_(int , struct Buffer *, struct Buffer *, struct LSFHeader *, int tim
 int chanRead_(int, char *, int);
 int chanReadNonBlock_(int, char *, int, int);
 int chanWrite_(int, char *, int);
-int chanWriteTimeout_(int, char *, int, int);
+int chanWriteNonBlock_(int, char *, int, int);
 
 int chanAllocBuf_(struct Buffer **buf, int size);
 int chanFreeBuf_(struct Buffer *buf);
 int chanFreeStashedBuf_(struct Buffer *buf);
 int chanOpenSock_(int , int);
+int chanOpenPassiveSock_(int, int);
 int chanSetMode_(int, int);
 
 int chanEventsReady(int chfd, int events);

@@ -56,7 +56,7 @@ static int           resigJobs1(struct jData *, int *);
 static void          sndJobMsgs(struct hData *, int *);
 static sbdReplyType  sigStartedJob(struct jData *, int, time_t, int);
 static void          reorderSJL1(struct jData *);
-static int           matchJobStatus(int, struct jData *);
+static int           matchJobStatus(int, int);
 static double        acumulateValue(double, double);
 static void          accumulateRU(struct jData *, struct statusReq *);
 static int           checkJobParams(struct jData *, struct submitReq *,
@@ -99,6 +99,9 @@ static void initJobSig (struct jData *, struct jobSig *, int, time_t, int);
 static int modifyAJob (struct modifyReq *, struct submitMbdReply *,
                        struct lsfAuth *, struct jData *);
 static bool_t isSignificantChange(struct jRusage *, struct jRusage *, float );
+
+static int checkJobMatch(void *, struct jobInfoReq *, char, char, char, struct gData *, struct uData *, char, enum jobSelectType);
+int ensureJobListCapacity(void ***, int, int *, int);
 static bool_t clusterAdminFlag;
 static void setClusterAdmin(bool_t admin);
 static bool_t requestByClusterAdmin(void);
@@ -704,6 +707,8 @@ handleNewJob(struct jData *jpbw, int job, int eventTime)
         jpbw->newReason = PEND_USER_STOP;
         jStatusChange(jpbw, JOB_STAT_PSUSP, -1, __func__);
     }
+    if(mSchedStage != M_STAGE_REPLAY && syncNewJobs)
+        addJobToSyncShm(jpbw, -1);
 }
 
 int
@@ -1184,22 +1189,44 @@ freeNewJob (struct jData *newjob)
     FREEUP (newjob);
 }
 
-int
-selectJobs (struct jobInfoReq *jobInfoReq, struct jData ***jobDataList,
-            int *listSize)
+/*
+ * selectJobsFromShm - Select jobs from shared memory
+ * @param[in] jobInfoReq: Job information request structure
+ * @param[out] jobMetaDataList: Pointer to store the list of matched job metadata
+ * @param[out] listSize: Pointer to store the size of the list
+ * @param[in] shm: Pointer to the shared memory structure
+ * @return: LSBE_NO_ERROR on success, error code otherwise
+ */
+int selectJobsFromShm(struct jobInfoReq *jobInfoReq, struct jobMetaData ***jobMetaDataList,int *listSize)
 {
-    static char fname[] = "selectJobs()";
     char allqueues = FALSE;
     char allusers = FALSE;
     char allhosts = FALSE;
     char searchJobName = FALSE;
-    struct jData *jpbw, **joblist = NULL, *recentJob = NULL;
+    struct jobMetaData **joblist = NULL;
     struct gData *uGrp = NULL;
-    int  list = 0;
     int numJobs = 0;
     int arraysize = 0;
-    struct  uData *uPtr;
+    int ret = 0;
+    struct  uData *uPtr = NULL;
+    int currentIndex = 0, startIndex;
+    int i = 0;
+    static int currentReaderIndex = -1;
+    if(currentReaderIndex == -1){
+        pid_t pid = getpid();
+        for(i = 0; i < MAX_QMBD_NUMS; i++){
+            if(pid == shm->queryReaderInfo[i].pid){
+                currentReaderIndex = i;
+            }
+        }
+    }
 
+
+    if(currentReaderIndex >= 0){
+        startIndex = shm->queryReaderInfo[currentReaderIndex].readStartIndex;
+    }else{
+        return LSBE_NO_JOB;
+    }
 
     if (jobInfoReq->queue[0] == '\0')
         allqueues = TRUE;
@@ -1216,139 +1243,166 @@ selectJobs (struct jobInfoReq *jobInfoReq, struct jData ***jobDataList,
         jobInfoReq->jobName[strlen(jobInfoReq->jobName) - 1] = '\0';
     }
 
-
-    uPtr = getUserData(jobInfoReq->userName);
-
-
-    for (list = 0; list < NJLIST; list++) {
-        struct jData *jp;
-        if (skipJobListByReq (jobInfoReq->options, list)  == TRUE)
+    if(!allusers)
+        uPtr = getUserData(jobInfoReq->userName);
+    for (i = 0; i < syncShmJobCapacity -1; i++) {
+        currentIndex = (startIndex + i) % syncShmJobCapacity;
+        if (currentIndex == shm->jobMetaQueue->tail) {
+            break;
+        }
+        struct jobMetaData *metaData = &shm->jobMetaQueue->jobUnit[currentIndex];
+        
+        if (metaData == NULL || metaData->state != SHM_BLOCK_STATUS_USED) {
+            ls_syslog(LOG_ERR, "%s: a job in shm mask deleted, index is %d, block status is %d", __func__, currentIndex, metaData->state);
+        }
+        if(metaData->type == JGRP_NODE_ARRAY){
             continue;
+        }
 
-        if (list == SJL && jDataList[list]->back != jDataList[list])
-            reorderSJL ();
-
-        for (jp = jDataList[list]->back;
-             (jp!= jDataList[list]); jp = jp->back) {
-            int i;
-
-            jpbw = jp;
-
-            if (jpbw->jobId < 0)
-                continue;
-
-            if (!allqueues
-                && strcmp(jpbw->qPtr->queue, jobInfoReq->queue) != 0)
-                continue;
-
-
-            if (!allusers && (jpbw->uPtr != uPtr)) {
-                if (uGrp == NULL)
-                    continue;
-                else if (!gMember(jpbw->userName, uGrp))
-                    continue;
+        /* Check if the job matches the request */
+        if (checkJobMatch((void *)metaData, jobInfoReq, allqueues, allusers, allhosts, uGrp, uPtr, searchJobName, JOB_TYPE_METADATA)) {
+            ret = ensureJobListCapacity((void ***)&joblist, numJobs, &arraysize, JOB_TYPE_METADATA);
+            if (ret != LSBE_NO_ERROR) {
+                FREEUP(joblist);
+                return ret;
             }
-
-
-            if (jobInfoReq->jobName[0] != '\0') {
-                char  fullName[MAXPATHLEN];
-                fullJobName_r(jpbw, fullName);
-                if ((searchJobName == FALSE &&
-                     strcmp(jobInfoReq->jobName, fullName) != 0) ||
-                    (searchJobName == TRUE &&
-                     strncmp(fullName, jobInfoReq->jobName,
-                             strlen (jobInfoReq->jobName)) != 0))
-                    continue;
+            if(jobInfoReq->options & LAST_JOB){
+                joblist[0] = metaData;
+                numJobs = 1;
+            }else{
+                joblist[numJobs] = metaData;
+                numJobs++;
             }
+        }
+    }
 
+    *listSize = numJobs;
 
+    if (numJobs > 0) {
+        *jobMetaDataList = joblist;
+        return(LSBE_NO_ERROR);
+    } else if (!allqueues && getQueueData (jobInfoReq->queue) == NULL) {
+        FREEUP(joblist);
+        return(LSBE_BAD_QUEUE);
+    }
+    FREEUP(joblist);
+    return(LSBE_NO_JOB);
 
-            if (jobInfoReq->jobId != 0
-                && ((LSB_ARRAY_IDX(jobInfoReq->jobId) != 0
-                     && LSB_ARRAY_IDX(jobInfoReq->jobId) != LSB_ARRAY_IDX(jpbw->jobId))
-                    ||
-                    LSB_ARRAY_JOBID(jobInfoReq->jobId) != LSB_ARRAY_JOBID(jpbw->jobId))) {
+}
 
-                continue;
-            }
+int
+selectJobs (struct jobInfoReq *jobInfoReq, struct jData ***jobDataList,
+            int *listSize)
+{
+    static char fname[] = "selectJobs()";
+    char allqueues = FALSE;
+    char allusers = FALSE;
+    char allhosts = FALSE;
+    char searchJobName = FALSE;
+    struct jData *jpbw, **joblist = NULL, *recentJob = NULL, *job = NULL;
+    struct gData *uGrp = NULL;
+    int list = 0;
+    int numJobs = 0;
+    int arraysize = 0;
+    int singleJob = 0, jobArray = 0;
+    int ret = 0;
+    struct  uData *uPtr;
 
-            {
-                if (jpbw->jStatus & JOB_STAT_PEND) {
-                    if (!(jpbw->qPtr->qStatus & QUEUE_STAT_RUN))
-                        jpbw->newReason = PEND_QUE_WINDOW;
-                    if (!(jpbw->qPtr->qStatus & QUEUE_STAT_ACTIVE))
-                        jpbw->newReason = PEND_QUE_INACT;
-                }
-                else if (jpbw->jStatus & JOB_STAT_ZOMBIE)
-                    jpbw->newReason |= EXIT_ZOMBIE;
-            }
+    if (jobInfoReq->queue[0] == '\0')
+        allqueues = TRUE;
+    if (strcmp(jobInfoReq->userName, ALL_USERS) == 0)
+        allusers = TRUE;
+    else
+        uGrp = getUGrpData (jobInfoReq->userName);
 
-            if (! matchJobStatus(jobInfoReq->options, jpbw)) {
-                continue;
-            }
+    if (jobInfoReq->host[0] == '\0')
+        allhosts = TRUE;
+    if (jobInfoReq->jobName[0] != '\0' &&
+        jobInfoReq->jobName[strlen(jobInfoReq->jobName) - 1] == '*') {
+        searchJobName = TRUE;
+        jobInfoReq->jobName[strlen(jobInfoReq->jobName) - 1] = '\0';
+    }
 
+    if(!allusers)
+        uPtr = getUserData(jobInfoReq->userName);
+    
+    /*
+     *If the jobid exists, retrieve jobdata from the hashTable
+     */
+    if(jobInfoReq->jobId){
+        job = getJobData(jobInfoReq->jobId);
+        if(job){
+            if(job->nodeType == JGRP_NODE_ARRAY) 
+                jobArray = 1;
+            else
+                singleJob = 1;
+        }else{
+            return LSBE_NO_JOB;
+        }
 
-            if (!allhosts) {
-                struct gData *gp;
-
-                if (IS_PEND (jpbw->jStatus))
-                    continue;
-
-                if (jpbw->hPtr == NULL) {
-                    if (!(jpbw->jStatus & JOB_STAT_EXIT))
-                        ls_syslog(LOG_ERR, _i18n_msg_get(ls_catd , NL_SETN, 6510,
-                                                         "%s: Execution host for job <%s> is null"), /* catgets 6510 */
-                                  fname, lsb_jobid2str(jpbw->jobId));
-                    continue;
-                }
-
-                gp = getHGrpData (jobInfoReq->host);
-                if (gp != NULL) {
-                    for (i = 0; i < jpbw->numHostPtr; i++) {
-                        if (jpbw->hPtr[i] == NULL)
-                            continue;
-                        if (gMember(jpbw->hPtr[i]->host, gp))
-                            break;
-                    }
-                    if (i >= jpbw->numHostPtr)
-                        continue;
+        if(singleJob){
+            if(checkJobMatch(job, jobInfoReq, allqueues, allusers, allhosts, uGrp, uPtr, searchJobName, JOB_TYPE_JDATA)){
+                ret = ensureJobListCapacity((void ***)&joblist, numJobs, &arraysize, JOB_TYPE_JDATA);
+                if(ret == LSBE_NO_ERROR){
+                    recentJob = job;
+                    joblist[numJobs] = job;
+                    numJobs++;
                 } else {
-                    for (i = 0; i < jpbw->numHostPtr; i++) {
-                        if (jpbw->hPtr[i] == NULL)
-                            continue;
-                        if (equalHost_(jobInfoReq->host, jpbw->hPtr[i]->host))
-                            break;
-                    }
-                    if (i >= jpbw->numHostPtr)
-                        continue;
-                }
-            }
-
-
-            if (findLastJob(jobInfoReq->options, jpbw, &recentJob) == FALSE)
-                continue;
-
-            if (arraysize == 0) {
-                arraysize = DEFAULT_LISTSIZE;
-                joblist = (struct jData **) calloc (arraysize,
-                                                    sizeof (struct jData *));
-                if (joblist == NULL)
-                    return LSBE_NO_MEM;
-            }
-            if (numJobs >= arraysize) {
-
-                struct jData **biglist;
-                arraysize *= 2;
-                biglist = (struct jData **) realloc((char *)joblist,
-                                                    arraysize * sizeof (struct jData *));
-                if (biglist == NULL) {
                     FREEUP(joblist);
-                    return LSBE_NO_MEM;
+                    return ret;
                 }
-                joblist = biglist;
             }
-            joblist[numJobs] = jpbw;
-            numJobs++;
+        } else if(jobArray){
+            struct jData *arrayJob = job->nextJob;
+            while(arrayJob != NULL){
+                if(checkJobMatch(arrayJob, jobInfoReq, allqueues, allusers, allhosts, uGrp, uPtr, searchJobName, JOB_TYPE_JDATA)){
+                    ret = ensureJobListCapacity((void ***)&joblist, numJobs, &arraysize, JOB_TYPE_JDATA);
+                    if(ret == LSBE_NO_ERROR){
+                        recentJob = arrayJob;
+                        joblist[numJobs] = arrayJob;
+                        numJobs++;
+                    } else {
+                        FREEUP(joblist);
+                        return ret;
+                    }
+                }
+                arrayJob = arrayJob->nextJob;
+            }
+        } else{
+            return LSBE_NO_JOB;
+        }
+    }else {
+        for (list = 0; list < NJLIST; list++) {
+            struct jData *jp;
+            if (skipJobListByReq (jobInfoReq->options, list)  == TRUE)
+                continue;
+            /*
+             * The reorderSJL function has thread-safety issues when query mbd processes requests.
+             * Call it once at the start of query mbd, and do not call it again afterwards.
+             */
+            if (!isQmbd && list == SJL && jDataList[list]->back != jDataList[list])
+                reorderSJL ();
+
+            for (jp = jDataList[list]->back;
+                (jp!= jDataList[list]); jp = jp->back) {
+
+                jpbw = jp;
+
+                if (!checkJobMatch(jpbw, jobInfoReq, allqueues, allusers, allhosts, uGrp, uPtr, searchJobName, JOB_TYPE_JDATA))
+                    continue;
+
+                if (findLastJob(jobInfoReq->options, jpbw, &recentJob) == FALSE)
+                    continue;
+
+                ret = ensureJobListCapacity((void ***)&joblist, numJobs, &arraysize, JOB_TYPE_JDATA);
+                if (ret == LSBE_NO_ERROR) {
+                    joblist[numJobs] = jpbw;
+                    numJobs++;
+                } else {
+                    FREEUP(joblist);
+                    return ret;
+                }
+            }
         }
     }
 
@@ -1445,25 +1499,33 @@ reorderSJL1 (struct jData *job)
 
 }
 
+/*
+ * Check if a job's status matches the requested status filter options
+ * Supports filtering by: ALL, CUR/LAST (non-finished), DONE, PEND,
+ * SUSP, RUN, and ZOMBIE status flags
+ * @param[in] options: Bitmask of job status filter options
+ * @param[in] jStatus: Actual job status to check against
+ * @return: TRUE if the status matches, FALSE otherwise
+ */
 static int
-matchJobStatus(int options, struct jData *jobPtr)
+matchJobStatus(int options, int jStatus)
 {
     if (options & (ALL_JOB|JOBID_ONLY_ALL))
         return TRUE;
 
     if (((options & CUR_JOB) || (options & LAST_JOB))
-        && !(IS_FINISH (jobPtr->jStatus)))
+        && !(IS_FINISH (jStatus)))
         return TRUE;
-    if ((options & DONE_JOB) && IS_FINISH (jobPtr->jStatus))
+    if ((options & DONE_JOB) && IS_FINISH (jStatus))
         return TRUE;
-    if ((options & PEND_JOB) && IS_PEND (jobPtr->jStatus))
+    if ((options & PEND_JOB) && IS_PEND (jStatus))
         return TRUE;
-    if ((options & SUSP_JOB) && IS_SUSP (jobPtr->jStatus)
-        && !(jobPtr->jStatus & JOB_STAT_UNKWN))
+    if ((options & SUSP_JOB) && IS_SUSP (jStatus)
+        && !(jStatus & JOB_STAT_UNKWN))
         return TRUE;
-    if ((options & RUN_JOB) && (jobPtr->jStatus & JOB_STAT_RUN))
+    if ((options & RUN_JOB) && (jStatus & JOB_STAT_RUN))
         return TRUE;
-    if ((options & ZOMBIE_JOB) && (jobPtr->jStatus & JOB_STAT_ZOMBIE)) {
+    if ((options & ZOMBIE_JOB) && (jStatus & JOB_STAT_ZOMBIE)) {
         return TRUE;
     }
     return FALSE;
@@ -1496,6 +1558,172 @@ findLastJob(int options, struct jData *jobPtr, struct jData **recentJob)
     *recentJob = jobPtr;
     return FALSE;
 
+}
+
+/*
+ *Check whether the job meets the required conditions.
+ */
+static int
+checkJobMatch(void *jobData, struct jobInfoReq *jobInfoReq, char allqueues, char allusers, char allhosts, struct gData *uGrp, struct uData *uPtr, char searchJobName, enum jobSelectType type)
+{
+    static char fname[] = "checkJobMatch()";
+    int i;
+    struct jData *jpbw = NULL;
+    struct jobMetaData *metaData = NULL;
+    int jStatus = 0;
+    LS_LONG_INT jobId = 0;
+    char fullName[MAXPATHLEN];
+
+    if (type == JOB_TYPE_JDATA) {
+        jpbw = (struct jData *)jobData;
+        if (jpbw->jobId < 0)
+            return FALSE;
+    } else if (type == JOB_TYPE_METADATA) {
+        metaData = (struct jobMetaData *)jobData;
+        if (metaData->jobId < 0)
+            return FALSE;
+    } else {
+        return FALSE;
+    }
+
+    /* Check queue match */
+    if (!allqueues) {
+        if (type == JOB_TYPE_JDATA) {
+            if (strcmp(jpbw->qPtr->queue, jobInfoReq->queue) != 0)
+                return FALSE;
+        } else if (type == JOB_TYPE_METADATA) {
+            if (strcmp(metaData->queue, jobInfoReq->queue) != 0)
+                return FALSE;
+        }
+    }
+
+    /* Check user match */
+    if (!allusers) {
+        if(type == JOB_TYPE_JDATA && (jpbw->uPtr != uPtr)){
+            if (uGrp == NULL)
+                return FALSE;
+            else if (!gMember(jpbw->userName, uGrp))
+                return FALSE;
+        }else if (type == JOB_TYPE_METADATA) {
+            if (uPtr != NULL && strcmp(metaData->userName, uPtr->user) == 0) {
+                /* Exact user match */
+            } else {
+                if (uGrp == NULL)
+                    return FALSE;
+                else if (!gMember(metaData->userName, uGrp))
+                    return FALSE;
+            }
+        }
+    }
+
+    /* Check job name match */
+    if (jobInfoReq->jobName[0] != '\0') {        
+        if (type == JOB_TYPE_JDATA) {
+            fullJobName_r(jpbw, fullName);
+            if ((searchJobName == FALSE && strcmp(jobInfoReq->jobName, fullName) != 0) ||
+                (searchJobName == TRUE && strncmp(fullName, jobInfoReq->jobName, strlen(jobInfoReq->jobName)) != 0))
+                return FALSE;
+        }else if (type == JOB_TYPE_METADATA){
+            getShmJobName(metaData, fullName);
+            if ((searchJobName == FALSE && strcmp(jobInfoReq->jobName, fullName) != 0) ||
+            (searchJobName == TRUE && strncmp(fullName, jobInfoReq->jobName, strlen(jobInfoReq->jobName)) != 0))
+            return FALSE;
+        }
+    }
+
+    /* Check job ID match */
+    if (jobInfoReq->jobId != 0) {
+        if (type == JOB_TYPE_JDATA) {
+            jobId = jpbw->jobId;
+        } else if (type == JOB_TYPE_METADATA) {
+            jobId = metaData->jobId;
+        }
+        
+        if ((LSB_ARRAY_IDX(jobInfoReq->jobId) != 0 && LSB_ARRAY_IDX(jobInfoReq->jobId) != LSB_ARRAY_IDX(jobId)) ||
+            LSB_ARRAY_JOBID(jobInfoReq->jobId) != LSB_ARRAY_JOBID(jobId))
+            return FALSE;
+    }
+
+    /* Check job status */
+    if (type == JOB_TYPE_JDATA) {
+        jStatus = jpbw->jStatus;
+    } else if (type == JOB_TYPE_METADATA) {
+        jStatus = metaData->jStatus;
+    }
+    if (!matchJobStatus(jobInfoReq->options, jStatus))
+        return FALSE;
+
+    /* Check host match */
+    if (!allhosts) {
+        if (type == JOB_TYPE_JDATA) {
+            if (IS_PEND(jpbw->jStatus))
+                return FALSE;
+
+            if (jpbw->hPtr == NULL) {
+                if (!(jpbw->jStatus & JOB_STAT_EXIT))
+                    ls_syslog(LOG_ERR, _i18n_msg_get(ls_catd, NL_SETN, 6510,
+                                                    "%s: Execution host for job <%s> is null"),
+                            fname, lsb_jobid2str(jpbw->jobId));
+                return FALSE;
+            }
+
+            struct gData *gp = getHGrpData(jobInfoReq->host);
+            if (gp != NULL) {
+                for (i = 0; i < jpbw->numHostPtr; i++) {
+                    if (jpbw->hPtr[i] == NULL)
+                        continue;
+                    if (gMember(jpbw->hPtr[i]->host, gp))
+                        break;
+                }
+                if (i >= jpbw->numHostPtr)
+                    return FALSE;
+            } else {
+                for (i = 0; i < jpbw->numHostPtr; i++) {
+                    if (jpbw->hPtr[i] == NULL)
+                        continue;
+                    if (equalHost_(jobInfoReq->host, jpbw->hPtr[i]->host))
+                        break;
+                }
+                if (i >= jpbw->numHostPtr)
+                    return FALSE;
+            }
+        } else if (type == JOB_TYPE_METADATA) {
+            return FALSE;
+        }
+    }
+
+    return TRUE;
+}
+
+/*
+ * Expand the job list array if it cannot hold numJobs jobs.
+ */
+int
+ensureJobListCapacity(void ***joblist, int numJobs, int *arraysize, int type)
+{
+    void **biglist;
+
+    if (*arraysize == 0) {
+        *arraysize = DEFAULT_LISTSIZE;
+        if(type == JOB_TYPE_JDATA)
+            *joblist = (void **) calloc(*arraysize, sizeof(struct jData *));
+        else 
+            *joblist = (void **) calloc(*arraysize, sizeof(struct jobMetaData *));
+        if (*joblist == NULL)
+            return LSBE_NO_MEM;
+    } else if (numJobs >= *arraysize) {
+        *arraysize *= 2;
+        if(type == JOB_TYPE_JDATA)
+            biglist = (void **) realloc((char *)*joblist, *arraysize * sizeof(struct jData *));
+        else
+            biglist = (void **) realloc((char *)*joblist, *arraysize * sizeof(struct jobMetaData *));
+        if (biglist == NULL) {
+            FREEUP(*joblist);
+            return LSBE_NO_MEM;
+        }
+        *joblist = biglist;
+    }
+    return LSBE_NO_ERROR;
 }
 
 int
@@ -9709,4 +9937,3 @@ static int staticNumPendJobs (void)
 
     return numPend;
 }
-

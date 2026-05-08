@@ -52,9 +52,9 @@ struct jobInfoHead *
 lsb_openjobinfo_a (LS_LONG_INT jobId, char *jobName, char *userName,
                  char *queueName, char *hostName, int options)
 {
-    static int first = TRUE;
-    static struct jobInfoReq jobInfoReq;
-    static struct jobInfoHead jobInfoHead;
+    static __thread int first = TRUE;
+    static __thread struct jobInfoReq jobInfoReq;
+    static __thread struct jobInfoHead jobInfoHead;
     mbdReqType mbdReqtype;
     XDR xdrs, xdrs2;
     char request_buf[MSGSIZE];

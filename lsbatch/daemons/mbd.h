@@ -25,6 +25,7 @@
 #include "daemons.h"
 #include "../../lsf/intlib/bitset.h"
 #include "jgrp.h"
+#include "../lib/lsb.threadpool.h"
 
 #define  DEF_CLEAN_PERIOD     3600
 #define  DEF_MAX_RETRY        5
@@ -812,6 +813,18 @@ struct  timeWindow {
 #define JOB_REQUE  2
 #define JOB_REPLAY 3
 
+/*
+ * Purpose: Avoid thread safety issues when operating clientList in multi-threaded environments
+ * Thread Division: Main thread sets state 1/2, sub-threads set state 3
+ * Core Goal: Ensure main thread closes the corresponding client connection only after sub-threads complete processing
+ * Effective Scope: Only takes effect for query requests processed by thread pool
+ */
+enum CLIENT_STATE{
+    CLIENT_STATE_CONNECTED = 1,
+    CLIENT_STATE_PROCESSING = 2,
+    CLIENT_STATE_FINISHED = 3
+};
+
 struct clientNode {
     struct clientNode *forw;
     struct clientNode *back;
@@ -820,6 +833,7 @@ struct clientNode {
     char *fromHost;
     mbdReqType reqType;
     time_t lastTime;
+    enum CLIENT_STATE state;
 };
 
 struct condData {
@@ -1617,4 +1631,136 @@ extern void                 detachJobMergedResReqEntry(struct jShared *);
 extern void                 detachJobEffeResReqEntry(struct jData *);
 extern char*                resVal2Str(struct resVal *resVal);
 extern struct resVal*       dupResVal(struct resVal *src);
+
+/*query_port*/
+#define DEF_QMBD_ALIVE_TIME        5
+#define MIN_QMBD_ALIVE_TIME        5
+#define MAX_QMBD_ALIVE_TIME        300
+#define DEF_QMBD_THREAD_NUM        0
+#define MIN_QMBD_THREAD_NUM        1
+#define MAX_QMBD_THREAD_NUM        256
+#define DEF_QMBD_MAX_TASK_NUM      2000
+#define MIN_QMBD_MAX_TASK_NUM      500
+#define MAX_QMBD_MAX_TASK_NUM      5000
+#define DEF_QMBD_SYNC_SHM_SIZE_MB  1024
+#define MIN_QMBD_SYNC_SHM_SIZE_MB  512
+#define MAX_QMBD_SYNC_SHM_SIZE_MB  2048
+
+#define DEF_WRITE_TIMEOUT      5
+#define MAX_QMBD_NUMS          12
+
+enum shmJobStatus{
+    SHM_BLOCK_STATUS_UNUSED,
+    SHM_BLOCK_STATUS_WRITING,
+    SHM_BLOCK_STATUS_USED    
+};
+
+enum jobSelectType{
+    JOB_TYPE_JDATA,
+    JOB_TYPE_METADATA
+};
+
+struct requestContext{
+    XDR* xdr;
+    struct Buffer* buf;
+    struct LSFHeader reqHdr;
+    struct clientNode *client;
+    int schedule;
+};
+
+
+
+/*
+ * struct jobMetaData
+ * Represents the metadata for a job update in shared memory.
+ * Contains fields for filtering jobs (user, queue, status, etc.) and
+ * locating the full XDR-serialized job data in the bufferQueue.
+ * Additional fields are included to accelerate job filtering operations.
+ */
+struct jobMetaData {
+    LS_LONG_INT jobId;
+    char userName[MAX_LSB_NAME_LEN];
+    char queue[MAX_LSB_NAME_LEN];
+    int jStatus;
+    time_t submitTime;
+    int numReaders;
+    int readerPids[MAX_QMBD_NUMS];
+    long long jobNameOffset;
+    int jobNameLen;
+    long long xdrOffset;
+    int xdrLen;
+    int state;
+    int type;
+    int nextJgrpIndex;
+};
+
+/*
+ * struct jobUnitQueue
+ * A circular buffer storing job metadata.
+ */
+struct jobMetaQueue {
+    int head;
+    int tail;
+    int capacity;
+    struct jobMetaData jobUnit[];
+};
+
+/*
+ * struct bufferQueue
+ * A circular buffer storing serialized job data or jobName.
+ */
+struct bufferQueue {
+    long long  head;
+    long long  tail;
+    long long capacity;
+    char buff[];
+};
+
+/*
+ * struct queryReaderInfo
+ * Tracks information about active query mbd processes.
+ * Used for garbage collection (cleaning up old data in SHM).
+ */
+struct queryReaderInfo {
+    pid_t pid;
+    time_t forkTime;
+    int readStartIndex; /* The jobUnitQueue index where this qmbd started reading */
+    int valid;          /* 1 if valid, 0 otherwise */
+    int status;
+};
+
+/*
+ * struct syncJobShm
+ * The top-level structure mapped to shared memory.
+ */
+struct syncJobShm {
+    int shmId;
+    struct jobMetaQueue *jobMetaQueue;
+    struct bufferQueue *xdrBuffer;
+    struct bufferQueue *jobNameBuffer;
+    struct queryReaderInfo queryReaderInfo[MAX_QMBD_NUMS];
+};
+
+
+extern int            startQueryDaemon(int *);
+extern int            listenChfd;               /*query mbd's connection listening channel index*/
+extern int            qmbdListenSock;          /*query mbd listening socket held by the main mbd*/
+extern int            qmbdAliveTime;            /*Alive time (in seconds) for the qmbd subprocess*/
+extern int            qmbdThreadNum;            /*Maximum number of threads in qmbd's thread pool*/
+extern int            qmbdMaxTaskNum;           /*Capacity of qmbd's thread pool task queue*/
+extern int            isQmbd;                   /*Flag indicating if the current process is qmbd (1 for qmbd process, 0 otherwise)*/
+extern int            qmbdPipe[2];              /*Pipe for communication between main mbd and query mbd [0]=read, [1]=write*/
+extern long long      syncShmXdrBufferSize;     /* Size of XDR serialization buffer in shared memory */
+extern long long      syncShmJobNameBufferSize; /* Size of job name buffer in shared memory */
+extern int            syncShmJobCapacity;       /* Maximum number of jobs that can be stored in shared memory */
+extern int            syncNewJobs;              /* Flag to trigger sync of new jobs into shared memory (1 = need sync) */
+extern int            getValidatedNumericParam(const char *, char *, char *, int, int, int);
+extern struct syncJobShm *shm;
+extern struct syncJobShm *initSyncShm();
+extern int addJobToSyncShm(struct jData *, int);
+extern int registerReaderToShm(pid_t , time_t);
+extern void pruneOldJobs(void);
+extern void getShmJobName(struct jobMetaData *, char *);
+extern int  selectJobsFromShm(struct jobInfoReq *, struct jobMetaData ***,int *);
+
 #endif

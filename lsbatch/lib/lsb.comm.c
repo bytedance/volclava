@@ -220,7 +220,7 @@ call_server (char * host,
 	    CLOSECD(serverSock);
 	    return (-2);
     }
-    } else {
+    } else {   
 	cc = chanRpc_(serverSock,
                       &reqbuf,
                       replyBufPtr,
@@ -229,7 +229,7 @@ call_server (char * host,
 	if ( cc < 0 ) {
 	    lsberrno = LSBE_LSLIB;
 	    CLOSECD(serverSock);
-	    return(-1);
+	    return(-2);
 	}
     }
 
@@ -383,6 +383,31 @@ get_sbd_port(void)
 #endif
 }
 
+/*
+ * Get the qmbd listen port number from configuration
+ * Reads LSB_QMBD_PORT parameter, validates it as a positive integer,
+ * and returns it in network byte order. Result is cached for subsequent calls
+ * @return: Port number in network byte order on success, 0 on failure
+ */
+ushort
+get_qmbd_port(void)
+{
+
+    static ushort qmbd_port = 0;
+    if (qmbd_port) return qmbd_port;
+    if (isint_(lsbParams[LSB_QMBD_PORT].paramValue)) {
+        if ((qmbd_port = atoi(lsbParams[LSB_QMBD_PORT].paramValue)) > 0)
+            return((qmbd_port = htons(qmbd_port)));
+        else
+        {
+            qmbd_port = 0;
+	        lsberrno = LSBE_SERVICE;
+            return(0);
+        }
+    }
+    return 0;
+}
+
 int
 callmbd(char *clusterName,
         char *request_buf,
@@ -396,9 +421,12 @@ callmbd(char *clusterName,
     static char          fname[] = "callmbd";
     char *               masterHost;
     ushort               mbd_port;
+    ushort               qmbd_port;
     int                  cc;
     int                  num = 0;
     int                  try = 0;
+    int                  isQuery = 0;
+    int                  mbdReqtype;
     struct clusterInfo * clusterInfo;
     XDR xdrs;
     struct LSFHeader reqHdr;
@@ -443,13 +471,20 @@ callmbd(char *clusterName,
         return(-1);
     }
 
+    mbdReqtype = reqHdr.opCode;
+    qmbd_port = get_qmbd_port();
     mbd_port = get_mbd_port();
     xdr_destroy(&xdrs);
+    if (qmbd_port && (mbdReqtype == BATCH_JOB_INFO || mbdReqtype == BATCH_QUE_INFO || mbdReqtype == BATCH_HOST_INFO || mbdReqtype == BATCH_RESOURCE_INFO
+        || mbdReqtype == BATCH_USER_INFO || mbdReqtype == BATCH_GRP_INFO || mbdReqtype == BATCH_PARAM_INFO || mbdReqtype == BATCH_JOB_PEEK)) {
+        isQuery = 1;
+    }
     if (logclass & LC_TRACE)
-        ls_syslog (LOG_DEBUG1, "%s: mbd_port=%d", fname, ntohs(mbd_port));
+        ls_syslog (LOG_INFO, "%s: mbd_port=%d, qmbd_port=%d, mbdReqtype is %d", fname, ntohs(mbd_port), ntohs(qmbd_port), mbdReqtype);
 
-    cc = call_server(masterHost,
-		     mbd_port,
+    if(isQuery){
+        cc = call_server(masterHost,
+		     qmbd_port,
 		     request_buf,
 		     requestlen,
 		     reply_buf,
@@ -460,6 +495,29 @@ callmbd(char *clusterName,
 		     postSndFunc,
 		     postSndFuncArg,
 		     CALL_SERVER_NO_HANDSHAKE);
+        if (cc < 0 && (logclass & LC_TRACE)){
+            ls_syslog (LOG_DEBUG1, "%s: called query mbd failed: %M", fname);
+        }
+    }
+    
+
+    if(!(isQuery && cc >= 0)){
+        cc = call_server(masterHost,
+                mbd_port,
+                request_buf,
+                requestlen,
+                reply_buf,
+                replyHdr,
+                _lsb_conntimeout,
+                _lsb_recvtimeout,
+                serverSock,
+                postSndFunc,
+                postSndFuncArg,
+                CALL_SERVER_NO_HANDSHAKE);
+        if (cc < 0 && (logclass & LC_TRACE)){
+            ls_syslog (LOG_DEBUG1, "%s: called mbd failed: %M", fname);
+        }
+    }
 
     if (logclass & LC_TRACE)
         ls_syslog(LOG_DEBUG3,"\

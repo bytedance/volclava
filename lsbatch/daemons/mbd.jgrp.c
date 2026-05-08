@@ -60,6 +60,7 @@ static int isSelected ( struct jobInfoReq *,
                         struct jgrpInfo *
                         );
 static int makeJgrpInfo(struct jgTreeNode *, char *, struct jobInfoReq *, struct jgrpInfo *);
+extern int ensureJobListCapacity(void ***joblist, int numJobs, int *arraysize, int type);
 char treeFile[48];
 LIST_T *treeObserverList;
 TREE_OBSERVER_T *treeObserverDep;
@@ -588,8 +589,8 @@ myName(char * group_spec)
 char *
 jgrpNodeParentPath(struct jgTreeNode * jgrpNode)
 {
-    static char fullPath[MAXPATHLEN];
-    static char oldPath[MAXPATHLEN];
+    static __thread char fullPath[MAXPATHLEN];
+    static __thread char oldPath[MAXPATHLEN];
     struct jgTreeNode * jgrpPtr;
     int    first = TRUE;
 
@@ -1114,6 +1115,185 @@ isJobOwner(struct lsfAuth *auth, struct jData *job)
 
 }
 
+/*
+ * Check if a job group from shared memory matches the query criteria
+ * Matches against job ID (including array job indices), queue name,
+ * user name (or user group), and host. Newly submitted jobs without
+ * a dispatched host will not match host-specific queries
+ * @param[in] jobInfoReq: Job query request with filter criteria
+ * @param[in] jobMeta: Job metadata from shared memory to check
+ * @param[in] allqueues: Whether to match all queues
+ * @param[in] allusers: Whether to match all users
+ * @param[in] allhosts: Whether to match all hosts
+ * @param[in] uGrp: User group for user matching (NULL if not applicable)
+ * @param[in] idxList: Index list for array job matching
+ * @return: TRUE if the job matches, FALSE otherwise
+ */
+static int checkJgrpMatch(struct jobInfoReq *jobInfoReq, struct jobMetaData *jobMeta, char allqueues, char allusers, char allhosts, struct gData *uGrp, struct idxList *idxList){
+    int i;
+    if(jobInfoReq->jobId != 0 && (jobInfoReq->options & JGRP_ARRAY_INFO)){
+        if ((LSB_ARRAY_IDX(jobInfoReq->jobId) != 0 && LSB_ARRAY_IDX(jobInfoReq->jobId) != LSB_ARRAY_IDX(jobMeta->jobId)) ||
+            LSB_ARRAY_JOBID(jobInfoReq->jobId) != LSB_ARRAY_JOBID(jobMeta->jobId))
+            return(FALSE);
+    }
+    if (skipJgrpByReq (jobInfoReq->options, jobMeta->jStatus))
+        return(FALSE);
+
+    if (!allqueues && strcmp(jobMeta->queue, jobInfoReq->queue) != 0)
+        return(FALSE);
+
+    if (!allusers && strcmp(jobMeta->userName, jobInfoReq->userName)) {
+        if (uGrp == NULL)
+            return(FALSE);
+        else if (!gMember(jobMeta->userName, uGrp))
+            return(FALSE);
+    }
+    /* Newly submitted jobs have not been dispatched yet, so the hosts field is definitely empty. 
+     * Querying with a specified host will inevitably result in a mismatch. 
+     */
+    if (!allhosts) {
+        return FALSE;
+    }
+
+    if (idxList) {
+        struct idxList *idx;
+        for (idx = idxList; idx; idx = idx->next) {
+            if (LSB_ARRAY_IDX(jobMeta->jobId) < idx->start ||
+                LSB_ARRAY_IDX(jobMeta->jobId) > idx->end)
+                continue;
+            if (((LSB_ARRAY_IDX(jobMeta->jobId)-idx->start) % idx->step) == 0)
+                return(TRUE);
+        }
+        return(FALSE);
+    }
+    return(TRUE);
+}
+
+/*
+ * Select job groups from shared memory that match the query criteria
+ * Iterates through the shared memory job metadata queue, using the reader's
+ * current read position, and collects all matching job groups into a list
+ * @param[in] jobInfoReq: Job query request with filter criteria
+ * @param[out] jobMetaDataList: Pointer to array of matching job metadata pointers
+ * @param[out] listSize: Number of matching jobs found
+ * @return: LSBE_NO_ERROR on success, LSBE_NO_JOB if no reader slot found
+ */
+int selectJgrpsFromShm(struct jobInfoReq *jobInfoReq, struct jobMetaData ***jobMetaDataList,int *listSize){
+    char allqueues, allusers, allhosts;
+    int arraysize = 0, tmpIndex = 0, retError = LSBE_NO_ERROR, currentIndex = 0, numJobs = 0, maxJLimit, i;
+    struct jobMetaData *job;
+    struct jobMetaData **joblist;
+    struct gData *uGrp;
+    struct idxList * idxList;
+    char   jobName[MAX_CMD_DESC_LEN];
+    struct jobMetaData *meta;
+    char shmJobName[MAXPATHLEN];
+    static int currentReaderIndex = -1;
+    if(currentReaderIndex == -1){
+        pid_t pid = getpid();
+        for(i = 0; i < MAX_QMBD_NUMS; i++){
+            if(pid == shm->queryReaderInfo[i].pid){
+                currentReaderIndex = i;
+            }
+        }
+    }
+
+    if(currentReaderIndex >= 0){
+        currentIndex = shm->queryReaderInfo[currentReaderIndex].readStartIndex;
+    }else{
+        return LSBE_NO_JOB;
+    }
+
+    memset(jobName, 0, MAX_CMD_DESC_LEN);
+    allqueues = FALSE;
+    allusers = FALSE;
+    allhosts = FALSE;
+    if (jobInfoReq->queue[0] == '\0')
+        allqueues = TRUE;
+
+    if (strcmp(jobInfoReq->userName, ALL_USERS) == 0)
+        allusers = TRUE;
+    else
+        uGrp = getUGrpData (jobInfoReq->userName);
+    
+    if (jobInfoReq->host[0] == '\0')
+        allhosts = TRUE;
+    if (((strlen(jobInfoReq->jobName) == 1) && (jobInfoReq->jobName[0] == '/')) || (strlen(jobInfoReq->jobName) == 0))
+        strcpy(jobName, "*");
+    else
+        ls_strcat(jobName,sizeof(jobName),jobInfoReq->jobName);
+    
+    if ((idxList =
+          parseJobArrayIndex(jobName, &retError, &maxJLimit))
+          == NULL) {
+        if (retError != LSBE_NO_ERROR)
+            return(retError);
+    }
+
+    while(currentIndex != shm->jobMetaQueue->tail){
+        job = &shm->jobMetaQueue->jobUnit[currentIndex];
+        if(job == NULL || job->state != SHM_BLOCK_STATUS_USED){
+            ls_syslog(LOG_ERR, "%s: a job in shm mask deleted, index is %d, block status is %d", __func__, currentIndex, job->state);
+        }
+        getShmJobName(job, shmJobName);
+        if(matchName(jobName, shmJobName)){
+            if(jobInfoReq->options & JGRP_ARRAY_INFO){
+                if(job->type == JGRP_NODE_ARRAY){
+                    if(checkJgrpMatch(jobInfoReq, job, allqueues, allusers, allhosts, uGrp, idxList)){
+                        retError = ensureJobListCapacity((void ***)&joblist, numJobs, &arraysize, JOB_TYPE_METADATA);
+                        if (retError == LSBE_NO_ERROR) {
+                            joblist[numJobs] = job;
+                            numJobs++;
+                        } else {
+                            FREEUP(joblist);
+                            return retError;
+                        }
+                    }
+                }
+            }else{
+                if(job->type == JGRP_NODE_ARRAY){
+                    tmpIndex = (currentIndex + 1) % syncShmJobCapacity;
+                    while(tmpIndex != job->nextJgrpIndex){
+                        meta = &shm->jobMetaQueue->jobUnit[tmpIndex];
+                        if(meta == NULL || meta->state != SHM_BLOCK_STATUS_USED){
+                            ls_syslog(LOG_WARNING, "%s: a job in shm mask deleted, index is %d, block status is %d", __func__, tmpIndex, meta->state);
+                        }
+                        tmpIndex = (tmpIndex + 1) % syncShmJobCapacity;
+                        if(checkJgrpMatch(jobInfoReq, meta, allqueues, allusers, allhosts, uGrp, idxList)){
+                            retError = ensureJobListCapacity((void ***)&joblist, numJobs, &arraysize, JOB_TYPE_METADATA);
+                            if (retError == LSBE_NO_ERROR) {
+                                joblist[numJobs] = meta;
+                                numJobs++;
+                            } else {
+                                FREEUP(joblist);
+                                return retError;
+                            }
+                        }
+                    }
+                }else{
+                    if(checkJgrpMatch(jobInfoReq, job, allqueues, allusers, allhosts, uGrp, idxList)){
+                        retError = ensureJobListCapacity((void ***)&joblist, numJobs, &arraysize, JOB_TYPE_METADATA);
+                        if (retError == LSBE_NO_ERROR) {
+                            joblist[numJobs] = job;
+                            numJobs++;
+                        } else {
+                            FREEUP(joblist);
+                            return retError;
+                        }
+                    }
+                }
+            }
+        }
+        currentIndex = job->nextJgrpIndex;
+    }
+    if (numJobs > 0) {
+        *jobMetaDataList =  joblist;
+        *listSize = numJobs;
+        return(LSBE_NO_ERROR);
+    } else {
+        return(LSBE_NO_JOB);
+    }
+}
 
 int
 selectJgrps (struct jobInfoReq *jobInfoReq, void **jgList, int *listSize)
