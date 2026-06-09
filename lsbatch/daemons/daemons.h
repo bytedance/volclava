@@ -163,11 +163,11 @@
 #undef LSB_QMBD_PORT
 #endif
 #define LSB_QMBD_PORT               58
-#define LSB_QMBD_SYNC_NEW_JOBS      59
-#define LSB_QMBD_ALIVE_TIME         60 
+#define LSB_QMBD_ALIVE_TIME         59
+#define LSB_QMBD_MAX_TASK_NUM       60
 #define LSB_QMBD_THREAD_NUM         61
-#define LSB_QMBD_MAX_TASK_NUM       62 
-#define LSB_QMBD_SYNC_SHM_SIZE      63  
+#define LSB_QMBD_JOB_SYNC_MODE      62
+#define LSB_QMBD_SYNC_SHM_SIZE      63
 #define NOT_LOG  INFINIT_INT
 
 

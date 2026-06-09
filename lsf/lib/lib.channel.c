@@ -149,7 +149,7 @@ chanClientSocket_(int domain, int type, int options)
 {
     int ch, i, s0;
     int s1;
-    static char first=TRUE;
+    static __thread char first=TRUE;
     static __thread ushort port;
     struct sockaddr_in cliaddr;
 

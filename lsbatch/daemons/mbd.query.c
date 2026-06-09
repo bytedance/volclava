@@ -12,17 +12,28 @@
  */
 
 #include "mbd.h"
+#include "mbd.query.h"
 #include "daemonout.h"
 #include <sys/prctl.h>
 #define DEF_EPOLL_INTERVAL 1
 #define DEF_QMBD_FORCE_EXIT_DELAY 100 
  
-int listenChfd;
-int qmbdThreadNum = DEF_QMBD_THREAD_NUM;
-int qmbdMaxTaskNum = DEF_QMBD_MAX_TASK_NUM;
-threadPool_t  *lightQueryPool, *heavyQueryPool;
+static int listenChfd;                  /* qmbd listening channel descriptor. */
+int qmbdThreadNum = DEF_QMBD_THREAD_NUM; /* qmbd worker thread count. */
+int qmbdMaxTaskNum = DEF_QMBD_MAX_TASK_NUM; /* qmbd task queue capacity. */
+threadPool_t  *lightQueryPool, *heavyQueryPool; /* qmbd query worker pools. */
 extern short qmbd_port;
 extern int qmbdListenSock;
+
+int qmbdJobSyncMode = QMBD_JOB_SYNC_OFF; /* Selected incremental qmbd sync mode. */
+
+struct requestContext {
+    XDR* xdr;                     /* Request decode stream owned by client. */
+    struct Buffer* buf;           /* Request buffer backing the XDR stream. */
+    struct LSFHeader reqHdr;      /* Decoded client request header. */
+    struct clientNode *client;    /* Client connection to reply to. */
+    int schedule;                 /* Nonzero if the request needs scheduling.(Unused) */
+};
 
 static int exitStatus = 0;                             /*Flag:1.query mbd should exit after processing remaining requests；2.query mbd should force exit*/
 static int initQueryDaemon();                                                   
@@ -35,12 +46,54 @@ static void handleDaemonExpiration();
 static void alarmHandler(int sig);
 static void exitQmbd();
 static int initListenSocket(void);
-static void* controlPipeMonitorThread(void* arg);
 
 extern int authRequest(struct lsfAuth *, XDR *, struct LSFHeader *,
                        struct sockaddr_in *, struct sockaddr_in *,
                        char *, int);
 extern int processClient(struct clientNode* client, int *needFree);               
+extern void reorderSJL(void);
+
+/*
+ * Initialize the selected qmbd job synchronization backend.
+ * The dispatcher keeps mode selection out of the submit/query paths.
+ * @return: 0 on success, -1 on backend initialization failure.
+ */
+int
+initQmbdJobSync(void)
+{
+    switch (qmbdJobSyncMode) {
+        case QMBD_JOB_SYNC_SOCKET:
+            return initQmbdEventSender();
+        case QMBD_JOB_SYNC_SHM:
+            return initQmbdShmSync();
+        case QMBD_JOB_SYNC_OFF:
+        default:
+            return 0;
+    }
+}
+
+/*
+ * Publish a newly committed job to the selected qmbd sync backend.
+ * Failure must not fail the original submit; qmbd can recover on refork.
+ * This path is not authoritative state transfer.  It only improves visibility
+ * in the current qmbd generation.
+ * @param[in] subReq: Original submit request for the committed job.
+ * @param[in] job: Master mbd job object after jobId allocation.
+ * @return: 0 on success or best-effort drop, -1 on local encode/setup failure.
+ */
+int
+qmbdSyncSubmitJob(struct submitReq *subReq, struct jData *job)
+{
+    switch (qmbdJobSyncMode) {
+        case QMBD_JOB_SYNC_SOCKET:
+            return qmbdSocketSyncSubmitJob(subReq, job);
+        case QMBD_JOB_SYNC_SHM:
+            return qmbdShmSyncSubmitJob(subReq, job);
+        case QMBD_JOB_SYNC_OFF:
+        default:
+            return 0;
+    }
+}
 
 /*
  * Start the qmbd daemon process and handle client requests
@@ -58,19 +111,39 @@ int startQueryDaemon(int *qmbdPid){
 
     *qmbdPid = fork();
     if ((*qmbdPid) < 0) {
-        ls_syslog(LOG_DEBUG, I18N_FUNC_FAIL_M, __func__, "fork");
+        ls_syslog(LOG_ERR, I18N_FUNC_FAIL_M, __func__, "fork");
         return -1;
     }
     if ((*qmbdPid) > 0){
         ls_syslog(LOG_DEBUG, "%s: query mbd pid is %d", __func__,*qmbdPid);
-        close(qmbdPipe[0]);
-        qmbdPipe[0] = -1;
-        if(syncNewJobs)
+        /*
+         * Parent keeps only its write/control ends.  The child-side raw fds
+         * are closed here after fork so EOF/HUP semantics remain meaningful.
+         */
+        if (qmbdSubmitSockPair[0] >= 0) {
+            close(qmbdSubmitSockPair[0]);
+            qmbdSubmitSockPair[0] = -1;
+        }
+        if (qmbdCtrlSockPair[0] >= 0) {
+            close(qmbdCtrlSockPair[0]);
+            qmbdCtrlSockPair[0] = -1;
+        }
+        if (qmbdJobSyncMode == QMBD_JOB_SYNC_SHM)
             registerReaderToShm(*qmbdPid, time(0));
         return 0;
     }
-    close(qmbdPipe[1]);
-    qmbdPipe[1] = -1;
+    /*
+     * Child keeps only the read ends it will bind into qmbd channels.  Parent
+     * ends are closed before the epoll loop starts.
+     */
+    if (qmbdSubmitSockPair[1] >= 0) {
+        close(qmbdSubmitSockPair[1]);
+        qmbdSubmitSockPair[1] = -1;
+    }
+    if (qmbdCtrlSockPair[1] >= 0) {
+        close(qmbdCtrlSockPair[1]);
+        qmbdCtrlSockPair[1] = -1;
+    }
     *qmbdPid = getpid();
     cc = initQueryDaemon();
     if(cc < 0){
@@ -109,11 +182,56 @@ qmbd: Ohmygosh.. qmbd epoll() failed %m");
         if (listenChfd != -1 && chanEventsReady(listenChfd, EPOLL_EVENT_READ)) {
             acceptConnection(listenChfd);
         }
+        /*
+         * Submit events are best-effort incremental replay.  A handler failure
+         * only drops that event; socket errors expire this qmbd instance.  The
+         * authoritative job state remains in the main mbd.
+         */
+        if (qmbdSubmitChfd != -1
+            && chanEventsReady(qmbdSubmitChfd, EPOLL_EVENT_READ|EPOLL_EVENT_ERROR)) {
+            if (chanEventsReady(qmbdSubmitChfd, EPOLL_EVENT_ERROR)) {
+                if (logclass & LC_COMM) {
+                    ls_syslog(LOG_DEBUG,
+                              "%s: qmbd submit channel closed chfd=%d sockfd=%d",
+                              __func__, qmbdSubmitChfd, chanSock_(qmbdSubmitChfd));
+                }
+                handleDaemonExpiration();
+            } else if (handleQmbdSubmitEventIO() != 0) {
+                ls_syslog(LOG_WARNING,
+                          "%s: qmbd submit handler failed chfd=%d sockfd=%d",
+                          __func__, qmbdSubmitChfd, chanSock_(qmbdSubmitChfd));
+            }
+        }
+        /*
+         * Control events drive qmbd lifecycle.  A handled ctrl request can ask
+         * qmbd to stop accepting new query clients and drain existing ones.
+         * If the main mbd closes the ctrl fd without delivering a full payload,
+         * EPOLLHUP/EPOLLERR is also treated as an expiration request.
+         */
+        if (qmbdCtrlChfd != -1
+            && chanEventsReady(qmbdCtrlChfd, EPOLL_EVENT_READ|EPOLL_EVENT_ERROR)) {
+            if (chanEventsReady(qmbdCtrlChfd, EPOLL_EVENT_ERROR)) {
+                if (logclass & LC_COMM) {
+                    ls_syslog(LOG_DEBUG,
+                              "%s: qmbd ctrl channel closed chfd=%d sockfd=%d",
+                              __func__, qmbdCtrlChfd, chanSock_(qmbdCtrlChfd));
+                }
+                handleDaemonExpiration();
+            } else if (handleQmbdCtrlEventIO() != 0) {
+                if (logclass & LC_COMM) {
+                    ls_syslog(LOG_DEBUG,
+                              "%s: qmbd ctrl handler requested expiration chfd=%d sockfd=%d",
+                              __func__, qmbdCtrlChfd, chanSock_(qmbdCtrlChfd));
+                }
+                handleDaemonExpiration();
+            }
+        }
 
         handleClientIO();
 
     } /* for (;;) */
     exitQmbd();
+    return 0;
 }
 
 /*
@@ -127,7 +245,6 @@ static void processQueryRequestByThread(struct clientNode *client) {
     mbdReqType              mbdReqtype = 0;
     int                     s = 0;
     int                     ret = 0;
-    unsigned int            len = 0;
     struct sockaddr_in      from;
     struct LSFHeader        reqHdr;
     XDR*                    xdrs = NULL;
@@ -162,7 +279,6 @@ static void processQueryRequestByThread(struct clientNode *client) {
         return;
     }
     
-    len = reqHdr.length;
     mbdReqtype = reqHdr.opCode;
 
     if (logclass & (LC_COMM | LC_TRACE)) {
@@ -214,51 +330,34 @@ static void processQueryRequestByThread(struct clientNode *client) {
     return;
 }
 
-/*Used to monitor the query mbd control pipe; when the pipe is closed, the query mbd is deemed expired.*/
-static void* controlPipeMonitorThread(void* arg){
-    struct pollfd pfd;
-    int ret = 0;
-    
-    if(qmbdPipe[0] < 0){
-        return NULL;
-    }
-    
-    pfd.fd = qmbdPipe[0];
-    pfd.events = POLLIN;
-    /* After reading data from the pipe, close the listen socket, close the read end of the pipe, and exit the thread */
-    while(1){
-        /* Wait indefinitely for the main mbd to close the control pipe. */
-        ret = poll(&pfd, 1, -1);
-        if(ret < 0){
-            if(errno == EINTR){
-                continue;
-            }
-            ls_syslog(LOG_ERR, "%s: poll failed: %m", __func__);
-            handleDaemonExpiration();
-            break;
-        }
-        handleDaemonExpiration();
-        break;
-    }
-    return NULL;
-}
-
 /*
- * Handle qmbd daemon expiration when alive timer fires
- * Closes the listen socket and control pipe, then sets a force-exit timer
- * to allow pending requests to complete before forced shutdown
+ * Enter graceful qmbd expiration.
+ * Stop accepting new clients/internal events, then let existing clients drain.
+ * @return: none.
  */
 static void handleDaemonExpiration(){
     struct itimerval timer;
     exitStatus = 1;
     /* Close the listen socket and stop accepting new connections */
-    if (listenChfd != -1) {
+    if (listenChfd >= 0) {
         chanClose_(listenChfd);
         listenChfd = -1;
     }
-    if(qmbdPipe[0] >= 0){
-        close(qmbdPipe[0]);
-        qmbdPipe[0] = -1;
+    if(qmbdSubmitChfd >= 0){
+        chanClose_(qmbdSubmitChfd);
+        qmbdSubmitChfd = -1;
+    }
+    if(qmbdCtrlChfd >= 0){
+        chanClose_(qmbdCtrlChfd);
+        qmbdCtrlChfd = -1;
+    }
+    if(qmbdSubmitSockPair[0] >= 0){
+        close(qmbdSubmitSockPair[0]);
+        qmbdSubmitSockPair[0] = -1;
+    }
+    if(qmbdCtrlSockPair[0] >= 0){
+        close(qmbdCtrlSockPair[0]);
+        qmbdCtrlSockPair[0] = -1;
     }
     
     timer.it_value.tv_sec = DEF_QMBD_FORCE_EXIT_DELAY;
@@ -420,10 +519,9 @@ int initQueryDaemon(){
     struct clientNode *cliPtr = NULL;
     struct clientNode *nextClient = NULL;
     sigset_t empty_set;
-    pthread_t tid;
 
     if (logclass & LC_TRACE)
-        ls_syslog(LOG_ERR,"%s: Entering...", __func__);
+        ls_syslog(LOG_DEBUG,"%s: Entering...", __func__);
 
     chanCloseEpoll();
     isQmbd = 1;
@@ -437,7 +535,7 @@ int initQueryDaemon(){
     }
     
     for(i = 3; i < sysconf(_SC_OPEN_MAX); i++){
-        if(i != qmbdPipe[0] && i != qmbdListenSock)
+        if(i != qmbdSubmitSockPair[0] && i != qmbdCtrlSockPair[0] && i != qmbdListenSock)
             close(i);
     }
     Signal_(SIGCHLD, (SIGFUNCTYPE) child_handler);
@@ -453,7 +551,7 @@ int initQueryDaemon(){
     lightQueryPool = createThreadPool(qmbdThreadNum, qmbdMaxTaskNum);
     heavyQueryPool = createThreadPool(qmbdThreadNum, qmbdMaxTaskNum);
     if(lightQueryPool == NULL || heavyQueryPool == NULL){
-        ls_syslog(LOG_ERR, "%s: createThreadPool failed: %m");
+        ls_syslog(LOG_ERR, "%s: createThreadPool failed: %m", __func__);
         return -1;
     }
     listenChfd = initListenSocket();
@@ -461,21 +559,55 @@ int initQueryDaemon(){
         ls_syslog(LOG_ERR, "%s: Cannot get query batch server socket... %M", __func__);
         return -1;
     }else{
-        ls_syslog(LOG_INFO, "%s: query batch server start , channel is %d, sockfd is %d,port is %d", __func__,listenChfd,chanSock_(listenChfd),ntohs(qmbd_port));
+        ls_syslog(LOG_INFO, "%s: query batch server start , port is %d", __func__, ntohs(qmbd_port));
     }
-    if(qmbdPipe[0] >= 0){
-        int rc = pthread_create(&tid, NULL, controlPipeMonitorThread, NULL);
-        if (rc != 0) {
-            ls_syslog(LOG_ERR, "%s: pthread_create for pipe monitor failed: %s",
-                      __func__, strerror(rc));
-            close(qmbdPipe[0]);
-            qmbdPipe[0] = -1;
+    if(qmbdSubmitSockPair[0] >= 0){
+        /*
+         * The child owns the submit read end.  The parent owns the write end.
+         */
+        qmbdSubmitChfd = chanOpenSock_(qmbdSubmitSockPair[0], CHAN_OP_NONBLOCK);
+        if (qmbdSubmitChfd < 0) {
+            ls_syslog(LOG_ERR, "%s: bind qmbd submit socket %d to channel failed: %m",
+                      __func__, qmbdSubmitSockPair[0]);
+            close(qmbdSubmitSockPair[0]);
+            qmbdSubmitSockPair[0] = -1;
             return -1;
-        }else{
-            pthread_detach(tid);
         }
-    }else{
-        ls_syslog(LOG_ERR, "%s: query mbd pipe err");
+        qmbdSubmitSockPair[0] = -1;
+        if (chanRegisterEpoll_(qmbdSubmitChfd, EPOLLIN|EPOLLERR) < 0) {
+            ls_syslog(LOG_ERR, "%s: chanRegisterEpoll_() failed for qmbd submit channel",
+                      __func__);
+            chanClose_(qmbdSubmitChfd);
+            qmbdSubmitChfd = -1;
+            return -1;
+        }
+    } else if (qmbdJobSyncMode == QMBD_JOB_SYNC_SOCKET) {
+        ls_syslog(LOG_ERR, "%s: query mbd submit socket err", __func__);
+        return -1;
+    }
+    if(qmbdCtrlSockPair[0] >= 0){
+        /*
+         * The child owns the ctrl read end.  Parent-side close is treated as
+         * channel error by the qmbd epoll loop.
+         */
+        qmbdCtrlChfd = chanOpenSock_(qmbdCtrlSockPair[0], CHAN_OP_NONBLOCK);
+        if (qmbdCtrlChfd < 0) {
+            ls_syslog(LOG_ERR, "%s: bind qmbd ctrl socket %d to channel failed: %m",
+                      __func__, qmbdCtrlSockPair[0]);
+            close(qmbdCtrlSockPair[0]);
+            qmbdCtrlSockPair[0] = -1;
+            return -1;
+        }
+        qmbdCtrlSockPair[0] = -1;
+        if (chanRegisterEpoll_(qmbdCtrlChfd, EPOLLIN|EPOLLERR) < 0) {
+            ls_syslog(LOG_ERR, "%s: chanRegisterEpoll_() failed for qmbd ctrl channel",
+                      __func__);
+            chanClose_(qmbdCtrlChfd);
+            qmbdCtrlChfd = -1;
+            return -1;
+        }
+    } else {
+        ls_syslog(LOG_ERR, "%s: query mbd ctrl socket err", __func__);
         return -1;
     }
     return 0;
@@ -564,6 +696,14 @@ shutdownClient(struct clientNode *client)
  * Closes listen socket, destroys thread pools, and exits with appropriate status
  */
 static void exitQmbd(){
+    if (qmbdSubmitChfd != -1) {
+        chanClose_(qmbdSubmitChfd);
+        qmbdSubmitChfd = -1;
+    }
+    if (qmbdCtrlChfd != -1) {
+        chanClose_(qmbdCtrlChfd);
+        qmbdCtrlChfd = -1;
+    }
     if (listenChfd != -1) {
         chanClose_(listenChfd);
         listenChfd = -1;
@@ -582,11 +722,11 @@ static void exitQmbd(){
 }
 
 /*
- * Initialize listening socket for query mbd daemon
- * Adopts the listening socket inherited from the main mbd and registers it with epoll
- * @return: Channel descriptor on success, -1 on failure
+ * Initialize qmbd's listen channel from the passive socket inherited from mbd.
+ * Main mbd owns bind/listen so qmbd restart does not race on the query port.
+ * @return: Channel descriptor on success, -1 on failure.
  */
-int
+static int
 initListenSocket(void)
 {
     int ch = 0;

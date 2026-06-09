@@ -18,6 +18,7 @@
  */
 
 #include "mbd.h"
+#include "mbd.query.h"
 #include "mbd.fairshare.h"
 #include <pthread.h>
 
@@ -119,6 +120,7 @@ static void closeSbdConnect4ZombieJob(struct jData *);
 extern int glMigToPendFlag;
 extern int requeueToBottom;
 extern int arraySchedOrder;
+extern short qmbd_port;
 
 extern int statusChanged;
 
@@ -309,12 +311,15 @@ newJob (struct submitReq *subReq, struct submitMbdReply *Reply, int chan,
     }
     Reply->jobId = newjob->jobId;
     *jobData = newjob;
-
     if (logclass & (LC_TRACE | LC_EXEC | LC_SCHED))
         ls_syslog(LOG_DEBUG1, "%s: New job <%s> submitted to queue <%s>",
                   fname, lsb_jobid2str(newjob->jobId), newjob->qPtr->queue);
 
     logJobInfo(subReq, newjob, &jf);
+    if (qmbdSyncSubmitJob(subReq, newjob) < 0) {
+        ls_syslog(LOG_WARNING, "%s: failed to sync qmbd submit event for job <%s>",
+                    __func__, lsb_jobid2str(newjob->jobId));
+    }
     FREEUP (jf.data);
 
     return(LSBE_NO_ERROR);
@@ -489,7 +494,10 @@ newJobWithFile (struct submitReq *subReq, struct submitMbdReply *Reply,
                   fname, lsb_jobid2str(newjob->jobId), newjob->qPtr->queue);
 
     logJobInfo(subReq, newjob, jf);
-
+    if (qmbdSyncSubmitJob(subReq, newjob) < 0) {
+        ls_syslog(LOG_WARNING, "%s: failed to sync qmbd submit event for job <%s>",
+                  __func__, lsb_jobid2str(newjob->jobId));
+    }
     return(LSBE_NO_ERROR);
 
 error_cleanup:
@@ -707,8 +715,6 @@ handleNewJob(struct jData *jpbw, int job, int eventTime)
         jpbw->newReason = PEND_USER_STOP;
         jStatusChange(jpbw, JOB_STAT_PSUSP, -1, __func__);
     }
-    if(mSchedStage != M_STAGE_REPLAY && syncNewJobs)
-        addJobToSyncShm(jpbw, -1);
 }
 
 int
@@ -1189,112 +1195,10 @@ freeNewJob (struct jData *newjob)
     FREEUP (newjob);
 }
 
-/*
- * selectJobsFromShm - Select jobs from shared memory
- * @param[in] jobInfoReq: Job information request structure
- * @param[out] jobMetaDataList: Pointer to store the list of matched job metadata
- * @param[out] listSize: Pointer to store the size of the list
- * @param[in] shm: Pointer to the shared memory structure
- * @return: LSBE_NO_ERROR on success, error code otherwise
- */
-int selectJobsFromShm(struct jobInfoReq *jobInfoReq, struct jobMetaData ***jobMetaDataList,int *listSize)
-{
-    char allqueues = FALSE;
-    char allusers = FALSE;
-    char allhosts = FALSE;
-    char searchJobName = FALSE;
-    struct jobMetaData **joblist = NULL;
-    struct gData *uGrp = NULL;
-    int numJobs = 0;
-    int arraysize = 0;
-    int ret = 0;
-    struct  uData *uPtr = NULL;
-    int currentIndex = 0, startIndex;
-    int i = 0;
-    static int currentReaderIndex = -1;
-    if(currentReaderIndex == -1){
-        pid_t pid = getpid();
-        for(i = 0; i < MAX_QMBD_NUMS; i++){
-            if(pid == shm->queryReaderInfo[i].pid){
-                currentReaderIndex = i;
-            }
-        }
-    }
-
-
-    if(currentReaderIndex >= 0){
-        startIndex = shm->queryReaderInfo[currentReaderIndex].readStartIndex;
-    }else{
-        return LSBE_NO_JOB;
-    }
-
-    if (jobInfoReq->queue[0] == '\0')
-        allqueues = TRUE;
-    if (strcmp(jobInfoReq->userName, ALL_USERS) == 0)
-        allusers = TRUE;
-    else
-        uGrp = getUGrpData (jobInfoReq->userName);
-
-    if (jobInfoReq->host[0] == '\0')
-        allhosts = TRUE;
-    if (jobInfoReq->jobName[0] != '\0' &&
-        jobInfoReq->jobName[strlen(jobInfoReq->jobName) - 1] == '*') {
-        searchJobName = TRUE;
-        jobInfoReq->jobName[strlen(jobInfoReq->jobName) - 1] = '\0';
-    }
-
-    if(!allusers)
-        uPtr = getUserData(jobInfoReq->userName);
-    for (i = 0; i < syncShmJobCapacity -1; i++) {
-        currentIndex = (startIndex + i) % syncShmJobCapacity;
-        if (currentIndex == shm->jobMetaQueue->tail) {
-            break;
-        }
-        struct jobMetaData *metaData = &shm->jobMetaQueue->jobUnit[currentIndex];
-        
-        if (metaData == NULL || metaData->state != SHM_BLOCK_STATUS_USED) {
-            ls_syslog(LOG_ERR, "%s: a job in shm mask deleted, index is %d, block status is %d", __func__, currentIndex, metaData->state);
-        }
-        if(metaData->type == JGRP_NODE_ARRAY){
-            continue;
-        }
-
-        /* Check if the job matches the request */
-        if (checkJobMatch((void *)metaData, jobInfoReq, allqueues, allusers, allhosts, uGrp, uPtr, searchJobName, JOB_TYPE_METADATA)) {
-            ret = ensureJobListCapacity((void ***)&joblist, numJobs, &arraysize, JOB_TYPE_METADATA);
-            if (ret != LSBE_NO_ERROR) {
-                FREEUP(joblist);
-                return ret;
-            }
-            if(jobInfoReq->options & LAST_JOB){
-                joblist[0] = metaData;
-                numJobs = 1;
-            }else{
-                joblist[numJobs] = metaData;
-                numJobs++;
-            }
-        }
-    }
-
-    *listSize = numJobs;
-
-    if (numJobs > 0) {
-        *jobMetaDataList = joblist;
-        return(LSBE_NO_ERROR);
-    } else if (!allqueues && getQueueData (jobInfoReq->queue) == NULL) {
-        FREEUP(joblist);
-        return(LSBE_BAD_QUEUE);
-    }
-    FREEUP(joblist);
-    return(LSBE_NO_JOB);
-
-}
-
 int
 selectJobs (struct jobInfoReq *jobInfoReq, struct jData ***jobDataList,
             int *listSize)
 {
-    static char fname[] = "selectJobs()";
     char allqueues = FALSE;
     char allusers = FALSE;
     char allhosts = FALSE;
@@ -1569,75 +1473,40 @@ checkJobMatch(void *jobData, struct jobInfoReq *jobInfoReq, char allqueues, char
     static char fname[] = "checkJobMatch()";
     int i;
     struct jData *jpbw = NULL;
-    struct jobMetaData *metaData = NULL;
     int jStatus = 0;
     LS_LONG_INT jobId = 0;
     char fullName[MAXPATHLEN];
 
-    if (type == JOB_TYPE_JDATA) {
-        jpbw = (struct jData *)jobData;
-        if (jpbw->jobId < 0)
-            return FALSE;
-    } else if (type == JOB_TYPE_METADATA) {
-        metaData = (struct jobMetaData *)jobData;
-        if (metaData->jobId < 0)
-            return FALSE;
-    } else {
+    if (type != JOB_TYPE_JDATA) {
         return FALSE;
     }
+    jpbw = (struct jData *)jobData;
+    if (jpbw->jobId < 0)
+        return FALSE;
 
     /* Check queue match */
-    if (!allqueues) {
-        if (type == JOB_TYPE_JDATA) {
-            if (strcmp(jpbw->qPtr->queue, jobInfoReq->queue) != 0)
-                return FALSE;
-        } else if (type == JOB_TYPE_METADATA) {
-            if (strcmp(metaData->queue, jobInfoReq->queue) != 0)
-                return FALSE;
-        }
-    }
+    if (!allqueues && strcmp(jpbw->qPtr->queue, jobInfoReq->queue) != 0)
+        return FALSE;
 
     /* Check user match */
-    if (!allusers) {
-        if(type == JOB_TYPE_JDATA && (jpbw->uPtr != uPtr)){
-            if (uGrp == NULL)
-                return FALSE;
-            else if (!gMember(jpbw->userName, uGrp))
-                return FALSE;
-        }else if (type == JOB_TYPE_METADATA) {
-            if (uPtr != NULL && strcmp(metaData->userName, uPtr->user) == 0) {
-                /* Exact user match */
-            } else {
-                if (uGrp == NULL)
-                    return FALSE;
-                else if (!gMember(metaData->userName, uGrp))
-                    return FALSE;
-            }
-        }
+    if (!allusers && (jpbw->uPtr != uPtr)) {
+        if (uGrp == NULL)
+            return FALSE;
+        else if (!gMember(jpbw->userName, uGrp))
+            return FALSE;
     }
 
     /* Check job name match */
     if (jobInfoReq->jobName[0] != '\0') {        
-        if (type == JOB_TYPE_JDATA) {
-            fullJobName_r(jpbw, fullName);
-            if ((searchJobName == FALSE && strcmp(jobInfoReq->jobName, fullName) != 0) ||
-                (searchJobName == TRUE && strncmp(fullName, jobInfoReq->jobName, strlen(jobInfoReq->jobName)) != 0))
-                return FALSE;
-        }else if (type == JOB_TYPE_METADATA){
-            getShmJobName(metaData, fullName);
-            if ((searchJobName == FALSE && strcmp(jobInfoReq->jobName, fullName) != 0) ||
+        fullJobName_r(jpbw, fullName);
+        if ((searchJobName == FALSE && strcmp(jobInfoReq->jobName, fullName) != 0) ||
             (searchJobName == TRUE && strncmp(fullName, jobInfoReq->jobName, strlen(jobInfoReq->jobName)) != 0))
             return FALSE;
-        }
     }
 
     /* Check job ID match */
     if (jobInfoReq->jobId != 0) {
-        if (type == JOB_TYPE_JDATA) {
-            jobId = jpbw->jobId;
-        } else if (type == JOB_TYPE_METADATA) {
-            jobId = metaData->jobId;
-        }
+        jobId = jpbw->jobId;
         
         if ((LSB_ARRAY_IDX(jobInfoReq->jobId) != 0 && LSB_ARRAY_IDX(jobInfoReq->jobId) != LSB_ARRAY_IDX(jobId)) ||
             LSB_ARRAY_JOBID(jobInfoReq->jobId) != LSB_ARRAY_JOBID(jobId))
@@ -1645,28 +1514,24 @@ checkJobMatch(void *jobData, struct jobInfoReq *jobInfoReq, char allqueues, char
     }
 
     /* Check job status */
-    if (type == JOB_TYPE_JDATA) {
-        jStatus = jpbw->jStatus;
-    } else if (type == JOB_TYPE_METADATA) {
-        jStatus = metaData->jStatus;
-    }
+    jStatus = jpbw->jStatus;
     if (!matchJobStatus(jobInfoReq->options, jStatus))
         return FALSE;
 
     /* Check host match */
     if (!allhosts) {
-        if (type == JOB_TYPE_JDATA) {
-            if (IS_PEND(jpbw->jStatus))
-                return FALSE;
+        if (IS_PEND(jpbw->jStatus))
+            return FALSE;
 
-            if (jpbw->hPtr == NULL) {
-                if (!(jpbw->jStatus & JOB_STAT_EXIT))
-                    ls_syslog(LOG_ERR, _i18n_msg_get(ls_catd, NL_SETN, 6510,
-                                                    "%s: Execution host for job <%s> is null"),
-                            fname, lsb_jobid2str(jpbw->jobId));
-                return FALSE;
-            }
+        if (jpbw->hPtr == NULL) {
+            if (!(jpbw->jStatus & JOB_STAT_EXIT))
+                ls_syslog(LOG_ERR, _i18n_msg_get(ls_catd, NL_SETN, 6510,
+                                                "%s: Execution host for job <%s> is null"),
+                        fname, lsb_jobid2str(jpbw->jobId));
+            return FALSE;
+        }
 
+        {
             struct gData *gp = getHGrpData(jobInfoReq->host);
             if (gp != NULL) {
                 for (i = 0; i < jpbw->numHostPtr; i++) {
@@ -1687,8 +1552,6 @@ checkJobMatch(void *jobData, struct jobInfoReq *jobInfoReq, char allqueues, char
                 if (i >= jpbw->numHostPtr)
                     return FALSE;
             }
-        } else if (type == JOB_TYPE_METADATA) {
-            return FALSE;
         }
     }
 
@@ -1705,18 +1568,12 @@ ensureJobListCapacity(void ***joblist, int numJobs, int *arraysize, int type)
 
     if (*arraysize == 0) {
         *arraysize = DEFAULT_LISTSIZE;
-        if(type == JOB_TYPE_JDATA)
-            *joblist = (void **) calloc(*arraysize, sizeof(struct jData *));
-        else 
-            *joblist = (void **) calloc(*arraysize, sizeof(struct jobMetaData *));
+        *joblist = (void **) calloc(*arraysize, sizeof(struct jData *));
         if (*joblist == NULL)
             return LSBE_NO_MEM;
     } else if (numJobs >= *arraysize) {
         *arraysize *= 2;
-        if(type == JOB_TYPE_JDATA)
-            biglist = (void **) realloc((char *)*joblist, *arraysize * sizeof(struct jData *));
-        else
-            biglist = (void **) realloc((char *)*joblist, *arraysize * sizeof(struct jobMetaData *));
+        biglist = (void **) realloc((char *)*joblist, *arraysize * sizeof(struct jData *));
         if (biglist == NULL) {
             FREEUP(*joblist);
             return LSBE_NO_MEM;

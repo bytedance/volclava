@@ -260,7 +260,6 @@ handleNewJobArray(struct jData *jarray, struct idxList *idxList, int maxJLimit)
     struct jData          *jPtr;
     int  numJobs = 0, i;
     int userPending = 0;
-    int jobArrayIndex = 0;
 
     
     addJobIdHT(jarray);
@@ -344,15 +343,6 @@ handleNewJobArray(struct jData *jarray, struct idxList *idxList, int maxJLimit)
     ARRAY_DATA(jarray->jgrpNode)->counts[getIndexOfJStatus(jarray->nextJob->jStatus)] = numJobs;
     ARRAY_DATA(jarray->jgrpNode)->counts[JGRP_COUNT_NJOBS] = numJobs;
     updJgrpCountByOp(jarray->jgrpNode, 1);
-    if(mSchedStage != M_STAGE_REPLAY && syncNewJobs){
-        for(jPtr = jarray; jPtr != NULL; jPtr = jPtr->nextJob){
-            if(jPtr == jarray)
-                jobArrayIndex = addJobToSyncShm(jPtr, -1);
-            else{
-                addJobToSyncShm(jPtr, jobArrayIndex);
-            }
-        }
-    }
 
     return;
 } 

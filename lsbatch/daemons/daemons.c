@@ -92,10 +92,10 @@ struct config_param daemonParams[] = {
     {"LSF_UNIT_FOR_LIMITS", NULL},
     {"LSB_PACK_SKIP_ERROR", NULL},
     {"LSB_QMBD_PORT", NULL},
-    {"LSB_QMBD_SYNC_NEW_JOBS", NULL},
     {"LSB_QMBD_ALIVE_TIME", NULL},
-    {"LSB_QMBD_THREAD_NUM", NULL},
     {"LSB_QMBD_MAX_TASK_NUM", NULL},
+    {"LSB_QMBD_THREAD_NUM", NULL},
+    {"LSB_QMBD_JOB_SYNC_MODE", NULL},
     {"LSB_QMBD_SYNC_SHM_SIZE", NULL},
     {NULL, NULL}
 };
@@ -213,6 +213,11 @@ void childRemoveSpoolFile(const char* spoolFile, int options,
     char dirName[MAXFILENAMELEN];
 
     status = -1;
+
+    if (spoolFile == NULL || spoolFile[0] == '\0') {
+        ls_syslog(LOG_WARNING, "%s: skip empty spool file", fname);
+        goto Done;
+    }
 
     if ((fromHost = (char *)getSpoolHostBySpoolFile(spoolFile)) != NULL) {
         strcpy( hostName, fromHost );

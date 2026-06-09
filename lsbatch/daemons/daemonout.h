@@ -71,10 +71,13 @@ typedef enum {
     BATCH_UNUSED_38      = 38,
     BATCH_UNUSED_39      = 39,
     BATCH_STATUS_CHUNK   = 40,       
+    BATCH_JOB_SUB_PACK    = 41,
     BATCH_SET_JOB_ATTR   = 90,
     READY_FOR_OP         = 1023,
     PREPARE_FOR_OP       = 1024,
-    BATCH_JOB_SUB_PACK    = 41
+
+    QMBD_CTRL            = 2001,  /* Internal qmbd control event. */
+    QMBD_SUBMIT          = 2002   /* Internal qmbd submit replay event. */
 } mbdReqType;
 
 #define SUB_RLIMIT_UNIT_IS_KB 0x80000000
@@ -132,6 +135,28 @@ struct submitPackReq {
     time_t clientTimestamp; /* Client timestamp */
     char *sourceFile;       /* Source file path */
     struct submitReq *jobs; /* Job array */
+};
+
+
+/*
+ * Socket-sync payload used to replay one committed submit into qmbd.
+ * submitReq does not carry the master-assigned jobId or authoritative user
+ * identity, so those fields are transmitted alongside it.
+ */
+struct qmbdSubmitReq {
+    LS_LONG_INT baseJobId;        /* JobId already allocated by main mbd. */
+    time_t masterSubmitTime;      /* Submit time from main mbd's job bill. */
+    int userId;                   /* User id copied from main mbd's jData. */
+    char *userName;               /* User name copied from main mbd's jData. */
+    struct submitReq submitReq;   /* Original submit attributes for replay. */
+};
+
+enum qmbdCtrlOp {
+    QMBD_CTRL_EXIT = 1            /* Ask the current qmbd generation to exit. */
+};
+
+struct qmbdCtrlReq {
+    int controlOp;                /* One of enum qmbdCtrlOp. */
 };
 
 

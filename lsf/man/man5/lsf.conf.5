@@ -1447,6 +1447,54 @@ value is used.
 .PP
 .PP
 LSB_QMBD_PORT
+.SH LSB_QMBD_JOB_SYNC_MODE
+.BR
+.PP
+.SS Syntax
+.BR
+.PP
+.PP
+\fBLSB_QMBD_JOB_SYNC_MODE=\fR\fImode
+\fR
+.SS Description
+.BR
+.PP
+.PP
+Specifies how newly submitted jobs are incrementally exposed to query mbd
+before query mbd is rebuilt.
+.PP
+This parameter applies only when LSB_QMBD_PORT is enabled.
+.PP
+The currently supported values are:
+.RS
+.HP 2
+\(bu \fBoff\fR
+Disable incremental query mbd job synchronization. Newly submitted jobs
+become visible to query mbd after query mbd is rebuilt.
+.HP 2
+\(bu \fBshm\fR
+Use the shared-memory-based incremental job synchronization path.
+.HP 2
+\(bu \fBsocket\fR
+Use the internal socket-based submit replay path.
+.RE
+.SS Valid Values
+.BR
+.PP
+.PP
+\fBoff\fR, \fBshm\fR, \fBsocket\fR
+.PP
+If the value is undefined or invalid, the default value is used.
+.SS Default
+.BR
+.PP
+.PP
+\fBoff\fR
+.SS See Also
+.BR
+.PP
+.PP
+LSB_QMBD_ALIVE_TIME, LSB_QMBD_PORT, LSB_QMBD_SYNC_SHM_SIZE
 .SH LSB_QMBD_MAX_TASK_NUM
 .BR
 .PP
@@ -1510,9 +1558,9 @@ The following parameters take effect only when LSB_QMBD_PORT is enabled:
 .HP 2
 \(bu LSB_QMBD_ALIVE_TIME
 .HP 2
-\(bu LSB_QMBD_MAX_TASK_NUM
+\(bu LSB_QMBD_JOB_SYNC_MODE
 .HP 2
-\(bu LSB_QMBD_SYNC_NEW_JOBS
+\(bu LSB_QMBD_MAX_TASK_NUM
 .HP 2
 \(bu LSB_QMBD_SYNC_SHM_SIZE
 .HP 2
@@ -1533,40 +1581,8 @@ Undefined. query mbd is disabled.
 .BR
 .PP
 .PP
-LSB_QMBD_ALIVE_TIME, LSB_QMBD_MAX_TASK_NUM,
-LSB_QMBD_SYNC_NEW_JOBS, LSB_QMBD_SYNC_SHM_SIZE, LSB_QMBD_THREAD_NUM
-.SH LSB_QMBD_SYNC_NEW_JOBS
-.BR
-.PP
-.SS Syntax
-.BR
-.PP
-.PP
-\fBLSB_QMBD_SYNC_NEW_JOBS=y\fR | \fBn
-\fR
-.SS Description
-.BR
-.PP
-.PP
-Controls whether mbatchd synchronizes newly submitted job information to
-the shared memory area used by query mbd.
-.PP
-Specify \fBy\fR to enable synchronization, or \fBn\fR to disable it.
-.PP
-This parameter applies only when LSB_QMBD_PORT is enabled.
-.PP
-LSB_QMBD_SYNC_SHM_SIZE takes effect only when
-\fBLSB_QMBD_SYNC_NEW_JOBS=y\fR.
-.SS Default
-.BR
-.PP
-.PP
-n
-.SS See Also
-.BR
-.PP
-.PP
-LSB_QMBD_PORT, LSB_QMBD_SYNC_SHM_SIZE
+LSB_QMBD_ALIVE_TIME, LSB_QMBD_JOB_SYNC_MODE, LSB_QMBD_MAX_TASK_NUM,
+LSB_QMBD_SYNC_SHM_SIZE, LSB_QMBD_THREAD_NUM
 .SH LSB_QMBD_SYNC_SHM_SIZE
 .BR
 .PP
@@ -1574,25 +1590,25 @@ LSB_QMBD_PORT, LSB_QMBD_SYNC_SHM_SIZE
 .BR
 .PP
 .PP
-\fBLSB_QMBD_SYNC_SHM_SIZE=\fR\fIsize_in_mb
+\fBLSB_QMBD_SYNC_SHM_SIZE=\fR\fIsize
 \fR
 .SS Description
 .BR
 .PP
 .PP
-Specifies the size, in MB, of the shared memory used to store
-synchronized job information for query mbd.
+Specifies the size, in MB, of the shared memory region used for query mbd
+incremental job synchronization when \fBLSB_QMBD_JOB_SYNC_MODE=shm\fR.
 .PP
-This parameter applies only when LSB_QMBD_PORT is enabled and
-\fBLSB_QMBD_SYNC_NEW_JOBS=y\fR.
-.PP
-If the value is not an integer, or is outside the supported range, the
-default value is used.
+This parameter is ignored unless LSB_QMBD_PORT is enabled and
+\fBLSB_QMBD_JOB_SYNC_MODE\fR is set to \fBshm\fR.
 .SS Valid Values
 .BR
 .PP
 .PP
 An integer in the range 512 to 2048.
+.PP
+If the value is not an integer, or is outside this range, the default
+value is used.
 .SS Default
 .BR
 .PP
@@ -1602,7 +1618,7 @@ An integer in the range 512 to 2048.
 .BR
 .PP
 .PP
-LSB_QMBD_PORT, LSB_QMBD_SYNC_NEW_JOBS
+LSB_QMBD_JOB_SYNC_MODE, LSB_QMBD_PORT
 .SH LSB_QMBD_THREAD_NUM
 .BR
 .PP
