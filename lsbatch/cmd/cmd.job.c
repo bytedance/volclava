@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2021-2025 Bytedance Ltd. and/or its affiliates
+ * Copyright (C) 2021-2026 Bytedance Ltd. and/or its affiliates
  *
  * $Id: cmd.job.c 397 2007-11-26 19:04:00Z mblack $
  * Copyright (C) 2007 Platform Computing Inc
@@ -36,7 +36,7 @@ void prtJobRusageMem(struct jobInfoEnt *);
 void
 prtHeader(struct jobInfoEnt *job, int prt_q, int tFormat)
 {
-    char prline[MAXLINELEN];
+    char prline[5*MAXLINELEN];
 
     if (!tFormat) {
         sprintf(prline, "\n%s <%s>,", I18N_Job, lsb_jobid2str(job->jobId));
@@ -104,16 +104,17 @@ prtHeader(struct jobInfoEnt *job, int prt_q, int tFormat)
     printf("%s", prline);
 
     if (job->chargedSAAP && strlen(job->chargedSAAP) > 0) {
-        if (tFormat) {
-            sprintf(prline, ", %s <%s>", I18N_SAAP, job->chargedSAAP);
-        } else {
-            sprintf(prline, ", %s <%s>\n", I18N_SAAP, job->chargedSAAP);
-        }
+        sprintf(prline, ", %s <%s>", I18N_SAAP, job->chargedSAAP);
         printf("%s", prline);
-    } else {
-        if (!tFormat) {
-            printf("\n");
-        }
+    }
+
+    if (job->submit.options2 & SUB2_JOB_DESC && job->submit.jobDesc && job->submit.jobDesc[0] != '\0') {
+        sprintf(prline, ", %s <%s>", I18N_JOB_DESC, job->submit.jobDesc);
+        printf("%s", prline);
+    }
+
+    if (!tFormat) {
+        printf("\n");
     }
 }
 
@@ -1180,7 +1181,7 @@ displayUF(struct jobInfoEnt *job, struct jobInfoHead *jInfoH, float cpuFactor,
 void
 prtHeaderUF(struct jobInfoEnt *job, int prt_q, int tFormat)
 {
-    char prline[MAXLINELEN];
+    char prline[5*MAXLINELEN];
 
     if (!tFormat) {
         // in Openlava 4, it displays "Job Id" for bjobs -l and "Job" for -UF
@@ -1245,7 +1246,7 @@ prtHeaderUF(struct jobInfoEnt *job, int prt_q, int tFormat)
     if (job->submit.options2 & (SUB2_JOB_CMD_SPOOL)) {
         sprintf(prline, " %s(Spooled) <%s>", I18N_Command, job->submit.command);
     } else {
-        sprintf(prline, " %s <%s>", I18N_Command, job->submit.command);
+	sprintf(prline, " %s <%s>", I18N_Command, job->submit.command);
     }
     printf("%s", prline);
 
@@ -1253,13 +1254,18 @@ prtHeaderUF(struct jobInfoEnt *job, int prt_q, int tFormat)
         if (tFormat) {
             sprintf(prline, ", %s <%s>", I18N_SAAP, job->chargedSAAP);
         } else {
-            sprintf(prline, ", %s <%s>\n", I18N_SAAP, job->chargedSAAP);
+            sprintf(prline, ", %s <%s>", I18N_SAAP, job->chargedSAAP);
         }
         printf("%s", prline);
-    } else {
-        if (!tFormat) {
-            printf("\n");
-        }
+    }
+
+    if (job->submit.options2 & SUB2_JOB_DESC && job->submit.jobDesc && job->submit.jobDesc[0] != '\0') {
+        sprintf(prline, ", %s <%s>", I18N_JOB_DESC, job->submit.jobDesc);
+        printf("%s", prline);
+    }
+
+    if (!tFormat) {
+        printf("\n");
     }
 }
 

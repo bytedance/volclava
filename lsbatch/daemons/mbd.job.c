@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2021-2025 Bytedance Ltd. and/or its affiliates
+ * Copyright (C) 2021-2026 Bytedance Ltd. and/or its affiliates
  * Copyright (C) 2007 Platform Computing Inc
  *
  * This program is free software; you can redistribute it and/or modify
@@ -7257,6 +7257,19 @@ copyJobBill (struct submitReq *subReq, struct submitReq *jobBill, LS_LONG_INT jo
 
     jobBill->jobName = safeSave(subReq->jobName);
 
+    if (subReq->options2 & SUB2_JOB_DESC) {
+        if (subReq->jobDesc && strlen(subReq->jobDesc) >= MAX_JOB_DESC_LEN) {
+            char buf[MAX_JOB_DESC_LEN];
+            strncpy(buf, subReq->jobDesc, MAX_JOB_DESC_LEN - 1);
+            buf[MAX_JOB_DESC_LEN - 1] = '\0';
+            jobBill->jobDesc = safeSave(buf);
+        } else {
+            jobBill->jobDesc = safeSave(subReq->jobDesc);
+        }
+    } else {
+        jobBill->jobDesc = safeSave("");
+    }
+
     if (subReq->options & SUB_IN_FILE)
         jobBill->inFile = safeSave(subReq->inFile);
     else
@@ -7436,6 +7449,7 @@ freeSubmitReq (struct submitReq *jobBill)
     FREEUP (jobBill->fromHost);
     FREEUP (jobBill->loginShell);
     FREEUP (jobBill->schedHostType);
+    FREEUP (jobBill->jobDesc);
 
     if (jobBill->numAskedHosts > 0) {
         for (i = 0; i < jobBill->numAskedHosts; i++)
@@ -7571,6 +7585,7 @@ mergeSubReq (struct submitReq *to, struct submitReq *old,
     mergeStrField(mailUser, SUB_MAIL_USER);
     mergeStrField(projectName, SUB_PROJECT_NAME);
     mergeStrField(loginShell, SUB_LOGIN_SHELL);
+
 #define mergeStrField2(fname, fmask) {                                  \
         if(new->options2 & fmask) { to->options2 |= fmask;              \
             to->fname  =safeSave(new->fname);}                          \
@@ -7578,6 +7593,8 @@ mergeSubReq (struct submitReq *to, struct submitReq *old,
             to->options2 |= fmask;                                      \
             to->fname = safeSave(old->fname);}                          \
         else to->fname = safeSave("");}
+
+    mergeStrField2(jobDesc, SUB2_JOB_DESC);
 
     if ( maxUserPriority < 0 ) {
         mergeIntField2(userPriority, SUB2_JOB_PRIORITY, -1);
@@ -8328,6 +8345,7 @@ initSubmitReq(struct submitReq *jobBill)
     jobBill->jobFile = NULL;
     jobBill->loginShell = NULL;
     jobBill->schedHostType = NULL;
+    jobBill->jobDesc = NULL;
 
     jobBill->options = 0;
     jobBill->numAskedHosts = 0;

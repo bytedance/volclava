@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2021-2025 Bytedance Ltd. and/or its affiliates
+ * Copyright (C) 2021-2026 Bytedance Ltd. and/or its affiliates
  *
  * $Id: lsb.modify.c 397 2007-11-26 19:04:00Z mblack $
  * Copyright (C) 2007 Platform Computing Inc
@@ -72,6 +72,7 @@ lsb_modify(struct submit *jobSubReq, struct submitReply *submitRep, LS_LONG_INT 
     subNewLine_(jobSubReq->errFile);
     subNewLine_(jobSubReq->chkpntDir);
     subNewLine_(jobSubReq->projectName);
+    subNewLine_(jobSubReq->jobDesc);
     for(loop = 0; loop < jobSubReq->numAskedHosts; loop++) {
         subNewLine_(jobSubReq->askedHosts[loop]);
     }

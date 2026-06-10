@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2021-2025 Bytedance Ltd. and/or its affiliates
+ * Copyright (C) 2021-2026 Bytedance Ltd. and/or its affiliates
  *
  * $Id: bhist.c 397 2007-11-26 19:04:00Z mblack $
  * Copyright (C) 2007 Platform Computing Inc
@@ -1417,7 +1417,6 @@ void prtModifiedJob(struct jobModLog *jobModLog, struct bhistReq *bhistReq,
 	    timestamp);
     prtLine(prline);
 
-
     if (jobModLog->options & SUB_QUEUE) {
         sprintf(prline,
                 I18N(3358, "Job queue changes to : %s") /* catgets 3358 */,
@@ -1648,7 +1647,10 @@ void prtModifiedJob(struct jobModLog *jobModLog, struct bhistReq *bhistReq,
         PRT_FMTSTR(prline);
     }
 
-
+    if (jobModLog->options2 & SUB2_JOB_DESC && jobModLog->jobDesc) {
+        sprintf(prline, "Job Description changes to : %s", jobModLog->jobDesc);
+        PRT_FMTSTR(prline);
+    }
 
     if (jobModLog->delOptions & SUB_QUEUE) {
         sprintf(prline, I18N(3395, "Job queue changes back to default") /* catgets 3395 */ );
@@ -1820,6 +1822,11 @@ void prtModifiedJob(struct jobModLog *jobModLog, struct bhistReq *bhistReq,
 
     if (jobModLog->delOptions2 & SUB2_JOB_PRIORITY) {
         sprintf(prline, I18N(3175, "Job priority changes to default")); /* catgets 3175 */
+        PRT_FMTSTR(prline);
+    }
+
+    if (jobModLog->delOptions2 & SUB2_JOB_DESC) {
+        sprintf(prline, "Job Description is removed");
         PRT_FMTSTR(prline);
     }
 }

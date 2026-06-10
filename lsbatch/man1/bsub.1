@@ -1,7 +1,7 @@
 .ds ]W %
 .ds ]L
 .nh
-.TH bsub 1 "Lava Version 1.0 - Sept 2007"
+.TH bsub 1 "Volclava Version 2.2 - Jul 2026"
 .br
 .SH NAME
 \fBbsub\fR - submits a batch job to Lava
@@ -47,6 +47,8 @@
 [\fB-i \fRi\fInput_file\fR | \fB-is\fR \fIinput_file\fR]
 .br
 \fB-J\fR \fIjob_name | \fR\fB-J\fR  \fB"\fRjob_name\fB[\fRindex_list\fB]%\fRjob_limit\fB"\fR
+.br
+\fB-Jd\fR \fIjob_description\fR
 .br
 \fB-k "\fRcheckpoint_dir [\fIcheckpoint_period\fR] [\fBmethod=\fRmethod_name]\fB"\fR
 .br
@@ -651,6 +653,23 @@ Specify \fB"\fRjob_ID\fB[\fRindex\fB]"\fR to\fB \fRwork with elements of a parti
 Specify \fB"\fRjob_name\fB[\fRindex\fB]"\fR to work with elements of all arrays with the 
 same name. Since job names are not unique, multiple job arrays may 
 have the same name with a different or same set of indices.
+
+
+.TP 
+\fB-Jd\fR \fIjob_description\fR
+\fR
+.IP
+Assigns the specified description to the job. The job description can 
+contain up to 4095 characters. If the description exceeds 4095 
+characters, it will be truncated.
+
+.IP
+The job description can also be set through the environment variable 
+\fBLSB_SUB_JOB_DESCRIPTION\fR in an esub.
+
+.IP
+Use \fBbjobs -l\fR to display the job description. Use \fBbmod -Jd\fR  or \fBbmod -Jdn\fR to 
+modify the job description of a previously submitted job.
 
 
 .TP 
