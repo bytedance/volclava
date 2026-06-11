@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2021-2025 Bytedance Ltd. and/or its affiliates
+ * Copyright (C) 2021-2026 Bytedance Ltd. and/or its affiliates
  *
  * $Id: lsbatch.h 397 2007-11-26 19:04:00Z mblack $
  * Copyright (C) 2007 Platform Computing Inc
@@ -31,6 +31,7 @@
 #define  MAX_CHARLEN         20
 #define  MAX_LSB_NAME_LEN    60
 #define  MAX_CMD_DESC_LEN    256
+#define  MAX_JOB_DESC_LEN    4096
 #define  MAX_USER_EQUIVALENT 128
 #define  DEFAULT_MSG_DESC    "no description"
 #define  LSB_CONF_PORT_MIN   1
@@ -516,6 +517,7 @@
 #define  SUB2_USE_DEF_PROCLIMIT  0x400
 #define  SUB2_MODIFY_RUN_JOB 0x800
 #define  SUB2_MODIFY_PEND_JOB 0x1000
+#define  SUB2_JOB_DESC       0x2000
 
 #define  LOST_AND_FOUND  "lost_and_found"
 
@@ -569,6 +571,7 @@ struct submit {
     char   *loginShell;
     int    userPriority;
     char   *additionEsubInfo;
+    char   *jobDesc;
 };
 
 struct submitReply {
@@ -1022,6 +1025,7 @@ struct jobNewLog {
     char   *loginShell;
     int    idx;
     int    userPriority;
+    char   jobDesc[MAX_JOB_DESC_LEN];
 };
 
 struct jobModLog {
@@ -1081,9 +1085,8 @@ struct jobModLog {
     char    *loginShell;
     char    *schedHostType;
     int     userPriority;
+    char    *jobDesc;
 };
-
-
 struct jobStartLog {
     int jobId;
     int    jStatus;

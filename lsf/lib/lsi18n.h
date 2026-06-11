@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2021-2025 Bytedance Ltd. and/or its affiliates
+ * Copyright (C) 2021-2026 Bytedance Ltd. and/or its affiliates
  *
  * $Id: lsi18n.h 397 2007-11-26 19:04:00Z mblack $
  * Copyright (C) 2007 Platform Computing Inc
@@ -277,7 +277,9 @@
 #define I18N_client \
      (I18N_m(1423,"client"))       /*catgets1423*/
 #define I18N_SAAP \
-     (I18N_m(1424,"Share group charged")) /*catgets1424*/ 
+     (I18N_m(1424,"Share group charged")) /*catgets1424*/
+#define I18N_JOB_DESC \
+     (I18N_m(1425,"Job Description")) /*catgets1425*/
 
 #define I18N_Done \
      (I18N_m(1600,"Done"))        /*catgets1600*/
