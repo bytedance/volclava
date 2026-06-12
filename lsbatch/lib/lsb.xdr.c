@@ -1324,10 +1324,14 @@ xdr_infoReq (XDR *xdrs, struct infoReq *infoReq,
                  struct LSFHeader *hdr)
 {
     int i;
-    static __thread int memSize = 0;
-    static __thread char **names = NULL;
-    static __thread char *resReq = NULL;
 
+    if(xdrs->x_op == XDR_FREE){
+        for (i = 0; i < infoReq->numNames + 2; i++)
+            FREEUP(infoReq->names[i]);
+        FREEUP(infoReq->names);
+        FREEUP(infoReq->resReq);
+        return (TRUE);
+    }
 
     if (!(xdr_int(xdrs, &(infoReq->options))))
         return (FALSE);
@@ -1337,22 +1341,9 @@ xdr_infoReq (XDR *xdrs, struct infoReq *infoReq,
         return (FALSE);
 
     if (xdrs->x_op == XDR_DECODE) {
-
-        if (names) {
-            for (i = 0; i < memSize; i++)
-                FREEUP (names[i]);
+        if ((infoReq->names = (char **)calloc (infoReq->numNames + 2, sizeof(char *))) == NULL) {
+            return(FALSE);
         }
-        if (infoReq->numNames + 2 > memSize) {
-
-            FREEUP (names);
-
-            memSize = infoReq->numNames + 2;
-            if ((names = (char **)calloc (memSize, sizeof(char *))) == NULL) {
-                memSize = 0;
-                return(FALSE);
-            }
-        }
-	infoReq->names = names;
     }
 
 
@@ -1371,17 +1362,8 @@ xdr_infoReq (XDR *xdrs, struct infoReq *infoReq,
             return (FALSE);
     }
 
-
-    if (xdrs->x_op == XDR_DECODE) {
-        FREEUP (resReq);
-    }
-
     if (!xdr_var_string(xdrs, &infoReq->resReq))
         return (FALSE);
-
-    if (xdrs->x_op == XDR_DECODE) {
-        resReq = infoReq->resReq;
-    }
 
     return(TRUE);
 

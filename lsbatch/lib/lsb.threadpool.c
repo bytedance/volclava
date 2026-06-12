@@ -20,7 +20,8 @@ static void *workerThread(void *arg) {
             pthread_cond_wait(&pool->notEmpty, &pool->lock); 
         } 
         if (pool->shutdown && pool->count == 0) { 
-            pthread_mutex_unlock(&pool->lock); 
+            pthread_mutex_unlock(&pool->lock);
+            pool->beforeThreadExit();
             pthread_exit(NULL); 
         } 
         task.function = pool->queue[pool->head].function; 
@@ -42,7 +43,7 @@ static void *workerThread(void *arg) {
  * @param[in] queueSize: Maximum capacity of the task queue
  * @return Pointer to the initialized threadPool_t structure on success; NULL on failure
  */
-threadPool_t *createThreadPool(int threadCount, int queueSize) { 
+threadPool_t *createThreadPool(int threadCount, int queueSize, void (*beforeThreadExit)(void)) { 
     threadPool_t *pool; 
     int i; 
 
@@ -62,7 +63,7 @@ threadPool_t *createThreadPool(int threadCount, int queueSize) {
     pool->shutdown = 0; 
     pool->threads = (pthread_t *)malloc(sizeof(pthread_t) * threadCount); 
     pool->queue = (threadPoolTask_t *)malloc(sizeof(threadPoolTask_t) * queueSize); 
-
+    pool->beforeThreadExit = beforeThreadExit;
     if (pthread_mutex_init(&pool->lock, NULL) != 0 || 
         pthread_cond_init(&pool->notEmpty, NULL) != 0 || 
         pool->threads == NULL || pool->queue == NULL) { 

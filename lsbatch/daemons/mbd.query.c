@@ -507,6 +507,13 @@ handleClientIO(){
     }
 }
 
+/* 
+ *Tcl thread-specific resources must be cleaned up before a query mbd worker
+ * thread exits; otherwise, Valgrind may report memory leaks.
+ */
+static void freeTcl(){
+    Tcl_FinalizeThread();
+}
 
 /*
  * Initialize qmbd daemon resources
@@ -548,8 +555,8 @@ int initQueryDaemon(){
 
     if(jDataList[SJL]->back != jDataList[SJL])
         reorderSJL ();
-    lightQueryPool = createThreadPool(qmbdThreadNum, qmbdMaxTaskNum);
-    heavyQueryPool = createThreadPool(qmbdThreadNum, qmbdMaxTaskNum);
+    lightQueryPool = createThreadPool(qmbdThreadNum, qmbdMaxTaskNum, freeTcl);
+    heavyQueryPool = createThreadPool(qmbdThreadNum, qmbdMaxTaskNum, freeTcl);
     if(lightQueryPool == NULL || heavyQueryPool == NULL){
         ls_syslog(LOG_ERR, "%s: createThreadPool failed: %m", __func__);
         return -1;

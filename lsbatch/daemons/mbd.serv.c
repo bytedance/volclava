@@ -588,6 +588,7 @@ do_jobInfoReq(XDR *xdrs,
 
     reply_buf = (char *) my_malloc(len, fname);
     xdrmem_create(&xdrs2, reply_buf, len, XDR_ENCODE);
+    initLSFHeader_(&replyHdr);
     replyHdr.opCode = reply;
 
     if (!xdr_encodeMsg(&xdrs2, (char *) &jobInfoHead, &replyHdr,
@@ -715,6 +716,7 @@ packJgrpInfo(struct jgTreeNode * jgNode, int remain, char **replyBuf, int schedu
 
     request_buf = (char *) my_malloc(len, "packJgrpInfo");
     xdrmem_create(&xdrs, request_buf, len, XDR_ENCODE);
+    initLSFHeader_(&hdr);
     hdr.reserved = remain;
     hdr.version = version;
 
@@ -1110,6 +1112,7 @@ packJobInfo(struct jData * jobData,
     FREEUP (request_buf);
     request_buf = my_malloc(len, "packJobInfo");
     xdrmem_create(&xdrs, request_buf, len, XDR_ENCODE);
+    initLSFHeader_(&hdr);
     hdr.reserved = remain;
     hdr.version = version;
 
@@ -1163,6 +1166,7 @@ do_jobPeekReq (XDR *xdrs, int chfd, struct sockaddr_in *from, char *hostName,
     }
 
     xdrmem_create(&xdrs2, reply_buf, MSGSIZE, XDR_ENCODE);
+    initLSFHeader_(&replyHdr);
     replyHdr.opCode = reply;
     if (reply == LSBE_NO_ERROR)
         replyStruct = (char *) &jobPeekReply;
@@ -1221,6 +1225,7 @@ do_signalReq (XDR *xdrs, int chfd, struct sockaddr_in *from, char *hostName,
 
 Reply:
     xdrmem_create(&xdrs2, reply_buf, MSGSIZE, XDR_ENCODE);
+    initLSFHeader_(&replyHdr);
     replyHdr.opCode = reply;
 
     if (!xdr_encodeMsg(&xdrs2, (char *) NULL, &replyHdr, xdr_int, 0, NULL)) {
@@ -1276,6 +1281,7 @@ do_jobMsg(struct bucket *bucket,
 
     LSBMSG_CACHE_BUFFER(bucket, jmsg);
 
+    initLSFHeader_(&sndhdr);
     sndhdr.opCode = BATCH_JOB_MSG;
     xdrmem_create(&bucket->xdrs, buf->data, buf->len, XDR_ENCODE);
 
@@ -1316,6 +1322,7 @@ do_jobMsg(struct bucket *bucket,
 
 Reply:
     xdrmem_create(&xdrs2, reply_buf, MSGSIZE, XDR_ENCODE);
+    initLSFHeader_(&replyHdr);
     replyHdr.opCode = reply;
 
     if (!xdr_encodeMsg(&xdrs2, (char *) NULL, &replyHdr, xdr_int, 0, NULL)) {
@@ -1369,6 +1376,7 @@ Reply:
         free(migReq.askedHosts);
     }
     xdrmem_create(&xdrs2, reply_buf, MSGSIZE, XDR_ENCODE);
+    initLSFHeader_(&replyHdr);
     replyHdr.opCode = reply;
     if (reply != LSBE_NO_ERROR)
         replyStruct = (char *) &migReply;
@@ -1456,6 +1464,7 @@ do_statusReq(XDR * xdrs, int chfd, struct sockaddr_in * from, int *schedule,
     }
 
     xdrmem_create(&xdrs2, reply_buf, MSGSIZE, XDR_ENCODE);
+    initLSFHeader_(&replyHdr);
     replyHdr.opCode = reply;
     replyHdr.length = 0;
     if (!xdr_LSFHeader(&xdrs2, &replyHdr)) {
@@ -1529,6 +1538,7 @@ do_chunkStatusReq(XDR * xdrs, int chfd, struct sockaddr_in * from,
     xdr_lsffree(xdr_chunkStatusReq, (char *) &chunkStatusReq, reqHdr);
 
     xdrmem_create(&xdrs2, reply_buf, MSGSIZE, XDR_ENCODE);
+    initLSFHeader_(&replyHdr);
     replyHdr.opCode = reply;
     replyHdr.length = 0;
     if (!xdr_LSFHeader(&xdrs2, &replyHdr)) {
@@ -1611,6 +1621,7 @@ do_restartReq(XDR * xdrs, int chfd, struct sockaddr_in * from,
 
     reply_buf = (char *) my_malloc(buflen, "do_restartReq");
     xdrmem_create(&xdrs2, reply_buf, buflen, XDR_ENCODE);
+    initLSFHeader_(&replyHdr);
     replyHdr.opCode = reply;
     if (!xdr_encodeMsg(&xdrs2, (char *) &sbdPackage, &replyHdr,
                        xdr_sbdPackage, 0, NULL)) {
@@ -1681,6 +1692,8 @@ do_hostInfoReq(XDR *xdrs,
 
 out:
 
+    xdr_lsffree(xdr_infoReq, (char *)&hostsReq, reqHdr);
+    initLSFHeader_(&replyHdr);
     replyHdr.opCode = reply;
     if (reply == LSBE_NO_ERROR || reply == LSBE_BAD_HOST)
         replyStruct = (char *) &hostsReply;
@@ -1755,6 +1768,8 @@ do_userInfoReq(XDR * xdrs,
 
     reply_buf = my_calloc(count, sizeof(char), __func__);
     xdrmem_create(&xdrs2, reply_buf, count, XDR_ENCODE);
+
+    xdr_lsffree(xdr_infoReq, (char *)&userInfoReq, reqHdr);
     initLSFHeader_(&hdr);
 
     hdr.opCode = reply;
@@ -1839,6 +1854,8 @@ do_queueInfoReq(XDR *xdrs,
      */
     reply_buf = my_calloc(len, sizeof(char), __func__);
     xdrmem_create(&xdrs2, reply_buf, len, XDR_ENCODE);
+
+    xdr_lsffree(xdr_infoReq, (char *)&qInfoReq, reqHdr);
     /* always init the header
      * valgrind will complain about
      * Syscall param write(buf) points to uninitialised byte(s)
@@ -1934,6 +1951,7 @@ do_groupInfoReq(XDR *xdrs,
 
     len =  sizeofGroupInfoReply(&groupInfoReply);
     len += ALIGNWORD_(sizeof(struct LSFHeader));
+    xdr_lsffree(xdr_infoReq, (char *)&groupInfoReq, reqHdr);
 
     reply_buf = my_calloc(len, sizeof(char), "do_groupInfoReq");
     xdrmem_create(&xdrs2, reply_buf, len, XDR_ENCODE);
@@ -2011,6 +2029,7 @@ do_paramInfoReq(XDR * xdrs, int chfd, struct sockaddr_in * from,
     count = sizeof(struct parameterInfo) + strlen(paramInfo.defaultQueues)
         + strlen(paramInfo.defaultHostSpec)
         + strlen(paramInfo.defaultProject) + 100 + jobSpoolDirLen;
+    xdr_lsffree(xdr_infoReq, (char *)&infoReq, reqHdr);
 
     reply_buf = (char *) my_malloc(count, "do_paramInfoReq");
     xdrmem_create(&xdrs2, reply_buf, count, XDR_ENCODE);
@@ -2057,6 +2076,7 @@ do_queueControlReq(XDR *xdrs, int chfd, struct sockaddr_in *from,
     }
 
     xdrmem_create(&xdrs2, reply_buf, MSGSIZE, XDR_ENCODE);
+    initLSFHeader_(&replyHdr);
     replyHdr.opCode = reply;
     replyHdr.length = 0;
     if (!xdr_LSFHeader(&xdrs2, &replyHdr)) {
@@ -2086,6 +2106,7 @@ do_mbdShutDown (XDR * xdrs, int s, struct sockaddr_in * from, char *hostName,
     struct LSFHeader        replyHdr;
 
     xdrmem_create(&xdrs2, reply_buf, MSGSIZE, XDR_ENCODE);
+    initLSFHeader_(&replyHdr);
     replyHdr.opCode = LSBE_NO_ERROR;
     replyHdr.length = 0;
     if (!xdr_LSFHeader(&xdrs2, &replyHdr)) {
@@ -2119,6 +2140,7 @@ do_reconfigReq(XDR *xdrs,
     }     
 
     xdrmem_create(&xdrs2, reply_buf, MSGSIZE, XDR_ENCODE);
+    initLSFHeader_(&replyHdr);
     replyHdr.opCode = LSBE_NO_ERROR;
     replyHdr.length = 0;
 
@@ -2172,6 +2194,7 @@ do_hostControlReq (XDR *xdrs, int chfd, struct sockaddr_in *from, char *hostName
 
 checkout:
     xdrmem_create(&xdrs2, reply_buf, MSGSIZE, XDR_ENCODE);
+    initLSFHeader_(&replyHdr);
     replyHdr.opCode = reply;
     replyHdr.length = 0;
     if (!xdr_LSFHeader(&xdrs2, &replyHdr)) {
@@ -2204,6 +2227,7 @@ do_jobSwitchReq (XDR *xdrs, int chfd, struct sockaddr_in *from, char *hostName,
         reply = switchJobArray(&jobSwitchReq, auth);
     }
     xdrmem_create(&xdrs2, reply_buf, MSGSIZE, XDR_ENCODE);
+    initLSFHeader_(&replyHdr);
     replyHdr.opCode = reply;
     replyHdr.length = 0;
     if (!xdr_LSFHeader(&xdrs2, &replyHdr)) {
@@ -2241,6 +2265,7 @@ do_jobMoveReq (XDR *xdrs, int chfd, struct sockaddr_in *from, char *hostName,
         reply = moveJobArray(&jobMoveReq, TRUE, auth);
     }
     xdrmem_create(&xdrs2, reply_buf, MSGSIZE, XDR_ENCODE);
+    initLSFHeader_(&replyHdr);
     replyHdr.opCode = reply;
     if (reply == LSBE_NO_ERROR)
         replyStruct = (char *) &jobMoveReq;
@@ -2361,6 +2386,7 @@ sendBack (int reply, struct submitReq *submitReq,
 
 
     xdrmem_create(&xdrs2, reply_buf, MSGSIZE / 2, XDR_ENCODE);
+    initLSFHeader_(&replyHdr);
     replyHdr.opCode = reply;
     if (!xdr_encodeMsg(&xdrs2, (char *) submitReply, &replyHdr,
                        xdr_submitMbdReply, 0, NULL)) {
@@ -2439,6 +2465,7 @@ sendBackPack(int overallReply, int successCount, int firstError,
     /* Serialize and send */
     xdrmem_create(&xdrs, reply_buf, reply_buf_size, XDR_ENCODE);
 
+    initLSFHeader_(&replyHdr);
     replyHdr.opCode = overallReply;
 
     if (!xdr_encodeMsg(&xdrs, (char *)&packReply, &replyHdr,
@@ -2594,6 +2621,7 @@ doNewJobReply(struct sbdNode *sbdPtr, int exception)
             }
         } else {
 
+            initLSFHeader_(&hdr);
             hdr.opCode = LSBE_NO_ERROR;
 
             s = chanSock_(sbdPtr->chanfd);
@@ -3080,6 +3108,7 @@ do_debugReq(XDR * xdrs, int chfd, struct sockaddr_in * from,
     }
 
     xdrmem_create(&xdrs2, reply_buf, MSGSIZE, XDR_ENCODE);
+    initLSFHeader_(&replyHdr);
     replyHdr.opCode = reply;
 
     replyHdr.length = 0;
@@ -3108,12 +3137,12 @@ do_resourceInfoReq (XDR *xdrs, int chfd, struct sockaddr_in *from,
 {
     static char fname[] = "do_resourceInfoReq";
     XDR                     xdrs2;
-    static __thread struct resourceInfoReq  resInfoReq;
+    struct resourceInfoReq  resInfoReq;
     struct lsbShareResourceInfoReply   resInfoReply;
     int                     reply;
     char                   *reply_buf;
     int                     len = 0, i, j;
-    static __thread struct LSFHeader        replyHdr;
+    struct LSFHeader        replyHdr;
     char                   *replyStruct;
 
 
@@ -3122,9 +3151,6 @@ do_resourceInfoReq (XDR *xdrs, int chfd, struct sockaddr_in *from,
 
     resInfoReply.numResources = 0;
     resInfoReply.resources = NULL;
-
-    if (resInfoReq.numResourceNames > 0)
-        xdr_lsffree(xdr_resourceInfoReq, (char *)&resInfoReq, &replyHdr);
 
     if (!xdr_resourceInfoReq (xdrs, &resInfoReq, reqHdr)) {
         reply = LSBE_XDR;
@@ -3153,6 +3179,9 @@ do_resourceInfoReq (XDR *xdrs, int chfd, struct sockaddr_in *from,
     }
     reply_buf = (char *) my_malloc(len, fname);
     xdrmem_create(&xdrs2, reply_buf, len, XDR_ENCODE);
+    xdr_lsffree(xdr_resourceInfoReq, (char *)&resInfoReq, reqHdr);
+
+    initLSFHeader_(&replyHdr);
     replyHdr.opCode = reply;
     if (reply == LSBE_NO_ERROR || reply == LSBE_BAD_RESOURCE)
         replyStruct = (char *) &resInfoReply;
@@ -3273,6 +3302,7 @@ Reply:
                   MSGSIZE/2,
                   XDR_ENCODE);
 
+    initLSFHeader_(&lsfHeader);
     lsfHeader.opCode = reply;
 
     if (!xdr_encodeMsg(&replyXdr,
@@ -3342,6 +3372,7 @@ do_setJobAttr(XDR * xdrs, int s, struct sockaddr_in * from, char *hostName,
     }
 
     xdrmem_create(&xdrs2, reply_buf, MSGSIZE, XDR_ENCODE);
+    initLSFHeader_(&replyHdr);
     replyHdr.opCode = reply;
     if (!xdr_encodeMsg(&xdrs2, (char *) &jobAttr, &replyHdr, xdr_jobAttrReq,
                        0, NULL)) {
