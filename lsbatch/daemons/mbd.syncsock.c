@@ -9,6 +9,7 @@
 #include "daemons.h"
 
 extern bool_t xdr_submitReq(XDR *, struct submitReq *, struct LSFHeader *);
+extern int xdrQmbdSubReqSize(struct qmbdSubmitReq *);
 
 #define QMBD_SUBMIT_QUEUE_SIZE 1024
 
@@ -109,17 +110,6 @@ static int qmbdEnsureNodeListCapacity(struct nodeList **list,
     }
 
     return LSBE_NO_ERROR;
-}
-
-/*
- * Return a safe string length for optional submitReq fields.
- * XDR buffer sizing treats NULL strings as empty strings.
- * @param[in] str: Optional string pointer.
- * @return: strlen(str), or 0 if str is NULL.
- */
-static int qmbdSafeStrLen(char *str)
-{
-    return str ? strlen(str) : 0;
 }
 
 /*
@@ -368,8 +358,10 @@ static struct jgTreeNode *qmbdCreateJobNode(struct jData *job)
     if (node == NULL)
         return NULL;
 
-    node->name = safeSave(job->shared->jobBill.jobName ?
-                          job->shared->jobBill.jobName : "");
+    if (job->shared->jobBill.options & SUB_JOB_NAME)
+        node->name = safeSave(job->shared->jobBill.jobName);
+    else
+        node->name = safeSave(job->shared->jobBill.command);
     node->parent = groupRoot;
     node->ndInfo = job;
 
@@ -391,8 +383,10 @@ static struct jgTreeNode *qmbdCreateArrayNode(struct jData *job, int maxJLimit)
     if (node == NULL)
         return NULL;
 
-    node->name = safeSave(job->shared->jobBill.jobName ?
-                          job->shared->jobBill.jobName : "");
+    if (job->shared->jobBill.options & SUB_JOB_NAME)
+        node->name = safeSave(job->shared->jobBill.jobName);
+    else
+        node->name = safeSave(job->shared->jobBill.command);
     node->parent = groupRoot;
     ARRAY_DATA(node)->jobArray = job;
     ARRAY_DATA(node)->userId = job->userId;
@@ -509,8 +503,13 @@ static struct jData *qmbdReplaySingleSubmit(struct qmbdSubmitReq *req)
      * resValPtr; the encoded submitReq only carries the original string.
      */
     if (job->shared->jobBill.resReq && job->shared->jobBill.resReq[0] != '\0') {
+        int useLocal = USE_LOCAL;
+
+        if (job->shared->jobBill.options & SUB_HOST)
+            useLocal = 0;
+
         job->shared->resValPtr = checkResReq(job->shared->jobBill.resReq,
-                                             USE_LOCAL | CHK_TCL_SYNTAX | PARSE_XOR);
+                                             useLocal | CHK_TCL_SYNTAX | PARSE_XOR);
         if (job->shared->resValPtr == NULL) {
             ls_syslog(LOG_WARNING, "%s: cannot parse resReq for job <%s>",
                       __func__, lsb_jobid2str(job->jobId));
@@ -809,54 +808,6 @@ static void qmbdCleanupSubmitSyncData(void)
         }
         break;
     }
-}
-
-/*
- * Estimate the XDR buffer size needed for qmbdSubmitReq.
- * The estimate is intentionally conservative to avoid resizing in submit path.
- * @param[in] req: qmbd submit replay request to size.
- * @return: Estimated buffer size in bytes.
- */
-static int qmbdSubmitReqSize(struct qmbdSubmitReq *req)
-{
-    struct submitReq *subReq = &req->submitReq;
-    int i;
-    int sz;
-
-    sz = 1024 + ALIGNWORD_(sizeof(struct qmbdSubmitReq));
-    sz += ALIGNWORD_(sizeof(int) * 2);
-    sz += ALIGNWORD_(qmbdSafeStrLen(req->userName) + 1) + 4;
-
-    sz += ALIGNWORD_(qmbdSafeStrLen(subReq->queue) + 1) + 4 +
-          ALIGNWORD_(qmbdSafeStrLen(subReq->resReq) + 1) + 4 +
-          ALIGNWORD_(qmbdSafeStrLen(subReq->fromHost) + 1) + 4 +
-          ALIGNWORD_(qmbdSafeStrLen(subReq->dependCond) + 1) + 4 +
-          ALIGNWORD_(qmbdSafeStrLen(subReq->jobName) + 1) + 4 +
-          ALIGNWORD_(qmbdSafeStrLen(subReq->command) + 1) + 4 +
-          ALIGNWORD_(qmbdSafeStrLen(subReq->jobFile) + 1) + 4 +
-          ALIGNWORD_(qmbdSafeStrLen(subReq->inFile) + 1) + 4 +
-          ALIGNWORD_(qmbdSafeStrLen(subReq->outFile) + 1) + 4 +
-          ALIGNWORD_(qmbdSafeStrLen(subReq->errFile) + 1) + 4 +
-          ALIGNWORD_(qmbdSafeStrLen(subReq->inFileSpool) + 1) + 4 +
-          ALIGNWORD_(qmbdSafeStrLen(subReq->commandSpool) + 1) + 4 +
-          ALIGNWORD_(qmbdSafeStrLen(subReq->preExecCmd) + 1) + 4 +
-          ALIGNWORD_(qmbdSafeStrLen(subReq->postExecCmd) + 1) + 4 +
-          ALIGNWORD_(qmbdSafeStrLen(subReq->hostSpec) + 1) + 4 +
-          ALIGNWORD_(qmbdSafeStrLen(subReq->chkpntDir) + 1) + 4 +
-          ALIGNWORD_(qmbdSafeStrLen(subReq->subHomeDir) + 1) + 4 +
-          ALIGNWORD_(qmbdSafeStrLen(subReq->cwd) + 1) + 4 +
-          ALIGNWORD_(qmbdSafeStrLen(subReq->mailUser) + 1) + 4 +
-          ALIGNWORD_(qmbdSafeStrLen(subReq->projectName) + 1) + 4 +
-          ALIGNWORD_(qmbdSafeStrLen(subReq->loginShell) + 1) + 4 +
-          ALIGNWORD_(qmbdSafeStrLen(subReq->schedHostType) + 1) + 4;
-
-    for (i = 0; i < subReq->numAskedHosts; i++)
-        sz += ALIGNWORD_(qmbdSafeStrLen(subReq->askedHosts[i]) + 1) + 4;
-
-    for (i = 0; i < subReq->nxf; i++)
-        sz += ALIGNWORD_(sizeof(struct xFile) + 4 * 4);
-
-    return sz;
 }
 
 /*
@@ -1472,7 +1423,7 @@ sendQmbdSubmitReq(struct qmbdSubmitReq *req)
     int len = 0;
 
     if (encodeQmbdReq(QMBD_SUBMIT, req, (bool_t (*)())xdr_qmbdSubmitReq,
-                      qmbdSubmitReqSize(req), &buf, &len) < 0)
+                      xdrQmbdSubReqSize(req), &buf, &len) < 0)
         return -1;
 
     if (logclass & LC_COMM) {

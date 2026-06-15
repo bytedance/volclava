@@ -257,7 +257,7 @@ getValidatedNumericParam(const char *func,
 
 /*
  * Parse the configured qmbd job sync mode.
- * Invalid or empty values fall back to off to preserve the legacy behavior.
+ * Invalid or empty values fall back to socket when query mbd is enabled.
  * @return: qmbd job sync mode enum value.
  */
 static int
@@ -267,7 +267,7 @@ getQmbdJobSyncMode(void)
 
     modeValue = daemonParams[LSB_QMBD_JOB_SYNC_MODE].paramValue;
     if (modeValue == NULL || modeValue[0] == '\0')
-        return QMBD_JOB_SYNC_OFF;
+        return QMBD_JOB_SYNC_SOCKET;
 
     if (strcasecmp(modeValue, "socket") == 0)
         return QMBD_JOB_SYNC_SOCKET;
@@ -277,9 +277,9 @@ getQmbdJobSyncMode(void)
         return QMBD_JOB_SYNC_SHM;
 
     ls_syslog(LOG_ERR,
-              "%s: Invalid LSB_QMBD_JOB_SYNC_MODE=%s, using default off",
+              "%s: Invalid LSB_QMBD_JOB_SYNC_MODE=%s, using default socket",
               __func__, modeValue);
-    return QMBD_JOB_SYNC_OFF;
+    return QMBD_JOB_SYNC_SOCKET;
 }
 
 int
