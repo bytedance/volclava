@@ -541,6 +541,7 @@ freeLogRec(struct eventRec *logRec)
             FREEUP(logRec->eventLog.jobModLog.loginShell);
             FREEUP(logRec->eventLog.jobModLog.schedHostType);
             FREEUP(logRec->eventLog.jobModLog.jobDesc);
+            FREEUP(logRec->eventLog.jobModLog.specifiedCwd);
             return;
 
         case EVENT_JOB_START:
@@ -801,6 +802,7 @@ readJobNew(char *line, struct jobNewLog *jobNewLog)
 
     if (version >= _VOLCLAVA_VERSION2_2_) {
         copyQStr(line, MAX_JOB_DESC_LEN, 0, jobNewLog->jobDesc);
+        copyQStr(line, MAXFILENAMELEN, 0, jobNewLog->specifiedCwd);
     }
 
     return (LSBE_NO_ERROR);
@@ -1960,6 +1962,9 @@ writeJobNew(FILE *log_fp, struct jobNewLog *jobNewLog)
 
     subNewLine_(jobNewLog->jobDesc);
     if (addQStr(log_fp, jobNewLog->jobDesc) < 0)
+        return (LSBE_SYS_CALL);
+
+    if (addQStr(log_fp, jobNewLog->specifiedCwd) < 0)
         return (LSBE_SYS_CALL);
 
     if (fprintf(log_fp, "\n") < 0)

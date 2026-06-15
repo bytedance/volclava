@@ -1026,6 +1026,7 @@ struct jobNewLog {
     int    idx;
     int    userPriority;
     char   jobDesc[MAX_JOB_DESC_LEN];
+    char   specifiedCwd[MAXFILENAMELEN];
 };
 
 struct jobModLog {
@@ -1086,6 +1087,7 @@ struct jobModLog {
     char    *schedHostType;
     int     userPriority;
     char    *jobDesc;
+    char    *specifiedCwd;
 };
 struct jobStartLog {
     int jobId;

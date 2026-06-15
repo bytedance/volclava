@@ -1353,6 +1353,7 @@ log_modifyjob(struct modifyReq * modReq, struct lsfAuth *auth)
 
     jobModLog->userPriority = modReq->submitReq.userPriority;
     jobModLog->jobDesc = modReq->submitReq.jobDesc;
+    jobModLog->specifiedCwd = "";
 
     if (putEventRec(fname) < 0) {
         ls_syslog(LOG_ERR, I18N_JOB_FAIL_S,
@@ -1540,6 +1541,8 @@ log_jobdata(struct jData * job, char *fname1, int type)
         strcpy(jobNewLog->jobDesc, jobBill->jobDesc);
     else
         strcpy(jobNewLog->jobDesc, "");
+
+    strcpy(jobNewLog->specifiedCwd, "");
 
     if (putEventRec(fname1) < 0) {
         ls_syslog(LOG_ERR, I18N_JOB_FAIL_S,
