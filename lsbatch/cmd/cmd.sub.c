@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2021-2025 Bytedance Ltd. and/or its affiliates
+ * Copyright (C) 2021-2026 Bytedance Ltd. and/or its affiliates
  *
  * $Id: cmd.sub.c 397 2007-11-26 19:04:00Z mblack $
  * Copyright (C) 2007 Platform Computing Inc
@@ -292,6 +292,7 @@ LS_LONG_INT do_pack_sub_v2(int option, char **argv, struct submit *req)
         subNewLine_(packReq.errFile);
         subNewLine_(packReq.chkpntDir);
         subNewLine_(packReq.projectName);
+        subNewLine_(packReq.jobDesc);
         for(i = 0; i < packReq.numAskedHosts; i++) {
             subNewLine_(packReq.askedHosts[i]);
         }
@@ -433,6 +434,7 @@ LS_LONG_INT do_pack_sub_v2(int option, char **argv, struct submit *req)
         job_requests[job_count]->mailUser = packReq.mailUser ? strdup(packReq.mailUser) : NULL;
         job_requests[job_count]->projectName = packReq.projectName ? strdup(packReq.projectName) : NULL;
         job_requests[job_count]->loginShell = packReq.loginShell ? strdup(packReq.loginShell) : NULL;
+        job_requests[job_count]->jobDesc = packReq.jobDesc ? strdup(packReq.jobDesc) : NULL;
 
         pack_outputs[packParsedNum-1]->packSubmitIndex = job_count;
 
@@ -523,6 +525,7 @@ cleanup:
             FREEUP(job_requests[i]->mailUser);
             FREEUP(job_requests[i]->projectName);
             FREEUP(job_requests[i]->loginShell);
+            FREEUP(job_requests[i]->jobDesc);
             FREEUP(job_requests[i]->additionEsubInfo);
             if (job_requests[i]->askedHosts) {
                 for (j = 0; j < job_requests[i]->numAskedHosts; j++) {
@@ -651,12 +654,12 @@ fillReq (int argc, char **argv, int operate, struct submit *req, int isInPackFil
     } else if (operate == CMD_BMODIFY) {
         req->options = SUB_MODIFY;
         template = "h|V|O|Tn|T:xn|x|rn|r|Bn|B|Nn|N|En|E:a:"
-	"wn|w:fn|f:kn|k:Rn|R:mn|m:Jn|J:isn|is:in|i:en|e:qn|q:bn|b:tn|t:spn|sp:sn|s:cn|c:Wn|W:Fn|F:Dn|D:Sn|S:Cn|C:Mn|M:on|o:nn|n:un|u:Pn|P:Ln|L:Xn|X:Zsn|Zs:Z:"
+	"wn|w:fn|f:kn|k:Rn|R:mn|m:Jdn|Jd:Jn|J:isn|is:in|i:en|e:qn|q:bn|b:tn|t:spn|sp:sn|s:cn|c:Wn|W:Fn|F:Dn|D:Sn|S:Cn|C:Mn|M:on|o:nn|n:un|u:Pn|P:Ln|L:Xn|X:Zsn|Zs:Z:"
         ;
     } else if (operate == CMD_BSUB) {
 	req->options = 0;
         template = "E:T:a:"
-	"w:f:k:R:m:J:L:u:is:i:o:e:Zs|n:q:b:t:sp:s:c:v:p:W:F:D:S:C:M:O:P:Ip|Is|I|r|H|x|N|B|h|V|X:K|"
+	"w:f:k:R:m:Jd:J:L:u:is:i:o:e:Zs|n:q:b:t:sp:s:c:v:p:W:F:D:S:C:M:O:P:Ip|Is|I|r|H|x|N|B|h|V|X:K|"
         ;
     }
 

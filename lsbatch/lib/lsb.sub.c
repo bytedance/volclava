@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2021-2025 Bytedance Ltd. and/or its affiliates
+ * Copyright (C) 2021-2026 Bytedance Ltd. and/or its affiliates
  *
  * $Id: lsb.sub.c 397 2007-11-26 19:04:00Z mblack $
  * Copyright (C) 2007 Platform Computing Inc
@@ -224,6 +224,7 @@ lsb_submit(struct submit  *jobSubReq, struct submitReply *submitRep)
     subNewLine_(jobSubReq->errFile);
     subNewLine_(jobSubReq->chkpntDir);
     subNewLine_(jobSubReq->projectName);
+    subNewLine_(jobSubReq->jobDesc);
     for(loop = 0; loop < jobSubReq->numAskedHosts; loop++) {
         subNewLine_(jobSubReq->askedHosts[loop]);
     }
@@ -362,6 +363,7 @@ lsb_submit_pack(struct submit **jobSubReqs, int jobCount,
         subNewLine_(jobSubReqs[i]->errFile);
         subNewLine_(jobSubReqs[i]->chkpntDir);
         subNewLine_(jobSubReqs[i]->projectName);
+        subNewLine_(jobSubReqs[i]->jobDesc);
         for (loop = 0; loop < jobSubReqs[i]->numAskedHosts; loop++) {
             subNewLine_(jobSubReqs[i]->askedHosts[loop]);
         }
@@ -2031,6 +2033,19 @@ getOtherParams (struct submit  *jobSubReq, struct submitReq *submitReq,
     } else
         submitReq->jobName = "";
 
+    if (jobSubReq->options2 & SUB2_JOB_DESC) {
+        if (jobSubReq->jobDesc && jobSubReq->jobDesc[0] != '\0') {
+            if (strlen(jobSubReq->jobDesc) >= MAX_JOB_DESC_LEN) {
+                jobSubReq->jobDesc[MAX_JOB_DESC_LEN - 1] = '\0';
+            }
+            submitReq->jobDesc = jobSubReq->jobDesc;
+        } else {
+            submitReq->jobDesc = "";
+        }
+    } else {
+        submitReq->jobDesc = "";
+    }
+
     if (jobSubReq->options & SUB_IN_FILE) {
         if (!jobSubReq->inFile) {
 	    lsberrno = LSBE_BAD_ARG;
@@ -2821,7 +2836,10 @@ xdrSubReqSize(struct submitReq *req)
 	  ALIGNWORD_(strlen(req->subHomeDir) + 1) + 4 +
 	  ALIGNWORD_(strlen(req->cwd) + 1) + 4 +
 	  ALIGNWORD_(strlen(req->mailUser) + 1) + 4 +
-	  ALIGNWORD_(strlen(req->projectName) + 1) + 4;
+	  ALIGNWORD_(strlen(req->projectName) + 1) + 4 +
+	  ALIGNWORD_(strlen(req->loginShell) + 1) + 4 +
+	  ALIGNWORD_(strlen(req->schedHostType) + 1) + 4 +
+	  ALIGNWORD_(strlen(req->jobDesc) + 1) + 4;
 
     for (i = 0; i < req->numAskedHosts; i++)
 	sz += ALIGNWORD_(strlen(req->askedHosts[i]) + 1 + 4);
@@ -3524,13 +3542,22 @@ setOption_ (int argc, char **argv, char *template, struct submit *req,
         }
         flagPackConflict = 1;
 
+        if (strncmp(optName, "Jd", 2) == 0) {
+            req->options2 |= SUB2_MODIFY_RUN_JOB;
+            checkSubDelOption2(SUB2_JOB_DESC, "Jdn");
+            if (!(mask2 & SUB2_JOB_DESC))
+                break;
+            req->jobDesc = optarg;
+            req->options2 |= SUB2_JOB_DESC;
+            break;
+        }
+
         req->options2 |= SUB2_MODIFY_PEND_JOB;
         checkSubDelOption (SUB_JOB_NAME, "Jn");
         if (mask & SUB_JOB_NAME) {
-        req->jobName = optarg;
-        req->options |= SUB_JOB_NAME;
-		req->options2 |= SUB2_MODIFY_PEND_JOB;
-            }
+            req->jobName = optarg;
+            req->options |= SUB_JOB_NAME;
+        }
 	    break;
 
 	case 'i':
@@ -4569,8 +4596,6 @@ parentErr:
 void
 subUsage_(int option, char **errMsg)
 {
-#define I18N_ESUB_INFO_USAGE \
-    _i18n_msg_get(ls_catd,NL_SETN,447,"\t\t[-a additional_esub_information]\n")
 
     if (errMsg == NULL) {
 	if (option & SUB_RESTART) {
@@ -4585,9 +4610,8 @@ subUsage_(int option, char **errMsg)
 	    fprintf(stderr, "\t\t[-C core_limit] [-M mem_limit] \n");
 	    fprintf(stderr, "\t\t[-W run_limit[/host_name|/host_model]] \n");
 	    fprintf(stderr, "\t\t[-S stack_limit] [-E \"pre_exec_command [argument ...]\"]\n");
-
+	    fprintf(stderr, "\t\t[-a additional_esub_information]\n");
 	    fprintf(stderr, "\t\tcheckpoint_dir[job_ID | \"job_ID[index]\"]\n");
-	    fprintf(stderr, I18N_ESUB_INFO_USAGE);
 
 	} else if (option & SUB_MODIFY) {
 	    fprintf(stderr, I18N_Usage);
@@ -4605,7 +4629,7 @@ subUsage_(int option, char **errMsg)
 	    }
 
 
-	    fprintf(stderr, "\t\t[-w depend_cond | -wn] [-R res_req| -Rn] [-J job_name | -Jn]\n");
+	    fprintf(stderr, "\t\t[-w depend_cond | -wn] [-R res_req| -Rn] [-J job_name | -Jn] [-Jd job_desc | -Jdn]\n");
 	    fprintf(stderr, "\t\t[-q queue_name ... | -qn] \n");
 	    fprintf(stderr, "\t\t[-m host_name[+[pref_level]] | host_group[+[pref_level]]...| -mn]\"\n");
 	    fprintf(stderr, "\t\t[-n min_processors[,max_processors] | -nn]\n");
@@ -4616,8 +4640,8 @@ subUsage_(int option, char **errMsg)
 	    fprintf(stderr, "\t\t[-E \"pre_exec_command [argument ...]\" | -En]\n");
 	    fprintf(stderr, "\t\t[-sp job_priority | -spn]\n");
 	    fprintf(stderr, "\t\t[-Z \"new_command\" | -Zs \"new_command\" | -Zsn] \n");
-	    fprintf(stderr, "\t\t[ jobId | \"jobId[index_list]\" ] \n");
-	    fprintf(stderr, I18N_ESUB_INFO_USAGE);
+	    fprintf(stderr, "\t\t[-a additional_esub_information]\n");
+	    fprintf(stderr, "\t\tjobId | \"jobId[index_list]\"\n");
 	} else {
 
 	    fprintf(stderr, I18N_Usage);
@@ -4633,7 +4657,7 @@ subUsage_(int option, char **errMsg)
 
 	    fprintf(stderr, "\t\t[-q queue_name ...]  [-R res_req]\n");
 	    fprintf(stderr, "\t\t[-m \"host_name[+[pref_level]] | host_group[+[pref_level]]...]\"\n");
-	    fprintf(stderr, "\t\t[-n min_processors[,max_processors]] [-J job_name]\n");
+	    fprintf(stderr, "\t\t[-n min_processors[,max_processors]] [-J job_name] [-Jd job_desc]\n");
 	    fprintf(stderr, "\t\t[-b begin_time] [-t term_time] [-u mail_user]\n");
 	    fprintf(stderr, "\t\t[-i in_file | -is in_file] [-o out_file] [-e err_file]\n");
 	    fprintf(stderr, "\t\t[-M mem_limit]  [-D data_limit]  [-S stack_limit]\n");
@@ -4643,11 +4667,9 @@ subUsage_(int option, char **errMsg)
 	    fprintf(stderr, "\t\t[-E \"pre_exec_command [argument ...]\"] [-Zs]\n");
         fprintf(stderr, "\t\t[-Ep \"post_exec_command [argument ...]\"\n");
 	    fprintf(stderr, "\t\t[-sp job_priority]\n");
-	    fprintf(stderr, "\t\t[command [argument ...]]\n");
-
-        fprintf(stderr, "\t\t[-pack job_submission_file]\n");
-
-        fprintf(stderr, I18N_ESUB_INFO_USAGE);
+	    fprintf(stderr, "\t\t[-pack job_submission_file]\n");
+	    fprintf(stderr, "\t\t[-a additional_esub_information]\n");
+	    fprintf(stderr, "\t\tcommand [argument ...]\n");
 	}
 
         exit (-1);
@@ -5058,6 +5080,7 @@ char ch, next, *tmp_str=NULL; \
     SET_PARM_STR_2(SUB2_IN_FILE_SPOOL, "LSB_SUB2_IN_FILE_SPOOL", jobSubReq,
                  inFile);
     SET_PARM_BOOL_2(SUB2_JOB_CMD_SPOOL, "LSB_SUB2_JOB_CMD_SPOOL", jobSubReq);
+    SET_PARM_STR_2(SUB2_JOB_DESC, "LSB_SUB_JOB_DESCRIPTION", jobSubReq, jobDesc);
 
     ls_readconfenv(myParams, NULL);
 
@@ -5626,6 +5649,8 @@ void modifyJobInformation(struct submit *jobSubReq)
 	    {"LSB_SUB_PTY_SHELL",BOOLPARM,-1,SUB_PTY_SHELL},
 	    {"LSB_SUB_HOSTS",STRSPARM,
 	     FIELD_OFFSET(submit,askedHosts),0},
+	    {"LSB_SUB_JOB_DESCRIPTION",STR2PARM,
+	     FIELD_OFFSET(submit,jobDesc),SUB2_JOB_DESC},
 	    {"LSB_SUB_HOLD",BOOL2PARM,-1,SUB2_HOLD},
 	    {"LSB_SUB2_JOB_PRIORITY",INT2PARM,
 	     FIELD_OFFSET(submit,userPriority),SUB2_JOB_PRIORITY},

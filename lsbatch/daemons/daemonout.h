@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2021-2025 Bytedance Ltd. and/or its affiliates
+ * Copyright (C) 2021-2026 Bytedance Ltd. and/or its affiliates
  *
  * $Id: daemonout.h 397 2007-11-26 19:04:00Z mblack $
  * Copyright (C) 2007 Platform Computing Inc
@@ -122,8 +122,9 @@ struct submitReq {
     int     maxNumProcessors;         
     char    *loginShell;              
     char    *schedHostType;           
-    char    *userGroup;                   
-    int     userPriority;            
+    char    *userGroup;
+    int     userPriority;
+    char    *jobDesc;
 };
 
 

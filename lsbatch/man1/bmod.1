@@ -1,7 +1,7 @@
 .ds ]W %
 .ds ]L
 .nh
-.TH bmod 1 "Lava Version 1.0 - Sept 2007"
+.TH bmod 1 "Volclava Version 2.2 - Jul 2026"
 .br
 .SH NAME
 \fBbmod\fR - modifies job submission options of a job
@@ -45,6 +45,8 @@
 [\fB-i \fR\fIinput_file\fR | \fB-in\fR | \fB-is\fR \fIinput_file \fR |  \fB-isn\fR] 
 .br
 [\fB-J\fR\fB \fR\fIjob_name\fR | \fB-J "%\fR\fIjob_limit\fR\fB"\fR | \fB-Jn\fR] 
+.br
+[\fB-Jd\fR \fIjob_description\fR | \fB-Jdn\fR]
 .br
 [\fB-k\fR\fB \fR\fIcheckpoint_dir\fR | \fB-k\fR\fB \fR\fB"\fR\fIcheckpoint_dir\fR\fB \fR[\fIcheckpoint_period\fR]\fB"\fR | \fB-kn\fR]
 .br
@@ -130,6 +132,8 @@ dispatched.
 .PP
 - Rerunnable jobs (\fB-r\fR | \fB-rn\fR)
 .PP
+- Job description (\fB-Jd\fR \fIjob_description\fR | \fB-Jdn\fR)
+.PP
 Modified resource limits cannot exceed the resource limits defined in 
 the queue.
 .PP
@@ -153,6 +157,25 @@ Modifies jobs with the specified job ID.
 .IP
 Modifies job array elements specified by \fB"\fR\fIjob_ID\fR\fB[\fR\fIindex\fR\fB]"\fR.
 
+
+.TP 
+\fB-Jd\fR \fIjob_description\fR
+\fR
+.IP
+Modifies the job description of the specified job. The job description 
+can contain up to 4095 characters. If the description exceeds 4095 
+characters, it will be truncated.
+
+.IP
+The job description can be modified for both pending and running jobs.
+
+
+.TP 
+\fB-Jdn\fR
+\fR
+.IP
+Removes the job description from the specified job. The job description 
+can be removed for both pending and running jobs.
 
 .TP 
 \fB-h

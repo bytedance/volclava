@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2021-2025 Bytedance Ltd. and/or its affiliates
+ * Copyright (C) 2021-2026 Bytedance Ltd. and/or its affiliates
  *
  * $Id: read.event.c 397 2007-11-26 19:04:00Z mblack $
  * Copyright (C) 2007 Platform Computing Inc
@@ -270,6 +270,11 @@ read_newjob(struct eventRec *log)
     submitPtr->userPriority = jobNewLog->userPriority;
     job->jobPriority = jobNewLog->userPriority;
 
+    if (submitPtr->options2 & SUB2_JOB_DESC)
+        strcpy(submitPtr->jobDesc, jobNewLog->jobDesc);
+    else
+        submitPtr->jobDesc[0] = '\0';
+
     if ((logclass & LC_TRACE))
         ls_syslog(LOG_DEBUG2, "%s: jobId=%s", fname, lsb_jobid2str(job->jobId));
 
@@ -364,6 +369,7 @@ copyJobModLog(struct jobModLog *des, struct jobModLog *src)
     des->loginShell = putstr_(src->loginShell);
     des->schedHostType = putstr_(src->schedHostType);
     des->userPriority   = src->userPriority;
+    des->jobDesc = putstr_(src->jobDesc);
 }
 
 struct jobInfoEnt *
@@ -436,6 +442,10 @@ copyJobInfoEnt(struct jobInfoEnt *jobInfo)
 
     job->jobPriority = jobInfo->jobPriority;
     submitPtr->userPriority = jobInfo->submit.userPriority;
+    if (jobInfo->submit.options2 & SUB2_JOB_DESC)
+        strcpy(submitPtr->jobDesc, jobInfo->submit.jobDesc);
+    else
+        submitPtr->jobDesc[0] = '\0';
     return (job);
 }
 
@@ -461,6 +471,7 @@ freeJobInfoEnt(struct jobInfoEnt *jobInfoEnt)
     FREEUP(jobInfoEnt->submit.mailUser);
     FREEUP(jobInfoEnt->submit.projectName);
     FREEUP(jobInfoEnt->submit.loginShell);
+    FREEUP(jobInfoEnt->submit.jobDesc);
 
     if (jobInfoEnt->submit.numAskedHosts > 0) {
         for (i=0;i<jobInfoEnt->submit.numAskedHosts;i++)
@@ -1237,6 +1248,7 @@ initJobInfo (void)
     submitPtr->mailUser    = malloc(MAXHOSTNAMELEN);
     submitPtr->projectName = malloc(MAX_LSB_NAME_LEN);
     submitPtr->loginShell  = malloc(MAX_LSB_NAME_LEN);
+    submitPtr->jobDesc     = malloc(MAX_JOB_DESC_LEN);
     job->user              = malloc(MAX_LSB_NAME_LEN);
     job->fromHost          = malloc(MAXHOSTNAMELEN);
     job->cwd               = malloc(MAXFILENAMELEN);
@@ -1259,6 +1271,7 @@ initJobInfo (void)
     submitPtr->mailUser[0]  = '\0';
     submitPtr->projectName[0] = '\0';
     submitPtr->loginShell[0] = '\0';
+    submitPtr->jobDesc[0]    = '\0';
     job->user[0]     =  '\0';
     job->fromHost[0] =  '\0';
     job->cwd[0]      = '\0';

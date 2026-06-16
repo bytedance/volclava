@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2021-2025 Bytedance Ltd. and/or its affiliates
+ * Copyright (C) 2021-2026 Bytedance Ltd. and/or its affiliates
  *
  * $Id: lsb.xdr.c 397 2007-11-26 19:04:00Z mblack $
  * Copyright (C) 2007 Platform Computing Inc
@@ -92,6 +92,7 @@ xdr_submitReq (XDR *xdrs, struct submitReq *submitReq, struct LSFHeader *hdr)
 	FREEUP (submitReq->projectName);
 	FREEUP (submitReq->loginShell);
 	FREEUP (submitReq->schedHostType);
+	FREEUP (submitReq->jobDesc);
 
 	/* Clean up existing askedHosts array if it exists */
 	if (submitReq->numAskedHosts > 0 && submitReq->askedHosts != NULL) {
@@ -220,6 +221,9 @@ xdr_submitReq (XDR *xdrs, struct submitReq *submitReq, struct LSFHeader *hdr)
     }
 
     if (!xdr_int(xdrs, &submitReq->userPriority))
+	goto Error1;
+
+    if (!xdr_var_string(xdrs, &submitReq->jobDesc))
         goto Error1;
 
     return (TRUE);

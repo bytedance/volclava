@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2021-2025 Bytedance Ltd. and/or its affiliates
+ * Copyright (C) 2021-2026 Bytedance Ltd. and/or its affiliates
  * Copyright (C) 2007 Platform Computing Inc
  *
  * This program is free software; you can redistribute it and/or modify
@@ -540,6 +540,8 @@ freeLogRec(struct eventRec *logRec)
             FREEUP(logRec->eventLog.jobModLog.projectName);
             FREEUP(logRec->eventLog.jobModLog.loginShell);
             FREEUP(logRec->eventLog.jobModLog.schedHostType);
+            FREEUP(logRec->eventLog.jobModLog.jobDesc);
+            FREEUP(logRec->eventLog.jobModLog.specifiedCwd);
             return;
 
         case EVENT_JOB_START:
@@ -798,6 +800,11 @@ readJobNew(char *line, struct jobNewLog *jobNewLog)
     if (cc != 1)
         return (LSBE_EVENT_FORMAT);
 
+    if (version >= _VOLCLAVA_VERSION2_2_) {
+        copyQStr(line, MAX_JOB_DESC_LEN, 0, jobNewLog->jobDesc);
+        copyQStr(line, MAXFILENAMELEN, 0, jobNewLog->specifiedCwd);
+    }
+
     return (LSBE_NO_ERROR);
 
 }
@@ -952,6 +959,10 @@ readJobMod(char *line, struct jobModLog *jobModLog)
         if ( cc != 1)
             return (LSBE_EVENT_FORMAT);
         line += ccount + 1;
+    }
+
+    if (version >= _VOLCLAVA_VERSION2_2_ && jobModLog->options2 & SUB2_JOB_DESC) {
+        saveQStr(line, jobModLog->jobDesc);
     }
 
     return(LSBE_NO_ERROR);
@@ -1949,6 +1960,13 @@ writeJobNew(FILE *log_fp, struct jobNewLog *jobNewLog)
     if (fprintf(log_fp, " %d", jobNewLog->userPriority) < 0)
         return (LSBE_SYS_CALL);
 
+    subNewLine_(jobNewLog->jobDesc);
+    if (addQStr(log_fp, jobNewLog->jobDesc) < 0)
+        return (LSBE_SYS_CALL);
+
+    if (addQStr(log_fp, jobNewLog->specifiedCwd) < 0)
+        return (LSBE_SYS_CALL);
+
     if (fprintf(log_fp, "\n") < 0)
         return (LSBE_SYS_CALL);
 
@@ -2092,6 +2110,12 @@ writeJobMod(FILE *log_fp, struct jobModLog *jobModLog)
     if ((jobModLog->options2 & SUB2_JOB_PRIORITY)
         && fprintf(log_fp, " %d", jobModLog->userPriority) < 0) {
         return (LSBE_SYS_CALL);
+    }
+
+    if (jobModLog->options2 & SUB2_JOB_DESC) {
+        subNewLine_(jobModLog->jobDesc);
+        if (addQStr(log_fp, jobModLog->jobDesc) < 0)
+            return (LSBE_SYS_CALL);
     }
 
     if (fprintf(log_fp, "\n") < 0)

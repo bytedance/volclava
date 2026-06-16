@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2021-2025 Bytedance Ltd. and/or its affiliates
+ * Copyright (C) 2021-2026 Bytedance Ltd. and/or its affiliates
  * Copyright (C) 2007 Platform Computing Inc
  *
  * This program is free software; you can redistribute it and/or modify
@@ -1352,6 +1352,8 @@ log_modifyjob(struct modifyReq * modReq, struct lsfAuth *auth)
     jobModLog->schedHostType   = modReq->submitReq.schedHostType;
 
     jobModLog->userPriority = modReq->submitReq.userPriority;
+    jobModLog->jobDesc = modReq->submitReq.jobDesc;
+    jobModLog->specifiedCwd = "";
 
     if (putEventRec(fname) < 0) {
         ls_syslog(LOG_ERR, I18N_JOB_FAIL_S,
@@ -1534,6 +1536,13 @@ log_jobdata(struct jData * job, char *fname1, int type)
     jobNewLog->niosPort = jobBill->niosPort;
 
     jobNewLog->userPriority = jobBill->userPriority;
+
+    if (jobBill->options2 & SUB2_JOB_DESC)
+        strcpy(jobNewLog->jobDesc, jobBill->jobDesc);
+    else
+        strcpy(jobNewLog->jobDesc, "");
+
+    strcpy(jobNewLog->specifiedCwd, "");
 
     if (putEventRec(fname1) < 0) {
         ls_syslog(LOG_ERR, I18N_JOB_FAIL_S,
@@ -3700,6 +3709,7 @@ replay_modifyjob2(char *filename, int lineNum)
     modifyReq.submitReq.loginShell = jobModLog->loginShell ;
     modifyReq.submitReq.schedHostType = jobModLog->schedHostType ;
     modifyReq.submitReq.userPriority = jobModLog->userPriority;
+    modifyReq.submitReq.jobDesc = jobModLog->jobDesc;
 
     modifyJob(&modifyReq, NULL, &auth);
     return (TRUE);
@@ -3887,6 +3897,11 @@ replay_jobdata(char *filename, int lineNum, char *fname)
 
     jobBill->userPriority = jobNewLog->userPriority;
     job->jobPriority = jobBill->userPriority;
+
+    if (jobBill->options2 & SUB2_JOB_DESC)
+        jobBill->jobDesc = safeSave(jobNewLog->jobDesc);
+    else
+        jobBill->jobDesc = safeSave("");
 
     return job;
 }
