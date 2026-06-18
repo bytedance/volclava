@@ -20,6 +20,7 @@
  */
 
 #include "mbd.h"
+#include "mbd.query.h"
 
 static unsigned int     msgcnt = 0;
 extern int numLsbUsable;
@@ -43,11 +44,92 @@ static void addPendSigEvent(struct sbdNode *sbdPtr);
 static void freeJobHead (struct jobInfoHead *);
 static void freeJobInfoReply (struct jobInfoReply *);
 static void freeShareResourceInfoReply (struct  lsbShareResourceInfoReply *);
+static int ensureNodeListCapacity(struct nodeList **, int, int *);
+static int selectQmbdSyncJobsByMode(int, struct jobInfoReq *,
+                                    struct jData ***, struct jobMetaData ***,
+                                    int *);
+static int selectQmbdSyncJgrpsByMode(int, struct jobInfoReq *,
+                                     struct nodeList **,
+                                     struct jobMetaData ***, int *);
+static int mergeQmbdSyncReply(int, int);
 extern void closeSession(int);
 
 struct controlReq mbdCtrlReq;
 
-static int chanWritejobXdrFromShm(int chfd, struct jobMetaData *jobMeta);
+static int
+ensureNodeListCapacity(struct nodeList **list, int numNodes, int *arraySize)
+{
+    struct nodeList *bigList;
+
+    if (*arraySize == 0) {
+        *arraySize = 32;
+        *list = (struct nodeList *)calloc(*arraySize, sizeof(struct nodeList));
+        if (*list == NULL)
+            return LSBE_NO_MEM;
+    } else if (numNodes >= *arraySize) {
+        *arraySize *= 2;
+        bigList = (struct nodeList *)realloc(*list,
+                                             *arraySize * sizeof(struct nodeList));
+        if (bigList == NULL) {
+            FREEUP(*list);
+            return LSBE_NO_MEM;
+        }
+        *list = bigList;
+    }
+
+    return LSBE_NO_ERROR;
+}
+
+static int
+selectQmbdSyncJobsByMode(int syncMode, struct jobInfoReq *jobInfoReq,
+                         struct jData ***syncJobList,
+                         struct jobMetaData ***syncJobMetaList,
+                         int *syncListSize)
+{
+    switch (syncMode) {
+        case QMBD_JOB_SYNC_SHM:
+            return selectQmbdShmSyncJobs(jobInfoReq, syncJobMetaList,
+                                         syncListSize);
+        case QMBD_JOB_SYNC_SOCKET:
+            return selectQmbdSocketSyncJobs(jobInfoReq, syncJobList,
+                                            syncListSize);
+        case QMBD_JOB_SYNC_OFF:
+        default:
+            *syncListSize = 0;
+            return LSBE_NO_JOB;
+    }
+}
+
+static int
+selectQmbdSyncJgrpsByMode(int syncMode, struct jobInfoReq *jobInfoReq,
+                          struct nodeList **syncJgrplist,
+                          struct jobMetaData ***syncJobMetaList,
+                          int *syncListSize)
+{
+    switch (syncMode) {
+        case QMBD_JOB_SYNC_SHM:
+            return selectQmbdShmSyncJgrps(jobInfoReq, syncJobMetaList,
+                                          syncListSize);
+        case QMBD_JOB_SYNC_SOCKET:
+            return selectQmbdSocketSyncJgrps(jobInfoReq, syncJgrplist,
+                                             syncListSize);
+        case QMBD_JOB_SYNC_OFF:
+        default:
+            *syncListSize = 0;
+            return LSBE_NO_JOB;
+    }
+}
+
+static int
+mergeQmbdSyncReply(int reply, int syncReply)
+{
+    if ((reply == LSBE_NO_ERROR || reply == LSBE_NO_JOB)
+        && syncReply == LSBE_NO_ERROR)
+        return LSBE_NO_ERROR;
+    if (reply == LSBE_NO_JOB && syncReply != LSBE_NO_JOB)
+        return syncReply;
+    return reply;
+}
 
 int
 do_submitReq(XDR *xdrs,
@@ -337,15 +419,24 @@ do_jobInfoReq(XDR *xdrs,
     char                   *buf = NULL;
     XDR                     xdrs2;
     struct jobInfoReq       jobInfoReq;
+    struct jobInfoReq       syncJobInfoReq;
     struct jobInfoHead      jobInfoHead;
-    int                     reply = 0, reply1 = 0;
-    int                     i, len, listSize = 0,listSize1 = 0;
+    int                     reply = 0;
+    int                     i, len, listSize = 0;
+    int                     baseListSize = 0;
+    int                     syncListSize = 0;
+    int                     nodeArraySize = 0;
+    int                     syncReply = LSBE_NO_JOB;
     struct LSFHeader        replyHdr;
     struct nodeList        *jgrplist = NULL;
+    struct nodeList        *syncJgrplist = NULL;
     struct jData          **joblist = NULL;
-    struct jobMetaData    **jobMetalist = NULL;
+    struct jData          **syncJobList = NULL;
+    struct jobMetaData    **syncJobMetaList = NULL;
     int                     selectJgrpsFlag = FALSE;
+    int                     syncMode = QMBD_JOB_SYNC_OFF;
     struct hData *hPtr;
+    char                   *syncJobName = NULL;
     if (logclass & (LC_TRACE | LC_COMM))
         ls_syslog(LOG_DEBUG, "%s: Entering this routine...; channel=%d", fname,chfd);
 
@@ -362,48 +453,104 @@ do_jobInfoReq(XDR *xdrs,
         && (strcmp(jobInfoReq.host, LOST_AND_FOUND) != 0))
         reply = LSBE_BAD_HOST;
     else {
+        syncJobInfoReq = jobInfoReq;
+        if (isQmbd)
+            syncMode = qmbdJobSyncMode;
+        if (jobInfoReq.jobName != NULL)
+            syncJobInfoReq.jobName = syncJobName = safeSave(jobInfoReq.jobName);
         if ((selectJgrpsFlag = checkUseSelectJgrps(reqHdr, &jobInfoReq))
             == TRUE) {
-            reply = selectJgrps(&jobInfoReq, (void **)&jgrplist, &listSize);
-            if(isQmbd && syncNewJobs){
-                reply1 = selectJgrpsFromShm(&jobInfoReq,&jobMetalist,&listSize1,shm);
-                /* If no jobs are found in the local jDatalist but exist in shared memory, 
-                 * change the error code from LSBE_NO_JOB to LSBE_NO_ERROR
-                 */
-                if(reply == LSBE_NO_JOB && reply1 == LSBE_NO_ERROR){
-                    reply = LSBE_NO_ERROR;
+            reply = selectJgrps(&jobInfoReq, (void **)&jgrplist, &baseListSize);
+            syncReply = selectQmbdSyncJgrpsByMode(syncMode, &syncJobInfoReq,
+                                                  &syncJgrplist,
+                                                  &syncJobMetaList,
+                                                  &syncListSize);
+            reply = mergeQmbdSyncReply(reply, syncReply);
+
+            if (syncMode == QMBD_JOB_SYNC_SHM) {
+                listSize = baseListSize;
+            } else {
+                listSize = baseListSize + syncListSize;
+                nodeArraySize = baseListSize;
+                for (i = baseListSize; reply == LSBE_NO_ERROR && i < listSize; i++) {
+                    if (ensureNodeListCapacity(&jgrplist, i, &nodeArraySize)
+                        != LSBE_NO_ERROR) {
+                        reply = LSBE_NO_MEM;
+                        break;
+                    }
+                    jgrplist[i] = syncJgrplist[i - baseListSize];
+                }
+                FREEUP(syncJgrplist);
+                if (reply != LSBE_NO_ERROR && reply != LSBE_NO_JOB) {
+                    FREEUP(jgrplist);
+                    jgrplist = NULL;
+                    listSize = 0;
                 }
             }
         }
         else {
-            reply = selectJobs(&jobInfoReq, &joblist, &listSize);
-            if(isQmbd && syncNewJobs){
-                reply1 = selectJobsFromShm(&jobInfoReq,&jobMetalist,&listSize1);
-                if(reply == LSBE_NO_JOB && reply1 == LSBE_NO_ERROR){
-                    reply = LSBE_NO_ERROR;
+            reply = selectJobs(&jobInfoReq, &joblist, &baseListSize);
+            syncReply = selectQmbdSyncJobsByMode(syncMode, &syncJobInfoReq,
+                                                 &syncJobList,
+                                                 &syncJobMetaList,
+                                                 &syncListSize);
+            reply = mergeQmbdSyncReply(reply, syncReply);
+            /*
+             * Incremental sync entries are newer than the base snapshot.  For
+             * LAST_JOB, keep the sync-side match when one exists.
+             */
+            if ((syncMode == QMBD_JOB_SYNC_SHM
+                 || syncMode == QMBD_JOB_SYNC_SOCKET)
+                && (jobInfoReq.options & LAST_JOB)) {
+                if (syncListSize)
+                    baseListSize = 0;
+                else if (baseListSize)
+                    baseListSize = 1;
+            }
+
+            listSize = (syncMode == QMBD_JOB_SYNC_SHM) ?
+                       baseListSize : baseListSize + syncListSize;
+            for (i = 0; i < baseListSize; i++) {
+                if (ensureNodeListCapacity(&jgrplist, i, &nodeArraySize)
+                    != LSBE_NO_ERROR) {
+                    reply = LSBE_NO_MEM;
+                    break;
+                }
+                jgrplist[i].info = (void *)joblist[i];
+                jgrplist[i].isJData = TRUE;
+            }
+            if (syncMode != QMBD_JOB_SYNC_SHM) {
+                for (; reply == LSBE_NO_ERROR && i < listSize; i++) {
+                    if (ensureNodeListCapacity(&jgrplist, i, &nodeArraySize)
+                        != LSBE_NO_ERROR) {
+                        reply = LSBE_NO_MEM;
+                        break;
+                    }
+                    jgrplist[i].info = (void *)syncJobList[i - baseListSize];
+                    jgrplist[i].isJData = TRUE;
                 }
             }
 
-            jgrplist = (struct nodeList *) calloc(listSize,
-                                                  sizeof(struct nodeList));
-            if((jobInfoReq.options & LAST_JOB)){
-                if(listSize) listSize = 1;
-                if(listSize1) listSize1 = 1;
-                if(listSize && listSize1){
-                    listSize = 0;
-                    listSize1 = 1;
-                }
-            }
-            for (i = 0; i < listSize; i++){
-                jgrplist[i].info = (void *) joblist[i];
-                jgrplist[i].isJData = TRUE;
-            }
+            FREEUP(syncJobList);
             FREEUP(joblist);
+            if (reply != LSBE_NO_ERROR && reply != LSBE_NO_JOB) {
+                FREEUP(jgrplist);
+                jgrplist = NULL;
+                listSize = 0;
+            }
         }
+        FREEUP(syncJobName);
     }
     xdr_lsffree(xdr_jobInfoReq, (char *) &jobInfoReq, reqHdr);
 
-    jobInfoHead.numJobs = listSize + listSize1;
+    /*
+     * SHM results are returned as metadata-backed XDR records after the normal
+     * jData/jgrp records.  Socket results are already replayed as qmbd-local
+     * jData nodes and are counted in listSize.
+     */
+    jobInfoHead.numJobs = listSize
+                          + ((syncMode == QMBD_JOB_SYNC_SHM) ?
+                             syncListSize : 0);
 
     if (jobInfoHead.numJobs > 0)
         jobInfoHead.jobIds = my_calloc(jobInfoHead.numJobs,
@@ -414,9 +561,10 @@ do_jobInfoReq(XDR *xdrs,
         else
             jobInfoHead.jobIds[i] = ((struct jData *)jgrplist[i].info)->jobId;
     }
-
-    for(i = 0; i < listSize1; i++){
-        jobInfoHead.jobIds[i + listSize] = jobMetalist[i]->jobId;
+    if (syncMode == QMBD_JOB_SYNC_SHM) {
+        int metaIdx;
+        for (metaIdx = 0; metaIdx < syncListSize; metaIdx++)
+            jobInfoHead.jobIds[listSize + metaIdx] = syncJobMetaList[metaIdx]->jobId;
     }
 
     i = jobInfoHead.numHosts = 0;
@@ -440,6 +588,7 @@ do_jobInfoReq(XDR *xdrs,
 
     reply_buf = (char *) my_malloc(len, fname);
     xdrmem_create(&xdrs2, reply_buf, len, XDR_ENCODE);
+    initLSFHeader_(&replyHdr);
     replyHdr.opCode = reply;
 
     if (!xdr_encodeMsg(&xdrs2, (char *) &jobInfoHead, &replyHdr,
@@ -470,6 +619,7 @@ do_jobInfoReq(XDR *xdrs,
     freeJobHead (&jobInfoHead);
     if (reply != LSBE_NO_ERROR ||
         (jobInfoReq.options & (JOBID_ONLY|JOBID_ONLY_ALL))) {
+        FREEUP(syncJobMetaList);
         FREEUP (jgrplist);
         return(0);
     }
@@ -500,14 +650,21 @@ do_jobInfoReq(XDR *xdrs,
         }
         FREEUP(buf);
     }
-    FREEUP (jgrplist);
-    for(i = 0; i < listSize1; i++){
-        if(chanWritejobXdrFromShm(chfd, jobMetalist[i]) < 0){
-            FREEUP(jobMetalist);
-            return(-1);
+    /*
+     * SHM sync does not rebuild full jData objects in qmbd.  The metadata
+     * carries an encoded jobInfo payload that is written directly here.
+     */
+    if (syncMode == QMBD_JOB_SYNC_SHM) {
+        for (i = 0; i < syncListSize; i++) {
+            if (chanWriteQmbdShmJobXdr(chfd, syncJobMetaList[i]) < 0) {
+                FREEUP(syncJobMetaList);
+                FREEUP(jgrplist);
+                return(-1);
+            }
         }
     }
-    FREEUP (jobMetalist);
+    FREEUP(syncJobMetaList);
+    FREEUP (jgrplist);
     if(!isQmbd)
         chanClose_(chfd);
     return(0);
@@ -559,6 +716,7 @@ packJgrpInfo(struct jgTreeNode * jgNode, int remain, char **replyBuf, int schedu
 
     request_buf = (char *) my_malloc(len, "packJgrpInfo");
     xdrmem_create(&xdrs, request_buf, len, XDR_ENCODE);
+    initLSFHeader_(&hdr);
     hdr.reserved = remain;
     hdr.version = version;
 
@@ -575,36 +733,6 @@ packJgrpInfo(struct jgTreeNode * jgNode, int remain, char **replyBuf, int schedu
     xdr_destroy(&xdrs);
     return (i);
 
-}
-
-/*
- * Write job XDR data from shared memory to a channel
- * Handles circular buffer wrap-around: if the XDR data spans the end of the
- * buffer, sends it in two separate write operations
- * @param[in] chfd: Channel file descriptor to write to
- * @param[in] jobMeta: Pointer to job metadata containing XDR offset and length
- * @return: 0 on success, -1 on write failure
- */
-static int chanWritejobXdrFromShm(int chfd, struct jobMetaData *jobMeta){
-    int res, len;
-    len = jobMeta->xdrLen;
-    res = jobMeta->xdrOffset + jobMeta->xdrLen - shm->xdrBuffer->capacity;
-    /* We use an array to simulate a circular queue. The current job's XDR data
-     * may be truncated, with part of it at the end of the array and the rest
-     * at the beginning. We need to send it in two separate writes.
-     */
-    if(res > 0){
-        len -= res;
-    }
-    if (chanWriteNonBlock_(chfd, &shm->xdrBuffer->buff[0]+jobMeta->xdrOffset, len, DEF_WRITE_TIMEOUT) != len) {
-        ls_syslog(LOG_ERR, I18N_FUNC_FAIL_M, __func__, "chanWriteNonBlock_");
-        return(-1);
-    }
-    if (res > 0 && chanWriteNonBlock_(chfd, (&shm->xdrBuffer->buff[0]), res, DEF_WRITE_TIMEOUT) != res) {
-        ls_syslog(LOG_ERR, I18N_FUNC_FAIL_M, __func__, "chanWriteNonBlock_");
-        return(-1);
-    }
-    return 0;
 }
 
 static int
@@ -985,6 +1113,7 @@ packJobInfo(struct jData * jobData,
     FREEUP (request_buf);
     request_buf = my_malloc(len, "packJobInfo");
     xdrmem_create(&xdrs, request_buf, len, XDR_ENCODE);
+    initLSFHeader_(&hdr);
     hdr.reserved = remain;
     hdr.version = version;
 
@@ -1038,6 +1167,7 @@ do_jobPeekReq (XDR *xdrs, int chfd, struct sockaddr_in *from, char *hostName,
     }
 
     xdrmem_create(&xdrs2, reply_buf, MSGSIZE, XDR_ENCODE);
+    initLSFHeader_(&replyHdr);
     replyHdr.opCode = reply;
     if (reply == LSBE_NO_ERROR)
         replyStruct = (char *) &jobPeekReply;
@@ -1096,6 +1226,7 @@ do_signalReq (XDR *xdrs, int chfd, struct sockaddr_in *from, char *hostName,
 
 Reply:
     xdrmem_create(&xdrs2, reply_buf, MSGSIZE, XDR_ENCODE);
+    initLSFHeader_(&replyHdr);
     replyHdr.opCode = reply;
 
     if (!xdr_encodeMsg(&xdrs2, (char *) NULL, &replyHdr, xdr_int, 0, NULL)) {
@@ -1151,6 +1282,7 @@ do_jobMsg(struct bucket *bucket,
 
     LSBMSG_CACHE_BUFFER(bucket, jmsg);
 
+    initLSFHeader_(&sndhdr);
     sndhdr.opCode = BATCH_JOB_MSG;
     xdrmem_create(&bucket->xdrs, buf->data, buf->len, XDR_ENCODE);
 
@@ -1191,6 +1323,7 @@ do_jobMsg(struct bucket *bucket,
 
 Reply:
     xdrmem_create(&xdrs2, reply_buf, MSGSIZE, XDR_ENCODE);
+    initLSFHeader_(&replyHdr);
     replyHdr.opCode = reply;
 
     if (!xdr_encodeMsg(&xdrs2, (char *) NULL, &replyHdr, xdr_int, 0, NULL)) {
@@ -1244,6 +1377,7 @@ Reply:
         free(migReq.askedHosts);
     }
     xdrmem_create(&xdrs2, reply_buf, MSGSIZE, XDR_ENCODE);
+    initLSFHeader_(&replyHdr);
     replyHdr.opCode = reply;
     if (reply != LSBE_NO_ERROR)
         replyStruct = (char *) &migReply;
@@ -1331,6 +1465,7 @@ do_statusReq(XDR * xdrs, int chfd, struct sockaddr_in * from, int *schedule,
     }
 
     xdrmem_create(&xdrs2, reply_buf, MSGSIZE, XDR_ENCODE);
+    initLSFHeader_(&replyHdr);
     replyHdr.opCode = reply;
     replyHdr.length = 0;
     if (!xdr_LSFHeader(&xdrs2, &replyHdr)) {
@@ -1404,6 +1539,7 @@ do_chunkStatusReq(XDR * xdrs, int chfd, struct sockaddr_in * from,
     xdr_lsffree(xdr_chunkStatusReq, (char *) &chunkStatusReq, reqHdr);
 
     xdrmem_create(&xdrs2, reply_buf, MSGSIZE, XDR_ENCODE);
+    initLSFHeader_(&replyHdr);
     replyHdr.opCode = reply;
     replyHdr.length = 0;
     if (!xdr_LSFHeader(&xdrs2, &replyHdr)) {
@@ -1486,6 +1622,7 @@ do_restartReq(XDR * xdrs, int chfd, struct sockaddr_in * from,
 
     reply_buf = (char *) my_malloc(buflen, "do_restartReq");
     xdrmem_create(&xdrs2, reply_buf, buflen, XDR_ENCODE);
+    initLSFHeader_(&replyHdr);
     replyHdr.opCode = reply;
     if (!xdr_encodeMsg(&xdrs2, (char *) &sbdPackage, &replyHdr,
                        xdr_sbdPackage, 0, NULL)) {
@@ -1556,6 +1693,8 @@ do_hostInfoReq(XDR *xdrs,
 
 out:
 
+    xdr_lsffree(xdr_infoReq, (char *)&hostsReq, reqHdr);
+    initLSFHeader_(&replyHdr);
     replyHdr.opCode = reply;
     if (reply == LSBE_NO_ERROR || reply == LSBE_BAD_HOST)
         replyStruct = (char *) &hostsReply;
@@ -1630,6 +1769,8 @@ do_userInfoReq(XDR * xdrs,
 
     reply_buf = my_calloc(count, sizeof(char), __func__);
     xdrmem_create(&xdrs2, reply_buf, count, XDR_ENCODE);
+
+    xdr_lsffree(xdr_infoReq, (char *)&userInfoReq, reqHdr);
     initLSFHeader_(&hdr);
 
     hdr.opCode = reply;
@@ -1714,6 +1855,8 @@ do_queueInfoReq(XDR *xdrs,
      */
     reply_buf = my_calloc(len, sizeof(char), __func__);
     xdrmem_create(&xdrs2, reply_buf, len, XDR_ENCODE);
+
+    xdr_lsffree(xdr_infoReq, (char *)&qInfoReq, reqHdr);
     /* always init the header
      * valgrind will complain about
      * Syscall param write(buf) points to uninitialised byte(s)
@@ -1809,6 +1952,7 @@ do_groupInfoReq(XDR *xdrs,
 
     len =  sizeofGroupInfoReply(&groupInfoReply);
     len += ALIGNWORD_(sizeof(struct LSFHeader));
+    xdr_lsffree(xdr_infoReq, (char *)&groupInfoReq, reqHdr);
 
     reply_buf = my_calloc(len, sizeof(char), "do_groupInfoReq");
     xdrmem_create(&xdrs2, reply_buf, len, XDR_ENCODE);
@@ -1886,6 +2030,7 @@ do_paramInfoReq(XDR * xdrs, int chfd, struct sockaddr_in * from,
     count = sizeof(struct parameterInfo) + strlen(paramInfo.defaultQueues)
         + strlen(paramInfo.defaultHostSpec)
         + strlen(paramInfo.defaultProject) + 100 + jobSpoolDirLen;
+    xdr_lsffree(xdr_infoReq, (char *)&infoReq, reqHdr);
 
     reply_buf = (char *) my_malloc(count, "do_paramInfoReq");
     xdrmem_create(&xdrs2, reply_buf, count, XDR_ENCODE);
@@ -1932,6 +2077,7 @@ do_queueControlReq(XDR *xdrs, int chfd, struct sockaddr_in *from,
     }
 
     xdrmem_create(&xdrs2, reply_buf, MSGSIZE, XDR_ENCODE);
+    initLSFHeader_(&replyHdr);
     replyHdr.opCode = reply;
     replyHdr.length = 0;
     if (!xdr_LSFHeader(&xdrs2, &replyHdr)) {
@@ -1961,6 +2107,7 @@ do_mbdShutDown (XDR * xdrs, int s, struct sockaddr_in * from, char *hostName,
     struct LSFHeader        replyHdr;
 
     xdrmem_create(&xdrs2, reply_buf, MSGSIZE, XDR_ENCODE);
+    initLSFHeader_(&replyHdr);
     replyHdr.opCode = LSBE_NO_ERROR;
     replyHdr.length = 0;
     if (!xdr_LSFHeader(&xdrs2, &replyHdr)) {
@@ -1994,6 +2141,7 @@ do_reconfigReq(XDR *xdrs,
     }     
 
     xdrmem_create(&xdrs2, reply_buf, MSGSIZE, XDR_ENCODE);
+    initLSFHeader_(&replyHdr);
     replyHdr.opCode = LSBE_NO_ERROR;
     replyHdr.length = 0;
 
@@ -2047,6 +2195,7 @@ do_hostControlReq (XDR *xdrs, int chfd, struct sockaddr_in *from, char *hostName
 
 checkout:
     xdrmem_create(&xdrs2, reply_buf, MSGSIZE, XDR_ENCODE);
+    initLSFHeader_(&replyHdr);
     replyHdr.opCode = reply;
     replyHdr.length = 0;
     if (!xdr_LSFHeader(&xdrs2, &replyHdr)) {
@@ -2079,6 +2228,7 @@ do_jobSwitchReq (XDR *xdrs, int chfd, struct sockaddr_in *from, char *hostName,
         reply = switchJobArray(&jobSwitchReq, auth);
     }
     xdrmem_create(&xdrs2, reply_buf, MSGSIZE, XDR_ENCODE);
+    initLSFHeader_(&replyHdr);
     replyHdr.opCode = reply;
     replyHdr.length = 0;
     if (!xdr_LSFHeader(&xdrs2, &replyHdr)) {
@@ -2116,6 +2266,7 @@ do_jobMoveReq (XDR *xdrs, int chfd, struct sockaddr_in *from, char *hostName,
         reply = moveJobArray(&jobMoveReq, TRUE, auth);
     }
     xdrmem_create(&xdrs2, reply_buf, MSGSIZE, XDR_ENCODE);
+    initLSFHeader_(&replyHdr);
     replyHdr.opCode = reply;
     if (reply == LSBE_NO_ERROR)
         replyStruct = (char *) &jobMoveReq;
@@ -2236,6 +2387,7 @@ sendBack (int reply, struct submitReq *submitReq,
 
 
     xdrmem_create(&xdrs2, reply_buf, MSGSIZE / 2, XDR_ENCODE);
+    initLSFHeader_(&replyHdr);
     replyHdr.opCode = reply;
     if (!xdr_encodeMsg(&xdrs2, (char *) submitReply, &replyHdr,
                        xdr_submitMbdReply, 0, NULL)) {
@@ -2314,6 +2466,7 @@ sendBackPack(int overallReply, int successCount, int firstError,
     /* Serialize and send */
     xdrmem_create(&xdrs, reply_buf, reply_buf_size, XDR_ENCODE);
 
+    initLSFHeader_(&replyHdr);
     replyHdr.opCode = overallReply;
 
     if (!xdr_encodeMsg(&xdrs, (char *)&packReply, &replyHdr,
@@ -2469,6 +2622,7 @@ doNewJobReply(struct sbdNode *sbdPtr, int exception)
             }
         } else {
 
+            initLSFHeader_(&hdr);
             hdr.opCode = LSBE_NO_ERROR;
 
             s = chanSock_(sbdPtr->chanfd);
@@ -2955,6 +3109,7 @@ do_debugReq(XDR * xdrs, int chfd, struct sockaddr_in * from,
     }
 
     xdrmem_create(&xdrs2, reply_buf, MSGSIZE, XDR_ENCODE);
+    initLSFHeader_(&replyHdr);
     replyHdr.opCode = reply;
 
     replyHdr.length = 0;
@@ -2983,12 +3138,12 @@ do_resourceInfoReq (XDR *xdrs, int chfd, struct sockaddr_in *from,
 {
     static char fname[] = "do_resourceInfoReq";
     XDR                     xdrs2;
-    static struct resourceInfoReq  resInfoReq;
+    struct resourceInfoReq  resInfoReq;
     struct lsbShareResourceInfoReply   resInfoReply;
     int                     reply;
     char                   *reply_buf;
     int                     len = 0, i, j;
-    static struct LSFHeader        replyHdr;
+    struct LSFHeader        replyHdr;
     char                   *replyStruct;
 
 
@@ -2997,9 +3152,6 @@ do_resourceInfoReq (XDR *xdrs, int chfd, struct sockaddr_in *from,
 
     resInfoReply.numResources = 0;
     resInfoReply.resources = NULL;
-
-    if (resInfoReq.numResourceNames > 0)
-        xdr_lsffree(xdr_resourceInfoReq, (char *)&resInfoReq, &replyHdr);
 
     if (!xdr_resourceInfoReq (xdrs, &resInfoReq, reqHdr)) {
         reply = LSBE_XDR;
@@ -3028,6 +3180,9 @@ do_resourceInfoReq (XDR *xdrs, int chfd, struct sockaddr_in *from,
     }
     reply_buf = (char *) my_malloc(len, fname);
     xdrmem_create(&xdrs2, reply_buf, len, XDR_ENCODE);
+    xdr_lsffree(xdr_resourceInfoReq, (char *)&resInfoReq, reqHdr);
+
+    initLSFHeader_(&replyHdr);
     replyHdr.opCode = reply;
     if (reply == LSBE_NO_ERROR || reply == LSBE_BAD_RESOURCE)
         replyStruct = (char *) &resInfoReply;
@@ -3148,6 +3303,7 @@ Reply:
                   MSGSIZE/2,
                   XDR_ENCODE);
 
+    initLSFHeader_(&lsfHeader);
     lsfHeader.opCode = reply;
 
     if (!xdr_encodeMsg(&replyXdr,
@@ -3217,6 +3373,7 @@ do_setJobAttr(XDR * xdrs, int s, struct sockaddr_in * from, char *hostName,
     }
 
     xdrmem_create(&xdrs2, reply_buf, MSGSIZE, XDR_ENCODE);
+    initLSFHeader_(&replyHdr);
     replyHdr.opCode = reply;
     if (!xdr_encodeMsg(&xdrs2, (char *) &jobAttr, &replyHdr, xdr_jobAttrReq,
                        0, NULL)) {

@@ -2866,6 +2866,25 @@ xdrPackSubReqSize(struct submitPackReq *req)
     return (sz);
 }
 
+int
+xdrQmbdSubReqSize(struct qmbdSubmitReq *req)
+{
+    int sz;
+
+    sz = 1024 +
+         ALIGNWORD_(sizeof(struct qmbdSubmitReq));
+
+    sz += ALIGNWORD_(sizeof(int)) + 4;       /* jobId */
+    sz += ALIGNWORD_(sizeof(int)) + 4;       /* elemId */
+    sz += ALIGNWORD_(sizeof(time_t)) + 4;    /* masterSubmitTime */
+    sz += ALIGNWORD_(sizeof(int)) + 4;       /* userId */
+    sz += ALIGNWORD_(strlen(req->userName) + 1) + 4;
+
+    sz += xdrSubReqSize(&req->submitReq);
+
+    return (sz);
+}
+
 static
 int createNiosSock(struct submitReq *submitReq)
 {

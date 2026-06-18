@@ -246,7 +246,8 @@ returnHostInfo(struct hostDataReply *hostsReplyPtr, int numHosts,
             hostsReplyPtr->numHosts++;
         }
     }
-
+    lsbFreeResVal(&resVal);
+    FREEUP(candHosts);
     return (LSBE_NO_ERROR);
 }
 

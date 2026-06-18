@@ -18,7 +18,9 @@
  */
 
 #include "mbd.h"
+#include "mbd.query.h"
 #include "mbd.fairshare.h"
+#include <sys/socket.h>
 
 #define MBD_THREAD_MIN_STACKSIZE  512
 #define POLL_INTERVAL MAX(msleeptime/10, 1)
@@ -181,6 +183,9 @@ static void shutdownSbdConnections(void);
 static void processSbdNode(struct sbdNode *, int);
 static void setNextSchedTimeWhenJobFinish(void);
 static void acceptConnection(int);
+static int getQmbdJobSyncMode(void);
+static int initQmbdListenSock(void);
+static void cleanupQmbdStartFailure(pid_t);
 
 extern void chanInactivate_(int);
 extern void chanActivate_(int);
@@ -193,22 +198,13 @@ extern int initLimSock_(void);
 short qmbd_port;                                        /* Port of the query mbd process */
 int isQmbd = 0;                                         /* Flag indicating if the current process is query mbd */
 int qmbdAliveTime = DEF_QMBD_ALIVE_TIME;                /* Lifetime (in seconds) of the query mbd process */
-long long syncShmSize = DEF_QMBD_SYNC_SHM_SIZE_MB;
-long long syncShmXdrBufferSize;
-long long syncShmJobNameBufferSize;
-int syncShmJobCapacity;
-int syncNewJobs = 0;
-int qmbdListenSock = -1;    /* Listening socket reserved by the main mbd for qmbd */
-int qmbdPipe[2] = {-1, -1};   /* Pipe for communication between main mbd and query mbd [0]=read, [1]=write */
-struct syncJobShm *shm = NULL;
-static int qmbdCtlChfd = -1;
+static long long syncShmSize = DEF_QMBD_SYNC_SHM_SIZE_MB; /* SHM size in MB. */
+int qmbdListenSock = -1;    /* Passive listen socket reserved by the main mbd for qmbd */
+int qmbdSubmitSockPair[2] = {-1, -1};   /* Socketpair used for qmbd submit events */
+int qmbdCtrlSockPair[2] = {-1, -1};     /* Socketpair used for qmbd control events */
 static int qmbdIsAlive = 0;   /* Flag indicating if any query mbd process is alive */
 static pid_t qmbdPid = 0;     /* PID corresponding to qmbd */
 static int processQmbd();
-static int initQmbdListenSock(void);
-static void shmInit();
-static int createShmCleanerThread();
-static void *shmCleaner(void *arg);
 static void initDaemonParams(void);
 
 /*
@@ -257,6 +253,33 @@ getValidatedNumericParam(const char *func,
     }
 
     return value;
+}
+
+/*
+ * Parse the configured qmbd job sync mode.
+ * Invalid or empty values fall back to socket when query mbd is enabled.
+ * @return: qmbd job sync mode enum value.
+ */
+static int
+getQmbdJobSyncMode(void)
+{
+    char *modeValue;
+
+    modeValue = daemonParams[LSB_QMBD_JOB_SYNC_MODE].paramValue;
+    if (modeValue == NULL || modeValue[0] == '\0')
+        return QMBD_JOB_SYNC_SOCKET;
+
+    if (strcasecmp(modeValue, "socket") == 0)
+        return QMBD_JOB_SYNC_SOCKET;
+    if (strcasecmp(modeValue, "off") == 0)
+        return QMBD_JOB_SYNC_OFF;
+    if (strcasecmp(modeValue, "shm") == 0)
+        return QMBD_JOB_SYNC_SHM;
+
+    ls_syslog(LOG_ERR,
+              "%s: Invalid LSB_QMBD_JOB_SYNC_MODE=%s, using default socket",
+              __func__, modeValue);
+    return QMBD_JOB_SYNC_SOCKET;
 }
 
 int
@@ -424,23 +447,25 @@ main (int argc, char **argv)
     lastElockTouch = time(0) - msleeptime;
     schedulerInit();
     setJobPriUpdIntvl();
-    if(syncNewJobs)
-        shmInit();
     if (qmbd_port && initQmbdListenSock() < 0) {
         ls_syslog(LOG_ERR, "%s: cannot initialize query mbd listening socket", __func__);
+        mbdDie(MASTER_FATAL);
+    }
+    if (qmbd_port && initQmbdJobSync() < 0) {
+        ls_syslog(LOG_ERR, "%s: initQmbdJobSync() failed", __func__);
+        mbdDie(MASTER_FATAL);
     }
     for (;;) {
-        int maxfd;
         time_t qmbdElapsedTime = 0;
 
-        maxfd = sysconf(_SC_OPEN_MAX);
         now = time(0);
         if (qmbdStartedTime > 0) {
             qmbdElapsedTime = now - qmbdStartedTime;
         }
         if (qmbd_port && (qmbdIsAlive == 0
             || qmbdElapsedTime >= qmbdAliveTime
-            || (jobInfoChanged && qmbdElapsedTime >= DEF_QMBD_ALIVE_TIME))) {
+            || now < qmbdStartedTime
+            || (jobInfoChanged && qmbdElapsedTime >= MIN_QMBD_ALIVE_TIME))) {
             ls_syslog(LOG_DEBUG,"%s: re-fork query mbd",__func__);
             processQmbd();
         }
@@ -504,12 +529,15 @@ main (int argc, char **argv)
         }
 
         /*
-         * If the query mbd child process exits abnormally, the write end of the pipe will trigger the EPOLLERR event.
-         * After detecting this event, the query mbd process will be restarted.
+         * If the query mbd child process exits abnormally, the parent-side
+         * control socket will trigger EPOLLERR.  Socket sync defers resource
+         * cleanup until the submit sender reaches STOPPED.
          */
-        if (qmbd_port && chanEventsReady(qmbdCtlChfd, EPOLL_EVENT_ERROR)) {
+        if (qmbd_port && qmbdCtrlChfd >= 0
+            && chanEventsReady(qmbdCtrlChfd, EPOLL_EVENT_ERROR) && qmbdIsAlive) {
             ls_syslog(LOG_WARNING, "query mbd exited unexpectedly");
             qmbdIsAlive = 0;
+            qmbdStartedTime = 0;
         }
 
         clientIO();
@@ -652,7 +680,6 @@ processClient(struct clientNode *client, int *needFree)
     int                  s;
     int                  pid;
     int                  cc = LSBE_NO_ERROR;
-    unsigned int         len;
     struct sockaddr_in   from;
     struct sockaddr_in   laddr;
     socklen_t            laddrLen;
@@ -682,7 +709,6 @@ processClient(struct clientNode *client, int *needFree)
         return(-1);
     }
 
-    len = reqHdr.length;
     mbdReqtype = reqHdr.opCode;
     from = client->from;
 
@@ -989,18 +1015,14 @@ periodicCheck(void)
     static int winConf = FALSE;
     static time_t lastPollTime = 0, last_checkConf = 0;
     static time_t last_hostInfoRefreshTime = 0;
-    static time_t last_checkNqsJobsTime = 0;
     static time_t last_tryControlJobs = 0;
     static time_t last_jobPriUpdTime = 0;
-    static time_t first_hostInfoRefreshTime = 0;
     static int    histTime = 0;
 
     ls_syslog(LOG_DEBUG, "%s: Entering this routine...", __func__);
 
     if (last_chk_time == 0) {
         last_hostInfoRefreshTime = now;
-        last_checkNqsJobsTime = now;
-        first_hostInfoRefreshTime = now;
     }
 
     switchELog();
@@ -1397,44 +1419,134 @@ updateJobPriorityInPJL(void)
     }
 }
 
-/* 
- *If the survival time of query mbd is exceeded, notify query mbd by close pipe,
- * and fork query mbd again.
+/*
+ * Rotate query mbd and rebuild its internal channels.
+ * Socket sync stops the submit sender first so it cannot write while old fds
+ * close.  The first call may only request STOP_REQUESTED and return; a later
+ * main-loop iteration observes STOPPED and completes the actual refork.
+ * Long-lived qmbd resources are initialized before the main loop; this routine
+ * only handles per-generation socketpairs, fd handoff, and fork failures.
+ * SHM/off modes have no submit sender and can rotate qmbd directly.
+ * @return: 0 on success or deferred stop, -1 on setup failure.
  */
 static int processQmbd() {
-    if (initQmbdListenSock() < 0) {
+    struct qmbdCtrlReq ctrlReq;
+
+    if (qmbdListenSock < 0) {
+        ls_syslog(LOG_ERR, "%s: qmbd listen socket is not initialized",
+                  __func__);
         return -1;
     }
-    if(qmbdPipe[0] >= 0){
-        close(qmbdPipe[0]);
-        qmbdPipe[0] = -1;
+
+    memset(&ctrlReq, 0, sizeof(ctrlReq));
+    ctrlReq.controlOp = QMBD_CTRL_EXIT;
+
+    if (qmbdJobSyncMode == QMBD_JOB_SYNC_SOCKET
+        && qmbdSubmitChfd >= 0
+        && qmbdSubmitSenderState != QMBD_SUBMIT_STOPPED) {
+        /*
+         * Do not close submit fd from the main thread while the sender may be
+         * inside chanWrite_().  Retry after it reports stopped.
+         */
+        requestQmbdEventSenderStop();
+        return 0;
+    }
+    if ((logclass & LC_COMM) && qmbdSubmitChfd >= 0) {
+        ls_syslog(LOG_DEBUG,
+                  "%s: qmbd submit sender stopped chfd=%d sockfd=%d",
+                  __func__, qmbdSubmitChfd, chanSock_(qmbdSubmitChfd));
+    }
+
+    if (qmbdCtrlChfd >= 0) {
+        if (sendQmbdCtrlReq(&ctrlReq) < 0) {
+            ls_syslog(LOG_WARNING, "%s: failed to send qmbd exit control request", __func__);
+        }
     }
     /*
-     *Since the write-side file descriptor is registered with the channel and epoll, 
-     *it is necessary to call chanClose to unregister it.
+     * From here, no submit sender should be using the old submit channel.
+     * Closing the ctrl fd is also the fallback when QMBD_CTRL_EXIT was not
+     * delivered: the old qmbd should observe EPOLLHUP/EPOLLERR and expire.
      */
-    if(qmbdPipe[1] >= 0){
-        chanClose_(qmbdCtlChfd);
-        qmbdCtlChfd = -1;
-        qmbdPipe[1] = -1;
+    if (qmbdSubmitChfd >= 0) {
+        chanClose_(qmbdSubmitChfd);
+        qmbdSubmitChfd = -1;
     }
-    if(pipe(qmbdPipe) < 0){
-        ls_syslog(LOG_ERR,"%s: create pipe for qmbd failed %m",__func__);
+    if (qmbdCtrlChfd >= 0) {
+        chanClose_(qmbdCtrlChfd);
+        qmbdCtrlChfd = -1;
+    }
+
+    /*
+     * Close inherited raw descriptors from the previous generation before
+     * creating the next pair.  Channel descriptors above own their sockets;
+     * these raw fd slots are only for the fork handoff window.
+     */
+    if(qmbdSubmitSockPair[0] >= 0){
+        close(qmbdSubmitSockPair[0]);
+        qmbdSubmitSockPair[0] = -1;
+    }
+    if(qmbdSubmitSockPair[1] >= 0){
+        close(qmbdSubmitSockPair[1]);
+        qmbdSubmitSockPair[1] = -1;
+    }
+    if(qmbdCtrlSockPair[0] >= 0){
+        close(qmbdCtrlSockPair[0]);
+        qmbdCtrlSockPair[0] = -1;
+    }
+    if(qmbdCtrlSockPair[1] >= 0){
+        close(qmbdCtrlSockPair[1]);
+        qmbdCtrlSockPair[1] = -1;
+    }
+    /*
+     * The submit channel exists only for socket sync.  The ctrl channel always
+     * exists because all modes use QMBD_CTRL to request qmbd expiration.
+     */
+    if (qmbdJobSyncMode == QMBD_JOB_SYNC_SOCKET) {
+        if(socketpair(AF_UNIX, SOCK_STREAM, 0, qmbdSubmitSockPair) < 0){
+            ls_syslog(LOG_ERR,"%s: create submit socketpair for qmbd failed %m",__func__);
+            cleanupQmbdStartFailure(0);
+            return -1;
+        }
+    }
+    if(socketpair(AF_UNIX, SOCK_STREAM, 0, qmbdCtrlSockPair) < 0){
+        ls_syslog(LOG_ERR,"%s: create ctrl socketpair for qmbd failed %m",__func__);
+        cleanupQmbdStartFailure(0);
         return -1;
     }
-    if((qmbdCtlChfd = chanOpenSock_(qmbdPipe[1], CHAN_OP_NONBLOCK)) < 0){
-        ls_syslog(LOG_ERR, "%s: bind sokcet %d to channel failed:%m", __func__, qmbdPipe[1]);
-        return -1;
-    }
-    if(chanRegisterEpoll_(qmbdCtlChfd, EPOLLERR|EPOLLHUP) < 0){
-        ls_syslog(LOG_ERR, "%s: chanRegisterEpoll_() failed", __func__);
-        return -1;
-    }
-    
+    /*
+     * Fork before the parent opens channel wrappers so the child inherits raw
+     * socket fds and can bind them into its own epoll loop.
+     */
     if(startQueryDaemon(&qmbdPid) < 0){
         ls_syslog(LOG_ERR, "%s: query mbd start failed %m", __func__);
+        cleanupQmbdStartFailure(0);
         return -1;
     }
+    /*
+     * Parent wraps its socket ends only after fork.  The child has already
+     * inherited the raw fd values and will register them in its own epoll loop.
+     */
+    if(qmbdJobSyncMode == QMBD_JOB_SYNC_SOCKET
+       && (qmbdSubmitChfd = chanOpenSock_(qmbdSubmitSockPair[1], CHAN_OP_NONBLOCK)) < 0){
+        ls_syslog(LOG_ERR, "%s: bind submit socket %d to channel failed:%m", __func__, qmbdSubmitSockPair[1]);
+        cleanupQmbdStartFailure(qmbdPid);
+        return -1;
+    }
+    if (qmbdJobSyncMode == QMBD_JOB_SYNC_SOCKET)
+        qmbdSubmitSockPair[1] = -1;
+    if((qmbdCtrlChfd = chanOpenSock_(qmbdCtrlSockPair[1], CHAN_OP_NONBLOCK)) < 0){
+        ls_syslog(LOG_ERR, "%s: bind ctrl socket %d to channel failed:%m", __func__, qmbdCtrlSockPair[1]);
+        cleanupQmbdStartFailure(qmbdPid);
+        return -1;
+    }
+    qmbdCtrlSockPair[1] = -1;
+    if(chanRegisterEpoll_(qmbdCtrlChfd, EPOLLERR) < 0){
+        ls_syslog(LOG_ERR, "%s: chanRegisterEpoll_() failed for qmbd ctrl channel", __func__);
+        cleanupQmbdStartFailure(qmbdPid);
+        return -1;
+    }
+    if (qmbdJobSyncMode == QMBD_JOB_SYNC_SOCKET)
+        activateQmbdEventSender(qmbdSubmitChfd);
     qmbdIsAlive = 1;
     qmbdStartedTime = time(0);
     jobInfoChanged = 0;
@@ -1442,19 +1554,56 @@ static int processQmbd() {
 }
 
 /*
- * Initialize the qmbd listen socket
- * Creates a TCP socket, sets SO_REUSEADDR, binds to the qmbd port,
- * and starts listening for incoming connections.
- * Note: This function only creates and binds the listen socket;
- * it does NOT call accept(). The actual accept of incoming connections
- * happens later in the query mbd (qmbd) process after fork
- * @return: 0 on success, -1 on failure
+ * Clean up qmbd resources after a lifecycle setup failure.
+ * If a child was already forked, terminate it so it cannot keep serving with
+ * partially initialized parent-side channels.
+ * @param[in] childPid: Newly forked qmbd pid, or 0 if no child exists.
+ * @return: none.
+ */
+static void
+cleanupQmbdStartFailure(pid_t childPid)
+{
+    if (qmbdSubmitChfd >= 0) {
+        chanClose_(qmbdSubmitChfd);
+        qmbdSubmitChfd = -1;
+    }
+    if (qmbdCtrlChfd >= 0) {
+        chanClose_(qmbdCtrlChfd);
+        qmbdCtrlChfd = -1;
+    }
+    if (qmbdSubmitSockPair[0] >= 0) {
+        close(qmbdSubmitSockPair[0]);
+        qmbdSubmitSockPair[0] = -1;
+    }
+    if (qmbdSubmitSockPair[1] >= 0) {
+        close(qmbdSubmitSockPair[1]);
+        qmbdSubmitSockPair[1] = -1;
+    }
+    if (qmbdCtrlSockPair[0] >= 0) {
+        close(qmbdCtrlSockPair[0]);
+        qmbdCtrlSockPair[0] = -1;
+    }
+    if (qmbdCtrlSockPair[1] >= 0) {
+        close(qmbdCtrlSockPair[1]);
+        qmbdCtrlSockPair[1] = -1;
+    }
+
+    if (childPid > 0)
+        kill(childPid, SIGTERM);
+
+    qmbdIsAlive = 0;
+    qmbdStartedTime = 0;
+}
+
+/*
+ * Reserve the qmbd query port in the main mbd.
+ * The child qmbd later reuses this passive socket to avoid bind races.
+ * @return: 0 on success, -1 on socket/bind/listen failure.
  */
 static int
 initQmbdListenSock(void)
 {
     struct sockaddr_in sin;
-    int logLevel;
     int one = 1;
 
     if (qmbdListenSock >= 0) {
@@ -1476,8 +1625,7 @@ initQmbdListenSock(void)
     sin.sin_addr.s_addr = htonl(INADDR_ANY);
 
     if (bind(qmbdListenSock, (struct sockaddr *)&sin, sizeof(sin)) < 0) {
-        logLevel = (errno == EADDRINUSE) ? LOG_DEBUG : LOG_ERR;
-        ls_syslog(logLevel, "%s: bind() failed for qmbd listen socket %m", __func__);
+        ls_syslog(LOG_ERR, "%s: bind() failed for qmbd listen socket %m", __func__);
         close(qmbdListenSock);
         qmbdListenSock = -1;
         return -1;
@@ -1491,39 +1639,6 @@ initQmbdListenSock(void)
     }
 
     return 0;
-}
-
-static void shmInit(){
-    shm = initSyncShm();
-    if(shm == NULL)
-        mbdDie(MASTER_FATAL);
-    if(createShmCleanerThread() < 0)
-        mbdDie(MASTER_FATAL);
-}
-
-static int createShmCleanerThread(){
-    pthread_t tid;
-    int rc;
-
-    rc = pthread_create(&tid, NULL, shmCleaner, NULL);
-    if (rc != 0) {
-        ls_syslog(LOG_ERR, "%s failed: %s", __func__, strerror(rc));
-        return -1;
-    }
-    pthread_detach(tid);
-    return 0;
-}
-
-void *shmCleaner(void *arg){
-    struct timespec req, rem;
-    while(TRUE){
-        req.tv_sec = 1;
-        req.tv_nsec = 0;
-        while (nanosleep(&req, &rem) == -1 && errno == EINTR) {
-            req = rem;
-        }
-        pruneOldJobs();
-    }
 }
 
 static void
@@ -1633,9 +1748,9 @@ initDaemonParams(void)
             if (lsb_CheckMode)
                 lsb_CheckError = WARNING_ERR;
         }
-        if (daemonParams[LSB_QMBD_SYNC_NEW_JOBS].paramValue != NULL) {
+        if (daemonParams[LSB_QMBD_JOB_SYNC_MODE].paramValue != NULL) {
             ls_syslog(LOG_WARNING,
-                      "%s: LSB_QMBD_SYNC_NEW_JOBS is set but LSB_QMBD_PORT is not enabled, ignored",
+                      "%s: LSB_QMBD_JOB_SYNC_MODE is set but LSB_QMBD_PORT is not enabled, ignored",
                       __func__);
             if (lsb_CheckMode)
                 lsb_CheckError = WARNING_ERR;
@@ -1693,21 +1808,8 @@ initDaemonParams(void)
                                                   DEF_QMBD_MAX_TASK_NUM);
     }
 
-    if (daemonParams[LSB_QMBD_SYNC_NEW_JOBS].paramValue != NULL) {
-        if (strcasecmp(daemonParams[LSB_QMBD_SYNC_NEW_JOBS].paramValue, "y") == 0) {
-            syncNewJobs = 1;
-        } else if (strcasecmp(daemonParams[LSB_QMBD_SYNC_NEW_JOBS].paramValue, "n") == 0) {
-            syncNewJobs = 0;
-        } else {
-            ls_syslog(LOG_ERR,
-                      "%s: Invalid LSB_QMBD_SYNC_NEW_JOBS=%s, valid values are y or n, using default n",
-                      __func__, daemonParams[LSB_QMBD_SYNC_NEW_JOBS].paramValue);
-            if (lsb_CheckMode)
-                lsb_CheckError = WARNING_ERR;
-        }
-    }
-
-    if (syncNewJobs) {
+    qmbdJobSyncMode = getQmbdJobSyncMode();
+    if (qmbdJobSyncMode == QMBD_JOB_SYNC_SHM) {
         if (daemonParams[LSB_QMBD_SYNC_SHM_SIZE].paramValue != NULL) {
             syncShmSize = getValidatedNumericParam(__func__,
                                                    "LSB_QMBD_SYNC_SHM_SIZE",
@@ -1720,13 +1822,11 @@ initDaemonParams(void)
         syncShmJobCapacity = syncShmSize / 1024 / 10;
         syncShmJobNameBufferSize = syncShmSize / 8;
         syncShmXdrBufferSize = syncShmSize - syncShmJobNameBufferSize - syncShmJobCapacity * sizeof(struct jobMetaData);
-    } else {
-        if (daemonParams[LSB_QMBD_SYNC_SHM_SIZE].paramValue != NULL) {
-            ls_syslog(LOG_WARNING,
-                      "%s: LSB_QMBD_SYNC_SHM_SIZE is set but LSB_QMBD_SYNC_NEW_JOBS is disabled, ignored",
-                      __func__);
-            if (lsb_CheckMode)
-                lsb_CheckError = WARNING_ERR;
-        }
+    } else if (daemonParams[LSB_QMBD_SYNC_SHM_SIZE].paramValue != NULL) {
+        ls_syslog(LOG_WARNING,
+                  "%s: LSB_QMBD_SYNC_SHM_SIZE is set but LSB_QMBD_JOB_SYNC_MODE is not shm, ignored",
+                  __func__);
+        if (lsb_CheckMode)
+            lsb_CheckError = WARNING_ERR;
     }
 }

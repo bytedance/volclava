@@ -762,4 +762,3 @@ getCpuFactor (char *host, int name)
 
     return (tempPtr);
 }
-

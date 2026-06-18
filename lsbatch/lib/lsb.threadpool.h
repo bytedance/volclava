@@ -19,10 +19,11 @@ typedef struct {
     int count;                 /* Current number of pending tasks in the queue */ 
     int shutdown;              /* Shutdown flag (non-zero = pool is shutting down) */ 
     pthread_mutex_t lock;      /* Mutex lock for synchronizing queue access */ 
-    pthread_cond_t notEmpty;   /* Condition variable: signaled when queue is not empty (wakes workers) */ 
+    pthread_cond_t notEmpty;   /* Condition variable: signaled when queue is not empty (wakes workers) */
+    void (*beforeThreadExit)(void);
 } threadPool_t;
 
-threadPool_t *createThreadPool(int threadCount, int queueSize); 
+threadPool_t *createThreadPool(int threadCount, int queueSize, void (*beforeThreadExit)(void)); 
 int addTaskToThreadPool(threadPool_t *pool, void* (*function)(void *), void *arg); 
 void destroyThreadPool(threadPool_t *pool); 
 #endif /* LSB_THREAD_POOL_H */
