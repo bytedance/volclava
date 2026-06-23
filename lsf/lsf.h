@@ -63,7 +63,7 @@ typedef long long int LS_LONG_INT;
 typedef unsigned long long LS_UNS_LONG_INT;
 
 #define LS_LONG_FORMAT ("%lld")
-#define _VOLCLAVA_PROJECT_ "volclava project 2.1.1"
+#define _VOLCLAVA_PROJECT_ "volclava project 2.2"
 
 /* This is our identifier printed out by all daemons
  * and commands.

@@ -10,7 +10,7 @@ function usage() {
 }
 
 
-VERSION="2.1"
+VERSION="2.2"
 VOLC_TOP=""
 INSTALL_CONF_FILE=""
 

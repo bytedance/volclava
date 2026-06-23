@@ -7,7 +7,7 @@ VOLCLAVA_TOP=@prefix@
 LSF_ENVDIR=@prefix@/etc
 MIX_OS_FOLDER=""
 
-if [[ -z "$MIX_OS_FOLDER" ]]; then
+if [ -z "$MIX_OS_FOLDER" ]; then
     #Install in single platform mode
     LSF_SERVERDIR="${VOLCLAVA_TOP}/sbin"
     LSF_BINDIR="${VOLCLAVA_TOP}/bin"
@@ -76,14 +76,16 @@ else
 
     # Check the binaries directory for current OS platform
     PLATFORM=""
-    for (( version=OS_VERSION; version >= 1; version-- )); do
+    version="$OS_VERSION"
+    while [ "$version" -ge 1 ]; do
         FOLDER_NAME="${OS_NAME}-${version}-${CPU_ARCH}"
         FOLDER_PATH="${VOLCLAVA_TOP}/${MIX_OS_FOLDER}/${FOLDER_NAME}"
-    
+
         if [ -d "$FOLDER_PATH" ]; then
             PLATFORM="${OS_NAME}-${version}-${CPU_ARCH}"
             break
         fi
+        version=$((version - 1))
     done
 
     if [ -n "$PLATFORM" ]; then

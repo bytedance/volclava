@@ -1,5 +1,26 @@
+2026-06-30  Nan Qi <qinan.cn@bytedance.com>
+	    Mingze Li <limingze.jiayou@bytedance.com>
+	    Yinkai Lu <luyinkai@bytedance.com>
+
+	* unrelease volclava 2.2.
+
+	* Summary of changes:
+	1. support offloading client query requests to a dedicated query mbd subprocess with multi-threaded handling, improving query throughput and latency under high load;
+	2. migrate inter-process communication to epoll I/O model, enabling larger host MXJ and MAX_SBD_CONNS for large-scale clusters;
+	3. support LSF_NON_PRIVILEGED_PORTS to use non-privileged ports above 1024, resolving port exhaustion and connect latency under high concurrency;
+	4. optimize bsub -pack to batch-submit validated jobs in a single request, with LSB_PACK_SKIP_ERROR and LSB_MAX_PACK_JOBS for finer control;
+	5. unify merging rules for job-level and queue-level resource requirements (select/order/span/rusage) and refine bjobs -l Combined/Effective output;
+	6. support computing and displaying job maxMem and avgMem in bjobs -l/UF;
+	7. support LSB_ESUB_METHOD in lsf.conf and bsub -a/bmod -a for flexible esub configuration;
+	8. support bsub -Jd to attach a job description (up to 4095 chars) at submission, modifiable via bmod -Jd/-Jdn and visible in bjobs -l/bhist;
+	9. fix to optimize mbd-lim communication to reduce frequent calls during job dispatching;
+	10. fix bsub/bjobs coredump when job array is in wrong format;
+	11. fix host remaining in 'close' state after mbd restart if previously used by an exclusive job;
+	12. fix memory leak in sbatchd when starting jobs;
+	13. fix shell syntax in volclava.sh to support dash;
+
 2025-11-16  Mingze Li <limingze.jiayou@bytedance.com>
-            Nan Qi <qinan.cn@bytedance.com>
+	    Nan Qi <qinan.cn@bytedance.com>
 
 	* release volclava 2.1.1.
 
@@ -9,7 +30,7 @@
 	3. fix volclava script error on Ubuntu;
 
 2025-09-12  Mingze Li <limingze.jiayou@bytedance.com>
-            Nan Qi <qinan.cn@bytedance.com>
+	    Nan Qi <qinan.cn@bytedance.com>
 	
 	* release volclava 2.1.0.
 
@@ -22,8 +43,8 @@
 	5. modernize code for LIM compilation;
 
 2025-06-16  Mingze Li <limingze.jiayou@bytedance.com>
-            Nan Qi <qinan.cn@bytedance.com>
-            Guangbo Shu <shuguangbo@bytedance.com>
+	    Nan Qi <qinan.cn@bytedance.com>
+	    Guangbo Shu <shuguangbo@bytedance.com>
 
 	* release volclava 2.0.0.
 
@@ -43,7 +64,7 @@
 	13. fix running jobs exceed the number of slots due to shared type resource when slotResourceReserve=y;
 
 2025-01-06  Mingze Li  <limingze.jiayou@bytedance.com>
-            Nan Qi <qinan.cn@bytedance.com>
+	    Nan Qi <qinan.cn@bytedance.com>
 
 	* release volclava 1.0.1.
 
@@ -61,10 +82,10 @@
 
 	* Summary of changes:
 	1. feature support:
-        - bjobs -UF;
-        - bjobs -o/-json;
-        - bsub -pack;
-        - bsub -Ep;
+	- bjobs -UF;
+	- bjobs -o/-json;
+	- bsub -pack;
+	- bsub -Ep;
 	2. bugfix:
 	    - MXJ not equal with maxCpus when set "!";
 	    - lshosts -l segmentation fault;
