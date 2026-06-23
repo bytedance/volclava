@@ -594,7 +594,8 @@ getEventStatus(struct eventRecord *event)
         case JOB_STAT_PEND:
             LS_STATUS(wStatus) = event->exitStatus;
             sprintf (status, (_i18n_msg_get(ls_catd,NL_SETN,3178, "Pending:%s")), lsb_pendreason(1, &event->reasons,  /* catgets  3178  */
-                                                                                                 NULL, event->ld));
+                                                                                                 NULL, event->ld,
+                                                                                                 0, NULL));
             if ((event->reasons == PEND_SBD_JOB_REQUEUE ||
                  event->reasons == PEND_QUE_PRE_FAIL ||
                  event->reasons == PEND_JOB_PRE_EXEC) && WEXITSTATUS(wStatus)) {

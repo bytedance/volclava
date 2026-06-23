@@ -39,7 +39,8 @@ static int lsb_errmsg_ID[] = {
      200, 201, 202, 203, 204, 205, 206, 207, 208, 209,
      210, 211, 212, 213, 214, 215, 216, 217, 218, 219,
      220, 221, 222, 223, 224, 225, 226, 227, 228, 229,
-     230, 231, 232, 233
+     230, 231, 232, 233, 234, 235, 236, 237, 238, 239,
+     240, 241, 242, 243, 244, 245
 };
 #endif
 
@@ -201,6 +202,7 @@ char   *lsb_errmsg[] = {
 /*142*/  "Option -K is not supported in -pack job submission file",    /* catgets 242 */
 /*143*/  "Option -I/-Ip/-Is is not supported in -pack job submission file",    /* catgets 243 */
 /*144*/  "Option -pack is not supported in -pack job submission file",         /* catgets 244 */
+/*145*/  "The operation could exceed configured general resource limits",      /* catgets 245 */
 
 /* when you add a new message here, remember two things: first do not
  * forget to add "," after the error message; second, add its catgets

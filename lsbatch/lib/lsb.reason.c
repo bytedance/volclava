@@ -161,7 +161,9 @@ lsb_suspreason (int reasons, int subreasons, struct loadIndexLog *ld)
 
 char *
 lsb_pendreason(int numReasons, int *rsTb, struct jobInfoHead *jInfoH,
-               struct loadIndexLog *ld)
+               struct loadIndexLog *ld,
+               int numLimitDetail,
+               struct limitDetailEnt *ldTb)
 {
     static char fname[] = "lsb_pendreason";
     int i, j, num;
@@ -169,6 +171,9 @@ lsb_pendreason(int numReasons, int *rsTb, struct jobInfoHead *jInfoH,
     static int *reasonTb, memSize = 0;
     static char *hostList = NULL, *retMsg = NULL;
     char *sp;
+    char detailBuf[256];
+    struct limitDetailEnt bestDetail;
+    int bestCount, curCount;
     
     int pendMsg_ID[] = { 550, 551, 552, 553, 554, 555, 556, 557, 558, 559, 
 			 560, 561, 562, 563, 564, 566, 567, 568,  
@@ -181,7 +186,7 @@ lsb_pendreason(int numReasons, int *rsTb, struct jobInfoHead *jInfoH,
 			 623, 624, 625, 626, 627, 628, 629, 630, 631, 
 			 633, 634, 635, 636, 638, 639, 640, 641, 642,
 			 664, 646, 647, 648, 649, 650, 651, 652, 653, 654,
-			 644, 645, 665, 666
+			 644, 645, 665, 666, 668, 669, 670, 671, 672
     };  
 
     struct msgMap pendMsg[] = {
@@ -367,7 +372,16 @@ lsb_pendreason(int numReasons, int *rsTb, struct jobInfoHead *jInfoH,
 
        { PEND_QUEUE_HOST,
          "Host or host group is not used by the queue"}, /* catgets 666 */
-
+       { PEND_CLUSTER_RSRC_LIMIT,
+         "Resource limit defined cluster-wide has been reached"}, /* catgets 668 */
+       { PEND_PROJ_RSRC_LIMIT,
+         "Resource limit defined on project has been reached"}, /* catgets 669 */
+       { PEND_QUE_RSRC_LIMIT,
+         "Resource limit defined on queue has been reached"}, /* catgets 670 */
+       { PEND_USER_RSRC_LIMIT,
+         "Resource limit defined on user or user group has been reached"}, /* catgets 671 */
+       { PEND_HOST_RSRC_LIMIT,
+         "Resource limit defined on host(s) and/or host group has been reached"}, /* catgets 672 */
        { 0, NULL}
     };        
  
@@ -410,6 +424,9 @@ lsb_pendreason(int numReasons, int *rsTb, struct jobInfoHead *jInfoH,
 
     retMsg[0] = '\0';
     for (i = 0; i < numReasons; i++) {
+        int isRL;
+        int singleMode;
+
         if (!reasonTb[i])
             continue;
         GET_LOW (reason, reasonTb[i]);
@@ -420,12 +437,34 @@ lsb_pendreason(int numReasons, int *rsTb, struct jobInfoHead *jInfoH,
             ls_syslog(LOG_DEBUG2, "%s: hostId=%d, reason=%d reasonTb[%d]=%d",
                                   fname, hostId, reason, i, reasonTb[i]);
 
+        isRL = (reason == PEND_CLUSTER_RSRC_LIMIT
+                || reason == PEND_PROJ_RSRC_LIMIT
+                || reason == PEND_QUE_RSRC_LIMIT
+                || reason == PEND_USER_RSRC_LIMIT
+                || reason == PEND_HOST_RSRC_LIMIT);
+
+        /* single mode: one job-scope RL reason (hostId=0 = all hosts),
+         * no per-host aggregation. */
+        singleMode = (isRL && numReasons == 1 && hostId == 0
+                      && ldTb != NULL && numLimitDetail >= 1
+                      && ldTb[i].limitName != NULL);
+
+        /* Pick the limitDetail that matches the most hosts in this group. */
+        memset(&bestDetail, 0, sizeof(bestDetail));
+        bestCount = 0;
+        detailBuf[0] = '\0';
+        if (isRL && ldTb != NULL && i < numLimitDetail
+            && ldTb[i].limitName != NULL) {
+            bestDetail = ldTb[i];
+            bestCount = 1;
+        }
+
         if (jInfoH && jInfoH->numHosts != 0 && jInfoH->hostNames != NULL) {
            strcpy(hostList, jInfoH->hostNames[hostId]);
         }
         else
             num = 1;
-	
+
         for (j = i + 1; j < numReasons; j++) {
             if (reasonTb[j] == 0)
                 continue;
@@ -437,7 +476,7 @@ lsb_pendreason(int numReasons, int *rsTb, struct jobInfoHead *jInfoH,
                 continue;
             GET_HIGH (hostIdJ, reasonTb[j]);
             if (logclass & (LC_TRACE | LC_SCHED | LC_EXEC))
-                ls_syslog(LOG_DEBUG2, "%s: j=%d, hostIdJ=%d", 
+                ls_syslog(LOG_DEBUG2, "%s: j=%d, hostIdJ=%d",
                                        fname, j, hostIdJ);
             reasonTb[j] = 0;
             if (jInfoH && jInfoH->numHosts != 0 && jInfoH->hostNames != NULL) {
@@ -445,41 +484,86 @@ lsb_pendreason(int numReasons, int *rsTb, struct jobInfoHead *jInfoH,
             } else {
                 num++;
             }
+            /* aggregate detail: count hosts sharing the same detail tuple,
+             * keep the tuple with the highest count. */
+            if (isRL && ldTb != NULL && j < numLimitDetail
+                && ldTb[j].limitName != NULL) {
+                curCount = 1;
+                if (bestDetail.limitName != NULL
+                    && !strcmp(bestDetail.limitName, ldTb[j].limitName)
+                    && !strcmp(bestDetail.resName, ldTb[j].resName)
+                    && bestDetail.value == ldTb[j].value) {
+                    bestCount++;
+                } else {
+                    int k;
+                    for (k = j + 1; k < numReasons; k++) {
+                        int rk;
+                        GET_LOW(rk, reasonTb[k]);
+                        if (rk != reason)
+                            continue;
+                        if (ldTb != NULL && k < numLimitDetail
+                            && ldTb[k].limitName != NULL
+                            && !strcmp(ldTb[k].limitName, ldTb[j].limitName)
+                            && !strcmp(ldTb[k].resName, ldTb[j].resName)
+                            && ldTb[k].value == ldTb[j].value)
+                            curCount++;
+                    }
+                    if (curCount > bestCount) {
+                        bestDetail = ldTb[j];
+                        bestCount = curCount;
+                    }
+                }
+            }
         }
         if (reason >= PEND_HOST_LOAD
-	    && reason < PEND_HOST_QUE_RUSAGE) {	    
+	    && reason < PEND_HOST_QUE_RUSAGE) {
 
 	    getMsgByRes(reason - PEND_HOST_LOAD, PEND_HOST_LOAD, &sp, ld);
 
 	} else if (reason >= PEND_HOST_QUE_RUSAGE
 		   && reason < PEND_HOST_JOB_RUSAGE) {
 
-	    getMsgByRes(reason - PEND_HOST_QUE_RUSAGE, 
-			PEND_HOST_QUE_RUSAGE, 
-			&sp, 
+	    getMsgByRes(reason - PEND_HOST_QUE_RUSAGE,
+			PEND_HOST_QUE_RUSAGE,
+			&sp,
 			ld);
 
 	} else if (reason >= PEND_HOST_JOB_RUSAGE) {
 
-	    getMsgByRes(reason - PEND_HOST_JOB_RUSAGE, 
-			PEND_HOST_JOB_RUSAGE, 
-			&sp, 
+	    getMsgByRes(reason - PEND_HOST_JOB_RUSAGE,
+			PEND_HOST_JOB_RUSAGE,
+			&sp,
 			ld);
 
         } else {
             sp = getMsg(pendMsg, pendMsg_ID,  reason);
 	}
 
-        if (jInfoH && jInfoH->numHosts != 0 && jInfoH->hostNames != NULL)
-            sprintf (retMsg, "%s %s: %s;\n", retMsg, sp, hostList);
+        if (bestDetail.limitName != NULL) {
+            int v = (int)bestDetail.value;
+            if (bestDetail.value == (float)v)
+                sprintf(detailBuf, " (Resource: %s, Limit Name: %s, Limit Value: %d%s)",
+                        bestDetail.resName, bestDetail.limitName, v,
+                        bestDetail.isPercent ? "%" : "");
+            else
+                sprintf(detailBuf, " (Resource: %s, Limit Name: %s, Limit Value: %.1f%s)",
+                        bestDetail.resName, bestDetail.limitName,
+                        bestDetail.value,
+                        bestDetail.isPercent ? "%" : "");
+        }
+
+        if (singleMode) {
+            sprintf (retMsg, "%s %s%s;\n", retMsg, sp, detailBuf);
+        } else if (jInfoH && jInfoH->numHosts != 0 && jInfoH->hostNames != NULL)
+            sprintf (retMsg, "%s %s%s: %s;\n", retMsg, sp, detailBuf, hostList);
         else if (num == 1)
-            sprintf (retMsg, _i18n_msg_get(ls_catd , NL_SETN, 713, "%s %s: 1 host;\n"), retMsg, sp); /* catgets 713 */
+            sprintf (retMsg, _i18n_msg_get(ls_catd , NL_SETN, 713, "%s %s%s: 1 host;\n"), retMsg, sp, detailBuf); /* catgets 713 */
         else
-            sprintf (retMsg, _i18n_msg_get(ls_catd , NL_SETN, 714, "%s %s: %d hosts;\n"), retMsg, sp, num); /* catgets 714 */
+            sprintf (retMsg, _i18n_msg_get(ls_catd , NL_SETN, 714, "%s %s%s: %d hosts;\n"), retMsg, sp, detailBuf, num); /* catgets 714 */
     }
 
     return retMsg;
-} 
+}
 
  
 static void
