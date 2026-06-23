@@ -1,0 +1,393 @@
+.ds ]W %
+.ds ]L
+.nh
+.TH blimits 1 "Volclava Version 2.2 - Aug 2026"
+.br
+.SH NAME
+\fBblimits\fR - displays resource limit configurations and usage
+.SH SYNOPSIS
+.BR
+.PP
+.PP
+\fBblimits\fR [[\fB-a\fR] | [\fB-c\fR]] [\fB-w\fR] [\fB-n\fR \fIlimit_name\fR ...] [\fB-P\fR \fIproject_name\fR ...] [\fB-q\fR \fIqueue_name\fR ...] [\fB-u\fR \fIuser_name\fR | \fIuser_group\fR ...] [\fB-m\fR "\fIhost_name|host_group\fR"]
+.PP
+\fBblimits\fR [\fB-h\fR | \fB-V\fR]
+.SH DESCRIPTION
+.BR
+.PP
+.PP
+\fB\fRDisplays information about resource allocation limits.
+.PP
+By default, displays resource usage information for limits that are being 
+applied to running jobs. The usage is shown in a \fIUSED\fR/\fILIMIT\fR format 
+for each resource, along with users, queues, hosts, projects to which the 
+limit applies. For example, if a limit of 5 slots is configured and 2 
+slots are in use, then the \fBblimits\fR command displays the limit for 
+SLOTS as 2/5. Resources that have no configured limits or no limit usage 
+are indicated by a dash (-).
+.PP
+Resource limits are configured by the Volclava administrator in
+lsb.resources(5). A limit is defined by a name, a set of hosts,
+queues, users, projects, and a set of resources with their limit 
+values. The built-in resources are SLOTS, SLOTS_PER_PROCESSOR, 
+MEM, TMP, SWP, and JOBS. Custom external resources may also be 
+configured.
+.PP
+If no jobs are running against resource allocation limits, Volclava 
+indicates that no information can be displayed:
+.PP
+.nf
+No resource usage found.
+.fi
+.SH OPTIONS
+.BR
+.PP
+.TP
+\fB-a\fR
+
+.IP
+Displays information about all resource allocation limits, even if
+they are not being applied to running jobs. For limits with running
+jobs, \fBblimits\fR displays limit usage information. For limits that do
+not have any running jobs, \fBblimits\fR displays resource limit
+configuration information. This option cannot be used together with
+\fB-c\fR.
+
+
+.TP
+\fB-c\fR
+.IP
+Displays all resource configurations in the lsb.resources file. This
+option cannot be used together with \fB-a\fR.
+
+
+.TP
+\fB-w\fR
+.IP
+Displays information in wide format. Fields are displayed without
+truncation. By default, long field values are truncated to fit the
+column width and marked with a trailing asterisk (*).
+
+
+.TP
+\fB-m\fR \fIhost_name|host_group\fR ...
+
+.IP
+Displays resource allocation limits usage or configuration for the specified
+hosts. Use quotation marks when you specify multiple hosts names or
+groups. Without quotation marks, only the first host name or group
+that is specified is used.
+
+.IP
+To see the available hosts, use the bhosts command.
+
+
+.TP
+\fB-n\fR \fIlimit_name\fR ...
+
+.IP
+Displays resource allocation limits usage or configuration for the specified
+named Limit sections. If a list of limit sections is specified, Limit
+section names must be separated by spaces and enclosed in quotation
+marks (" or ').
+
+
+.TP
+\fB-P\fR \fIproject_name\fR ...
+
+.IP
+Displays resource allocation limits usage or configuration for the specified
+projects.
+
+.IP
+If a list of projects is specified, project names must be separated
+by spaces and enclosed in quotation marks (") or (').
+
+
+.TP
+\fB-q\fR \fIqueue_name\fR ...
+
+.IP
+Displays resource allocation limits usage or configuration for the specified
+queues.
+
+.IP
+The command bqueues returns a list of queues that are configured in
+the system, and information about the configurations of these queues.
+
+
+.TP
+\fB-u\fR \fIuser_name|user_group\fR ...
+
+.IP
+Displays resource allocation limits usage or configuration for the specified
+users.
+
+.IP
+If a list of users is specified, user names must be separated by
+spaces and enclosed in quotation marks (") or (').
+
+.IP
+If a user group is specified, displays the resource allocation limits that
+include that group in their configuration. To see a list of user
+groups, use the bugroup command.
+
+
+.TP
+\fB-h\fR
+
+.IP
+Prints command usage to stderr and exits.
+
+
+.TP
+\fB-V\fR
+.IP
+Prints Volclava release version to stdout and exits.
+
+
+.SH OUTPUT
+.BR
+.PP
+.SS Default Output
+.BR
+.PP
+.PP
+By default (without \fB-a\fR or \fB-c\fR), \fBblimits\fR displays resource
+usage for limits that have active usage. The output is split into two
+sections:
+
+.IP
+INTERNAL RESOURCE LIMITS
+.BR
+.RS
+.IP
+Displays usage for the built-in resources. The following fields are
+displayed:
+
+.IP
+NAME
+.BR
+.RS
+.IP
+The name of the resource limit.
+
+.RE
+
+.IP
+USERS
+.BR
+.RS
+.IP
+List of user names or user groups on which the displayed limits are
+enforced, as specified by the Limit section parameters USERS.
+
+.IP
+User group names have a slash (/) added at the end of the group name.
+
+.RE
+
+.IP
+QUEUES
+.BR
+.RS
+.IP
+The name of the queue to which the limits apply, as specified by the
+Limit section parameters QUEUES.
+
+.RE
+
+.IP
+HOSTS
+.BR
+.RS
+.IP
+List of hosts and host groups on which the displayed limits are
+enforced, as specified by the Limit section parameters HOSTS.
+
+.IP
+Host group names have a slash (/) added at the end of the group name.
+
+.RE
+
+.IP
+PROJECTS
+.BR
+.RS
+.IP
+List of project names on which limits are enforced, as specified by
+the Limit section parameters PROJECTS.
+
+.RE
+
+.IP
+SLOTS
+.BR
+.RS
+.IP
+Number of slots that are currently used and the maximum number of
+slots that are configured for the limit, as specified by the RESOURCES
+field in the Limit section.
+
+.IP
+If SLOTS_PER_PROCESSOR is specified in the RESOURCES field, the
+displayed value is the result of the host's processor count multiplied
+by SLOTS_PER_PROCESSOR.
+
+.RE
+
+.IP
+MEM
+.BR
+.RS
+.IP
+Amount of memory that is currently used and the maximum that is
+configured for the limit, as specified by the RESOURCES field in the
+Limit section. The unit is determined by the LSF_UNIT_FOR_LIMITS
+parameter in lsf.conf(5).
+
+.RE
+
+.IP
+TMP
+.BR
+.RS
+.IP
+Amount of temporary space that is currently used and the maximum that
+is configured for the limit, as specified by the RESOURCES field in
+the Limit section. The unit is determined by the LSF_UNIT_FOR_LIMITS
+parameter in lsf.conf(5).
+
+.RE
+
+.IP
+SWP
+.BR
+.RS
+.IP
+Amount of swap space that is currently used and the maximum that is
+configured for the limit, as specified by the RESOURCES field in the
+Limit section. The unit is determined by the LSF_UNIT_FOR_LIMITS
+parameter in lsf.conf(5).
+
+.RE
+
+.IP
+JOBS
+.BR
+.RS
+.IP
+Number of currently running and suspended jobs and the maximum number
+of jobs that are configured for the limit, as specified by the
+RESOURCES field in the Limit section.
+
+.RE
+.RE
+
+.IP
+EXTERNAL RESOURCE LIMITS
+.BR
+.RS
+.IP
+Displays usage for customizd resources configured in lsf.shared. 
+The NAME, USERS, QUEUES, HOSTS, and PROJECTS fields
+are the same as in the internal section. One additional column is
+displayed for each unique external resource name found across all
+limits, showing the used/limit pair for that resource.
+
+.RE
+
+.SS Output for \fB-a\fR Option
+.BR
+.PP
+.PP
+The \fB-a\fR option displays information about all resource allocation
+limits. For limits with running jobs, the same usage table as the
+default output is displayed. For limits that do not have any running
+jobs, resource limit configuration information is displayed.
+.PP
+In the consumer fields (USERS, QUEUES, HOSTS, PROJECTS), when a limit
+has no associated running jobs and is configured in PER mode, the
+consumer value is prefixed with an at sign (@) to indicate that the
+limit applies to each consumer instance individually. For example,
+@hostA indicates a per-host limit. If the consumer value contains
+spaces, it is enclosed in parentheses after the @, such as
+@(hostA hostB). SHARED mode consumers are displayed without the @
+prefix.
+
+.SS Output for \fB-c\fR Option
+.BR
+.PP
+.PP
+The \fB-c\fR option displays all resource configurations in the lsb.resources file. 
+For each limit, the following fields are displayed:
+
+.IP
+NAME
+.BR
+.RS
+.IP
+The name of the resource limit.
+
+.RE
+
+.IP
+HOSTS
+.BR
+.RS
+.IP
+List of hosts and host groups on which the limits are enforced, in SHARED(...) or PER(...) format.
+
+.RE
+
+.IP
+QUEUES
+.BR
+.RS
+.IP
+The name of the queue to which the limits are enforced, in SHARED(...) or PER(...) format.
+
+.RE
+
+.IP
+USERS
+.BR
+.RS
+.IP
+List of user names or user groups on which the limits are enforced, in SHARED(...) or PER(...) format.
+
+.RE
+
+.IP
+PROJECTS
+.BR
+.RS
+.IP
+List of project names on which limits are enforced, in SHARED(...) or PER(...) format.
+
+.RE
+
+.IP
+RESOURCES
+.BR
+.RS
+.IP
+A list of resource name and value pairs, enclosed in square brackets
+and separated by spaces. For example: [SLOTS,50] [MEM,1024].
+Percentage-based values are shown with a percent sign (%) suffix.
+
+.RE
+
+.IP
+DESCRIPTION
+.BR
+.RS
+.IP
+A description of the resource limit, if configured.
+
+.RE
+.SH SEE ALSO
+.BR
+.PP
+.PP
+bqueues(1), bhosts(1), bsub(1), bjobs(1), lsb.resources(5), lsf.conf(5), mbatchd(8)

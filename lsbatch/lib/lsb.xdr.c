@@ -897,6 +897,8 @@ xdr_jobInfoReply (XDR *xdrs, struct jobInfoReply *jobInfoReply,
     static __thread int nIdx = 0;
     static __thread int *reasonTb = NULL;
     static __thread int nReasons = 0;
+    static __thread struct limitDetailEnt *limitDetailTb = NULL;
+    static __thread int nLimitDetail = 0;
     int jobArrId, jobArrElemId;
 
 
@@ -1076,6 +1078,45 @@ xdr_jobInfoReply (XDR *xdrs, struct jobInfoReply *jobInfoReply,
 
     if (!xdr_int(xdrs, &jobInfoReply->avgMem)) {
         return FALSE;
+    }
+
+    if (!xdr_int(xdrs, &jobInfoReply->numLimitDetail)) {
+        return FALSE;
+    }
+
+    if (xdrs->x_op == XDR_DECODE) {
+        if (jobInfoReply->numLimitDetail > nLimitDetail) {
+            for (i = 0; i < nLimitDetail; i++) {
+                FREEUP(limitDetailTb[i].limitName);
+                FREEUP(limitDetailTb[i].resName);
+            }
+            FREEUP(limitDetailTb);
+            nLimitDetail = 0;
+            limitDetailTb = calloc(jobInfoReply->numLimitDetail,
+                                   sizeof(struct limitDetailEnt));
+            if (!limitDetailTb)
+                return (FALSE);
+            nLimitDetail = jobInfoReply->numLimitDetail;
+        }
+        jobInfoReply->limitDetailTb = limitDetailTb;
+        /* Clear any stale string pointers from a previous decode so the
+         * xdr_var_string calls below allocate fresh strings. */
+        for (i = 0; i < jobInfoReply->numLimitDetail; i++) {
+            FREEUP(limitDetailTb[i].limitName);
+            FREEUP(limitDetailTb[i].resName);
+            limitDetailTb[i].limitName = NULL;
+            limitDetailTb[i].resName = NULL;
+        }
+    }
+
+    for (i = 0; i < jobInfoReply->numLimitDetail; i++) {
+        if (!xdr_var_string(xdrs, &jobInfoReply->limitDetailTb[i].limitName) ||
+            !xdr_var_string(xdrs, &jobInfoReply->limitDetailTb[i].resName) ||
+            !xdr_float(xdrs, &jobInfoReply->limitDetailTb[i].value) ||
+            !xdr_int(xdrs, &jobInfoReply->limitDetailTb[i].isPercent) ||
+            !xdr_int(xdrs, &jobInfoReply->limitDetailTb[i].hostId)) {
+            return (FALSE);
+        }
     }
 
     return(TRUE);
@@ -2262,6 +2303,201 @@ xdrsize_QueueInfoReply(struct queueInfoReply * qInfoReply)
     len += ALIGNWORD_(sizeof(struct queueInfoReply)
                       + qInfoReply->numQueues * (sizeof(struct queueInfoEnt)+ MAX_LSB_NAME_LEN + qInfoReply->nIdx*2*sizeof(float))
                       + qInfoReply->numQueues * NET_INTSIZE_);
+
+    return len;
+}
+
+/********************************************************************************
+ * XDR handlers for resource limit info request/reply
+ ********************************************************************************/
+
+bool_t
+xdr_rsrcLimitInfoReq(XDR *xdrs, struct rsrcLimitInfoReq *req,
+                    struct LSFHeader *hdr)
+{
+    int i;
+
+    if (xdrs->x_op == XDR_FREE) {
+        if (req->names) {
+            for (i = 0; i < req->numNames; i++)
+                FREEUP(req->names[i]);
+            FREEUP(req->names);
+        }
+        FREEUP(req->queue);
+        FREEUP(req->user);
+        FREEUP(req->project);
+        FREEUP(req->hosts);
+        return TRUE;
+    }
+
+    if (!xdr_int(xdrs, &req->options))
+        return FALSE;
+    if (!xdr_int(xdrs, &req->numNames))
+        return FALSE;
+
+    if (xdrs->x_op == XDR_DECODE) {
+        if (req->numNames > 0) {
+            if ((req->names = (char **)calloc(req->numNames, sizeof(char *))) == NULL)
+                return FALSE;
+        } else {
+            req->names = NULL;
+        }
+    }
+
+    for (i = 0; i < req->numNames; i++) {
+        if (!xdr_var_string(xdrs, &req->names[i]))
+            return FALSE;
+    }
+
+    if (!xdr_var_string(xdrs, &req->queue))
+        return FALSE;
+    if (!xdr_var_string(xdrs, &req->user))
+        return FALSE;
+    if (!xdr_var_string(xdrs, &req->project))
+        return FALSE;
+    if (!xdr_var_string(xdrs, &req->hosts))
+        return FALSE;
+
+    return TRUE;
+}
+
+static bool_t
+xdr_rlimitConsumerEnt(XDR *xdrs, struct rlimitConsumerEnt *ent,
+                      struct LSFHeader *hdr)
+{
+    if (!xdr_int(xdrs, &ent->type))
+        return FALSE;
+    if (!xdr_var_string(xdrs, &ent->value))
+        return FALSE;
+    return TRUE;
+}
+
+static bool_t
+xdr_rlimitResourceEnt(XDR *xdrs, struct rlimitResourceEnt *ent,
+                      struct LSFHeader *hdr)
+{
+    if (!xdr_var_string(xdrs, &ent->resName))
+        return FALSE;
+    if (!xdr_int(xdrs, &ent->type))
+        return FALSE;
+    if (!xdr_float(xdrs, &ent->value))
+        return FALSE;
+    if (!xdr_int(xdrs, &ent->isPercent))
+        return FALSE;
+    if (!xdr_float(xdrs, &ent->used))
+        return FALSE;
+    return TRUE;
+}
+
+static bool_t
+xdr_rlimitEnt(XDR *xdrs, struct rlimitEnt *ent, struct LSFHeader *hdr)
+{
+    int i;
+
+    if (!xdr_var_string(xdrs, &ent->name))
+        return FALSE;
+    if (!xdr_int(xdrs, &ent->nConsumers))
+        return FALSE;
+
+    if (xdrs->x_op == XDR_DECODE) {
+        if (ent->nConsumers > 0) {
+            ent->consumers = (struct rlimitConsumerEnt *)calloc(ent->nConsumers,
+                                sizeof(struct rlimitConsumerEnt));
+            if (!ent->consumers)
+                return FALSE;
+        } else {
+            ent->consumers = NULL;
+        }
+    }
+
+    for (i = 0; i < ent->nConsumers; i++) {
+        if (!xdr_rlimitConsumerEnt(xdrs, &ent->consumers[i], hdr))
+            return FALSE;
+    }
+
+    if (!xdr_int(xdrs, &ent->nResources))
+        return FALSE;
+
+    if (xdrs->x_op == XDR_DECODE) {
+        if (ent->nResources > 0) {
+            ent->resources = (struct rlimitResourceEnt *)calloc(ent->nResources,
+                                sizeof(struct rlimitResourceEnt));
+            if (!ent->resources)
+                return FALSE;
+        } else {
+            ent->resources = NULL;
+        }
+    }
+
+    for (i = 0; i < ent->nResources; i++) {
+        if (!xdr_rlimitResourceEnt(xdrs, &ent->resources[i], hdr))
+            return FALSE;
+    }
+
+    if (!xdr_var_string(xdrs, &ent->desc))
+        return FALSE;
+
+    if (xdrs->x_op == XDR_FREE) {
+        FREEUP(ent->consumers);
+        FREEUP(ent->resources);
+    }
+
+    return TRUE;
+}
+
+bool_t
+xdr_rsrcLimitInfoReply(XDR *xdrs, struct rsrcLimitInfoReply *reply,
+                      struct LSFHeader *hdr)
+{
+    int i;
+
+    if (!xdr_int(xdrs, &reply->numLimits))
+        return FALSE;
+
+    if (xdrs->x_op == XDR_DECODE) {
+        if (reply->numLimits > 0) {
+            reply->limits = (struct rlimitEnt *)calloc(reply->numLimits,
+                            sizeof(struct rlimitEnt));
+            if (!reply->limits)
+                return FALSE;
+        } else {
+            reply->limits = NULL;
+        }
+    }
+
+    for (i = 0; i < reply->numLimits; i++) {
+        if (!xdr_rlimitEnt(xdrs, &reply->limits[i], hdr))
+            return FALSE;
+    }
+
+    if (xdrs->x_op == XDR_FREE) {
+        FREEUP(reply->limits);
+    }
+
+    return TRUE;
+}
+
+int
+xdrsize_RsrcLimitInfoReply(struct rsrcLimitInfoReply *reply)
+{
+    int len = 0;
+    int i, j;
+
+    len += ALIGNWORD_(sizeof(struct rsrcLimitInfoReply));
+    len += reply->numLimits * ALIGNWORD_(sizeof(struct rlimitEnt));
+
+    for (i = 0; i < reply->numLimits; i++) {
+        len += getXdrStrlen(reply->limits[i].name);
+        len += getXdrStrlen(reply->limits[i].desc);
+        len += reply->limits[i].nConsumers * ALIGNWORD_(sizeof(struct rlimitConsumerEnt));
+        for (j = 0; j < reply->limits[i].nConsumers; j++) {
+            len += getXdrStrlen(reply->limits[i].consumers[j].value);
+        }
+        len += reply->limits[i].nResources * ALIGNWORD_(sizeof(struct rlimitResourceEnt));
+        for (j = 0; j < reply->limits[i].nResources; j++) {
+            len += getXdrStrlen(reply->limits[i].resources[j].resName);
+        }
+    }
 
     return len;
 }

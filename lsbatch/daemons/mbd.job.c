@@ -20,6 +20,7 @@
 #include "mbd.h"
 #include "mbd.query.h"
 #include "mbd.fairshare.h"
+#include "mbd.rsrclimit.h"
 #include <pthread.h>
 
 #define NL_SETN         10
@@ -3904,6 +3905,7 @@ handleFinishJob(struct jData *jData, int oldStatus, int eventTime)
     } else {
         listno = PJLorMJL(jData);
     }
+
     offJobList(jData, listno);
     inList ((struct listEntry *)jDataList[FJL]->forw,
             (struct  listEntry *)jData);
@@ -4477,9 +4479,13 @@ switchAJob (struct jobSwitchReq *switchReq,
         }
     }
 
+    /*check resource limits for new queue*/
+    if ((returnErr = checkRLimits4Switch(job, qtp)) != LSBE_NO_ERROR) {
+        return(returnErr);
+    }
+
     if ((returnErr = acceptJob (qtp, job, &noUse, auth)) != LSBE_NO_ERROR)
         return(returnErr);
-
 
     qfp = job->qPtr;
     if (IS_PEND(job->jStatus) && (job->jStatus & JOB_STAT_RESERVE)) {
@@ -4498,6 +4504,10 @@ switchAJob (struct jobSwitchReq *switchReq,
     if (JOB_PREEMPT_WAIT(job))
         freeReservePreemptResources(job);
 
+    if (IS_START(job->jStatus) && (qfp != qtp) && (mSchedStage != M_STAGE_REPLAY)) {
+        cleanRLAccount4Job(job, "switchAJob/job switched queue");
+    }
+
     jobInQueueEnd (job, qtp);
     updSwitchJob (job, qfp, qtp, job->shared->jobBill.maxNumProcessors);
 
@@ -4505,6 +4515,9 @@ switchAJob (struct jobSwitchReq *switchReq,
         /*Update for fairshare policy*/
         if (mSchedStage != M_STAGE_REPLAY) {
             updJobSAcctForSwitch(job, qfp, qtp);
+            if (IS_START(job->jStatus)) {
+                updRLAccount4Job(job, "switchAJob/job switched queue");
+            }
         }
 
         if (auth != NULL)
@@ -5222,6 +5235,8 @@ initJData (struct jShared  *shared)
     job->subreasons = 0;
     job->reasonTb = NULL;
     job->numReasons = 0;
+    job->pendLimitDetail = NULL;
+    job->numPendLimitDetail = 0;
     job->priority = -1.0;
     job->qPtr = NULL;
     job->hPtr = NULL;
@@ -6129,6 +6144,14 @@ modifyAJob (struct modifyReq *req, struct submitMbdReply *reply,
         }
     }
 
+    /*check whether new resource requirement satisfies resource limits*/
+    if ((returnErr = checkRLimits4Bmod(jpbw, job)) != LSBE_NO_ERROR) {
+        freeNewJob (job);
+        freeSubmitReq (newReq);
+        FREEUP (newReq);
+        return (returnErr);
+    }
+
     copyJobBill (newReq, &job->shared->jobBill, FALSE);
     handleJParameters (jpbw, job, &(req->submitReq), FALSE, req->delOptions,
                        req->delOptions2);
@@ -6622,14 +6645,21 @@ handleJParameters (struct jData *jpbw, struct jData *job, struct submitReq *modR
     }
 
     if (needReMergeResReq) {
+        if (IS_START(jpbw->jStatus) && (mSchedStage != M_STAGE_REPLAY)) {
+            cleanRLAccount4Job(jpbw, "handleJParameters/resource requiremnt changed");
+        }
         mkJobMergedResReqEntry(jpbw);
 
         /*update effective rusage for started job*/
         if (IS_START(jpbw->jStatus)) {
             modifyJobEffeRusage(jpbw);
+            if (mSchedStage != M_STAGE_REPLAY) {
+                updRLAccount4Job(jpbw, "handleJParameters/resource requiremnt changed");
+            }
         }
     }
 }
+
 static struct submitReq *
 saveOldParameters (struct jData *jpbw)
 {
@@ -7236,6 +7266,7 @@ freeJData (struct jData *jpbw)
     FREEUP (jpbw->userName);
     FREEUP (jpbw->lsfRusage);
     FREEUP (jpbw->reasonTb);
+    freePendLimitDetail(jpbw);
     FREEUP (jpbw->hPtr);
 
     FREEUP (jpbw->execHome);
@@ -8648,7 +8679,7 @@ shouldResumeByRes (struct jData *jp)
     } ENDFORALL_PRMPT_RSRCS;
 
     /*exam whether resources is enrough to resume the job*/
-    hBitMaps = (int *)my_calloc(GET_INTNUM(numofhosts()), sizeof(int), fname);
+    hBitMaps = (int *)my_calloc(GET_INTNUM(numofhosts() + 2), sizeof(int), fname);
     for (i = 0; i < jp->numHostPtr && returnCode != CANNOT_RESUME; i++) {
         int isSet;
 
@@ -8880,6 +8911,8 @@ runJob(struct runJobRequest*  request, struct lsfAuth *auth)
             int hostId = job->hPtr[0]->hostId;
             hReasonTb[1][hostId] = PEND_HOST_ACCPT_ONE;
         }
+        /*upd resource limits account*/
+        updRLAccount4Job(job, "runJob/force a job to run");
     } else {
         ls_syslog(LOG_DEBUG, "%s: job <%s> failed to be dispatched to host %s",
                   fname, lsb_jobid2str(request->jobId), request->hostname[0]);

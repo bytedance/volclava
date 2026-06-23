@@ -123,6 +123,7 @@ install -m 755 ${RPM_BUILD_DIR}/%{name}-%{version}/lsbatch/bhist/bhist   ${RPM_B
 install -m 755 ${RPM_BUILD_DIR}/%{name}-%{version}/lsbatch/cmd/bhosts  ${RPM_BUILD_ROOT}%{_bindir}
 install -m 755 ${RPM_BUILD_DIR}/%{name}-%{version}/lsbatch/cmd/bjobs   ${RPM_BUILD_ROOT}%{_bindir}
 install -m 755 ${RPM_BUILD_DIR}/%{name}-%{version}/lsbatch/cmd/bkill   ${RPM_BUILD_ROOT}%{_bindir}
+install -m 755 ${RPM_BUILD_DIR}/%{name}-%{version}/lsbatch/cmd/blimits ${RPM_BUILD_ROOT}%{_bindir}
 install -m 755 ${RPM_BUILD_DIR}/%{name}-%{version}/lsbatch/cmd/bmgroup ${RPM_BUILD_ROOT}%{_bindir}
 install -m 755 ${RPM_BUILD_DIR}/%{name}-%{version}/lsbatch/cmd/bmig    ${RPM_BUILD_ROOT}%{_bindir}
 install -m 755 ${RPM_BUILD_DIR}/%{name}-%{version}/lsbatch/cmd/bmod    ${RPM_BUILD_ROOT}%{_bindir}
@@ -161,6 +162,7 @@ install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/config/lsb.params ${RPM_BUILD
 install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/config/lsb.queues ${RPM_BUILD_ROOT}%{_etcdir}
 install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/config/lsb.hosts ${RPM_BUILD_ROOT}%{_etcdir}
 install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/config/lsb.users ${RPM_BUILD_ROOT}%{_etcdir}
+install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/config/lsb.resources ${RPM_BUILD_ROOT}%{_etcdir}
 install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/config/volclava.setup ${RPM_BUILD_ROOT}%{_etcdir}
 install -m 755 ${RPM_BUILD_DIR}/%{name}-%{version}/config/volclava ${RPM_BUILD_ROOT}%{_etcdir}
 install -m 755 ${RPM_BUILD_DIR}/%{name}-%{version}/config/volclava.sh ${RPM_BUILD_ROOT}%{_etcdir}
@@ -191,6 +193,7 @@ install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/lsbatch/man1/bchkpnt.1 ${RPM_
 install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/lsbatch/man1/bhosts.1 ${RPM_BUILD_ROOT}%{_mandir}/man1
 install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/lsbatch/man1/bjobs.1 ${RPM_BUILD_ROOT}%{_mandir}/man1
 install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/lsbatch/man1/bkill.1 ${RPM_BUILD_ROOT}%{_mandir}/man1
+install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/lsbatch/man1/blimits.1 ${RPM_BUILD_ROOT}%{_mandir}/man1
 install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/lsbatch/man1/bmgroup.1 ${RPM_BUILD_ROOT}%{_mandir}/man1
 install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/lsbatch/man1/bmig.1 ${RPM_BUILD_ROOT}%{_mandir}/man1
 install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/lsbatch/man1/bmod.1 ${RPM_BUILD_ROOT}%{_mandir}/man1
@@ -226,6 +229,7 @@ install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/lsbatch/man5/lsb.hosts.5 ${RP
 install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/lsbatch/man5/lsb.params.5 ${RPM_BUILD_ROOT}%{_mandir}/man5
 install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/lsbatch/man5/lsb.queues.5 ${RPM_BUILD_ROOT}%{_mandir}/man5
 install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/lsbatch/man5/lsb.users.5 ${RPM_BUILD_ROOT}%{_mandir}/man5
+install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/lsbatch/man5/lsb.resources.5 ${RPM_BUILD_ROOT}%{_mandir}/man5
 install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/lsf/man/man5/lim.acct.5 ${RPM_BUILD_ROOT}%{_mandir}/man5
 install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/lsf/man/man5/lsf.acct.5 ${RPM_BUILD_ROOT}%{_mandir}/man5
 install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/lsf/man/man5/lsf.cluster.5 ${RPM_BUILD_ROOT}%{_mandir}/man5
@@ -330,6 +334,7 @@ fi
 %{_bindir}/bhosts
 %{_bindir}/bjobs
 %{_bindir}/bkill
+%{_bindir}/blimits
 %{_bindir}/bmgroup
 %{_bindir}/bmig
 %{_bindir}/bmod
@@ -364,6 +369,7 @@ fi
 %{_mandir}/man1/bhosts.1
 %{_mandir}/man1/bjobs.1
 %{_mandir}/man1/bkill.1
+%{_mandir}/man1/blimits.1
 %{_mandir}/man1/bmgroup.1
 %{_mandir}/man1/bmig.1
 %{_mandir}/man1/bmod.1
@@ -398,6 +404,7 @@ fi
 %{_mandir}/man5/lsb.hosts.5
 %{_mandir}/man5/lsb.params.5
 %{_mandir}/man5/lsb.queues.5
+%{_mandir}/man5/lsb.resources.5
 %{_mandir}/man5/lsb.users.5
 %{_mandir}/man8/badmin.8
 %{_mandir}/man8/brun.8
@@ -435,6 +442,7 @@ fi
 %config(noreplace) %{_etcdir}/lsb.queues
 %config(noreplace) %{_etcdir}/lsb.hosts
 %config(noreplace) %{_etcdir}/lsb.users
+%config(noreplace) %{_etcdir}/lsb.resources
 %config(noreplace) %{_etcdir}/lsf.shared
 %config(noreplace) %{_etcdir}/lsf.conf
 %config(noreplace) %{_etcdir}/lsf.cluster.%{CLUSTERNAME}

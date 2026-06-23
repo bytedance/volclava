@@ -1,0 +1,433 @@
+.ds ]W %
+.ds ]L
+.nh
+.TH lsb.resources 5 "Volclava Version 2.2 - August 2026"
+.br
+.SH NAME
+\fBlsb.resources\fR
+.SS \fB\fROverview
+.BR
+.PP
+.PP
+The lsb.resources file contains configuration information for resource
+allocation limits. It is stored in the directory LSF_ENVDIR, where
+LSF_ENVDIR is defined in the lsf.conf file. This file is optional. 
+.PP
+Each limit restricts how much of a resource (such as slots,
+memory, or a custom resource) can be consumed simultaneously by jobs
+that match a given set of hosts, queues, users, and projects. If the
+file is not present, no resource allocation limits are enforced.
+.PP
+This manual describes the Volclava resource limit format, which is the
+default and recommended format. The file is also compatible
+with the LSF limit definition format; see
+.SB "LSF Compatibility"
+at the end of this manual.
+.SS Changing lsb.resources configuration
+.BR
+.PP
+.PP
+After changing the lsb.resources file, run \fBbadmin reconfig or badmin mbdrestart\fR to
+reconfigure mbatchd.
+.PP
+During reconfiguration or restart, mbatchd re-reads lsb.resources and rebuilds the
+in-memory resource limit configuration. The new limits take effect on the
+next scheduling pass after reconfiguration completes; running jobs are
+not affected by the new configuration.
+.SH Limit Section
+.BR
+.PP
+.PP
+The Limit section sets limits for the maximum amount of the specified
+resources that must be available for different classes of jobs to start,
+and which hosts, queues, users, or projects the limits apply to.
+Limits are enforced during job resource allocation.
+.PP
+The \fBblimits\fR command displays current usage of resource allocation
+limits configured in Limit sections in lsb.resources.
+.SH Limit Section Structure
+.BR
+.PP
+.PP
+The file contains one or more limit definitions. Each limit begins
+with the line \fBBegin Limit\fR and ends with the line \fBEnd Limit\fR.
+Section names are matched case-insensitively; any section other than
+\fBLimit\fR is ignored.
+.PP
+Inside a limit block, parameters are specified as \fBKEY = value\fR or
+\fBKEY=value\fR pairs, one per line. Whitespace around \fB=\fR is
+optional, and lines beginning with \fB#\fR are treated as comments.
+.PP
+A minimal limit must define at least \fBNAME\fR and one resource entry
+in \fBRESOURCES\fR. The definitions recognized in a Limit section are:
+.RS
+.HP 2
+\(bu \fBNAME\fR - name of the limit (required).
+.HP 2
+\(bu \fBHOSTS\fR - hosts and host groups the limit applies to (optional).
+.HP 2
+\(bu \fBQUEUES\fR - queues the limit applies to (optional).
+.HP 2
+\(bu \fBUSERS\fR - users and user groups the limit applies to (optional).
+.HP 2
+\(bu \fBPROJECTS\fR - projects the limit applies to (optional).
+.HP 2
+\(bu \fBRESOURCES\fR - the resource(s) and their limit values (required).
+.HP 2
+\(bu \fBDESCRIPTION\fR - free-form description of the limit (optional).
+.RE
+.PP
+The \fBHOSTS\fR, \fBQUEUES\fR, \fBUSERS\fR, and \fBPROJECTS\fR fields
+each wrap their name list in \fBPER(...)\fR or \fBSHARED(...)\fR:
+\fBPER(...)\fR enforces the limit separately for each matching host,
+queue, user, or project, while \fBSHARED(...)\fR enforces a single
+shared limit across all the listed entries. The four fields may use
+different modes; for example \fBHOSTS=PER(all)\fR together with
+\fBUSERS=SHARED(ug1)\fR is valid. The following sections describe
+each definition's syntax and usage.
+.SH NAME
+.BR
+.PP
+.SS Syntax
+.BR
+.PP
+.PP
+\fBNAME = \fR\fIlimit_name\fR
+.SS Description
+.BR
+.PP
+.PP
+The name of the limit. Required.
+.PP
+Specify any ASCII string 60 characters or less. You can use letters, digits,
+underscores (_) or dashes (-). You cannot use blank spaces. The limit is skipped
+if \fBNAME\fR is missing, empty, invalid, or a duplicate.
+.SS Default
+.BR
+.PP
+.PP
+Undefined
+.SH HOSTS
+.BR
+.PP
+.SS Syntax
+.BR
+.PP
+.PP
+\fBHOSTS = \fR\fBPER(\fR\fIhost ...\fR\fB)\fR | \fBHOSTS = \fR\fBSHARED(\fR\fIhost ...\fR\fB)\fR
+.SS Description
+.BR
+.PP
+.PP
+The hosts and/or host groups to which the limit applies. Optional.
+.PP
+The value must be wrapped in either \fBPER(...)\fR or
+\fBSHARED(...)\fR. \fBPER(...)\fR keeps a separate usage counter for
+each matching host; \fBHOSTS=PER(hostA hostB)\fR with
+\fBRESOURCES=[SLOTS, 4]\fR allows 4 slots on \fBhostA\fR and a
+separate 4 slots on \fBhostB\fR. \fBSHARED(...)\fR maintains a single
+shared counter across all the listed hosts; \fBHOSTS=SHARED(hostA
+hostB)\fR with \fBRESOURCES=[SLOTS, 4]\fR allows a combined total of
+4 slots across \fBhostA\fR and \fBhostB\fR.
+.PP
+\fIhost\fR can be a host name, a host group name (resolved against
+\fBlsb.hosts\fR), or one of the special tokens:
+.RS
+.HP 2
+\(bu \fBall\fR - matches every host in the cluster; name validation
+is skipped.
+.HP 2
+\(bu \fB~name\fR - excludes \fIname\fR from the match. Exclusion
+takes priority over positive matches.
+.HP 2
+\(bu \fBgroup\fR or \fBgroup/\fR - a host group name. The trailing
+slash is optional; when present, \fIgroup\fR is matched only as a host
+group (for example \fBhg1\fR or \fBhg1/\fR).
+.RE
+.PP
+Unknown host or host group names are reported as warnings and removed
+from the list; the limit itself is still accepted. The keywords
+\fBall\fR and \fBdefault\fR skip name validation.
+.SS Default
+.BR
+.PP
+.PP
+Undefined (the limit is not restricted by the host, which is equal to the value SHARED(all)).
+.SH QUEUES
+.BR
+.PP
+.SS Syntax
+.BR
+.PP
+.PP
+\fBQUEUES = \fR\fBPER(\fR\fIqueue ...\fR\fB)\fR | \fBQUEUES = \fR\fBSHARED(\fR\fIqueue ...\fR\fB)\fR
+.SS Description
+.BR
+.PP
+.PP
+The queues to which the limit applies. Optional. The value must be
+wrapped in \fBPER(...)\fR or \fBSHARED(...)\fR. \fBPER(...)\fR
+enforces the limit separately for each matching queue;
+\fBQUEUES=PER(q1 q2)\fR with \fBRESOURCES=[JOBS, 10]\fR allows 10
+jobs in \fBq1\fR and a separate 10 jobs in \fBq2\fR.
+\fBSHARED(...)\fR enforces a single shared limit across all the listed
+queues; \fBQUEUES=SHARED(q1 q2)\fR with \fBRESOURCES=[JOBS, 10]\fR
+allows a combined total of 10 jobs across \fBq1\fR and \fBq2\fR.
+.PP
+\fIqueue\fR is a queue name defined in \fBlsb.queues\fR, or the
+special token \fBall\fR (matches every queue). The \fB~\fR exclusion
+prefix is also supported. Unknown queue names are warned about and
+removed; the limit is still accepted.
+.SS Default
+.BR
+.PP
+.PP
+Undefined (the limit is not restricted by the queue, which is equal to the value SHARED(all)).
+.SH USERS
+.BR
+.PP
+.SS Syntax
+.BR
+.PP
+.PP
+\fBUSERS = \fR\fBPER(\fR\fIuser ...\fR\fB)\fR | \fBUSERS = \fR\fBSHARED(\fR\fIuser ...\fR\fB)\fR
+.SS Description
+.BR
+.PP
+.PP
+The users and/or user groups to which the limit applies. Optional.
+.PP
+The value must be wrapped in either \fBPER(...)\fR or
+\fBSHARED(...)\fR. \fBPER(...)\fR keeps a separate usage counter for
+each matching user; \fBUSERS=PER(userA userB)\fR with
+\fBRESOURCES=[SLOTS, 4]\fR allows 4 slots for \fBuserA\fR and a
+separate 4 slots for \fBuserB\fR. \fBSHARED(...)\fR maintains a single
+shared counter across all the listed users; \fBUSERS=SHARED(userA
+userB)\fR with \fBRESOURCES=[SLOTS, 4]\fR allows a combined total of
+4 slots across jobs submitted by \fBuserA\fR and \fBuserB\fR.
+.PP
+\fIuser\fR can be a user name, a user group name (resolved against
+\fBlsb.users\fR), or one of the special tokens:
+.RS
+.HP 2
+\(bu \fBall\fR - matches every user in the cluster; name validation
+is skipped.
+.HP 2
+\(bu \fB~name\fR - excludes \fIname\fR from the match. Exclusion
+takes priority over positive matches.
+.HP 2
+\(bu \fBgroup\fR or \fBgroup/\fR - a user group name. The trailing
+slash is optional; when present, \fIgroup\fR is matched only as a user
+group (for example \fBug1\fR or \fBug1/\fR).
+.RE
+.PP
+Unknown user or user group names are reported as warnings and removed
+from the list; the limit itself is still accepted. The keywords
+\fBall\fR and \fBdefault\fR skip name validation.
+.SS Default
+.BR
+.PP
+.PP
+Undefined (the limit is not restricted by the user, which is equal to the value SHARED(all)).
+.SH PROJECTS
+.BR
+.PP
+.SS Syntax
+.BR
+.PP
+.PP
+\fBPROJECTS = \fR\fBPER(\fR\fIproject ...\fR\fB)\fR | \fBPROJECTS = \fR\fBSHARED(\fR\fIproject ...\fR\fB)\fR
+.SS Description
+.BR
+.PP
+.PP
+The projects to which the limit applies. Optional. The value must be
+wrapped in \fBPER(...)\fR or \fBSHARED(...)\fR. \fBPER(...)\fR
+enforces the limit separately for each matching project;
+\fBPROJECTS=PER(p1 p2)\fR with \fBRESOURCES=[SLOTS, 4]\fR allows 4
+slots for \fBp1\fR and a separate 4 slots for \fBp2\fR.
+\fBSHARED(...)\fR enforces a single shared limit across all the listed
+projects; \fBPROJECTS=SHARED(p1 p2)\fR with
+\fBRESOURCES=[SLOTS, 4]\fR allows a combined total of 4 slots across
+\fBp1\fR and \fBp2\fR.
+.PP
+\fIproject\fR is a project name, or the special token \fBall\fR
+(matches every project). The \fB~\fR exclusion prefix is also
+supported. Project names are not currently validated against a
+project table; any non-empty token is accepted.
+.SS Default
+.BR
+.PP
+.PP
+Undefined (the limit is not restricted by the project, which is equal to the value SHARED(all)).
+.SH RESOURCES
+.BR
+.PP
+.SS Syntax
+.BR
+.PP
+.PP
+\fBRESOURCES = \fR\fB[\fR\fIresource_name\fR\fB,\fR \fIvalue\fR\fB]\fR [\fIresource_name\fR\fB,\fR \fIvalue\fR\fB%\fR] ...
+.SS Description
+.BR
+.PP
+.PP
+The resource(s) the limit enforces, together with their limit values.
+At least one resource entry is required; a limit without any resource
+is skipped.
+.PP
+Each entry is written as \fB[\fR\fIresource_name\fR\fB,\fR \fIvalue\fR\fB]\fR.
+Multiple entries are concatenated, optionally separated by whitespace;
+for example:
+.PP
+\fBRESOURCES = [SLOTS, 10] [MEM, 50%] [lic1, 5]\fR
+.PP
+\fIvalue\fR：A non-negative number. 
+.PP
+\fIresource_name\fR： If it matches one of the
+built-in resource names listed below, the corresponding built-in
+semantics apply. Otherwise it must be a resource already defined in
+\fBlsf.shared\fR; an unknown custom resource name causes the limit to
+be skipped.
+.PP
+The singular keyword \fBRESOURCE\fR is not accepted in the Volclava
+format. Always use the plural \fBRESOURCES\fR.
+.SH Built-in Resource Names
+.BR
+.PP
+.PP
+The following resource names have built-in meaning:
+.RS
+.HP 2
+\(bu \fBJOBS\fR - the number of jobs that may run concurrently under
+the limit. Each running job counts as 1 toward this value, regardless
+of how many slots or processors it uses.
+.HP 2
+\(bu \fBSLOTS\fR - the total number of job slots that may be in use.
+Each running job contributes \fInumProcessors\fR toward this value.
+Mutually exclusive with \fBSLOTS_PER_PROCESSOR\fR.
+.HP 2
+\(bu \fBMEM\fR - memory, in units determined by
+\fBLSF_UNIT_FOR_LIMITS\fR in \fBlsf.conf\fR (default MB). The value is
+a non-negative number or a percentage (suffix \fB%\fR), computed
+against the host's \fBmaxMem\fR capacity. When a percentage is used,
+\fBHOSTS\fR must be \fBPER(...)\fR.
+.HP 2
+\(bu \fBSWP\fR - swap, in \fBLSF_UNIT_FOR_LIMITS\fR units. The value
+is a non-negative number or a percentage (suffix \fB%\fR), computed
+against the host's \fBmaxSwap\fR. When a percentage is used,
+\fBHOSTS\fR must be \fBPER(...)\fR.
+.HP 2
+\(bu \fBTMP\fR - temporary file space, in \fBLSF_UNIT_FOR_LIMITS\fR
+units. The value is a non-negative number or a percentage (suffix
+\fB%\fR), computed against the host's \fBmaxTmp\fR. When a percentage
+is used, \fBHOSTS\fR must be \fBPER(...)\fR.
+.HP 2
+\(bu \fBSLOTS_PER_PROCESSOR\fR - the number of job slots allowed per
+processor on the host. The value is a non-negative number, and
+\fBHOSTS\fR must be \fBPER(...)\fR. The host capacity used for this
+computation is \fBnumCPUs\fR. Mutually exclusive with \fBSLOTS\fR.
+.RE
+.PP
+Any other name is treated as a custom (shared or host-based) resource
+taken from \fBlsf.shared\fR, for example \fBlic1\fR or \fBgpu\fR.
+.PP
+A limit that omits \fBHOSTS\fR or uses \fBHOSTS = SHARED(...)\fR
+together with a percentage \fBMEM\fR, \fBSWP\fR, or \fBTMP\fR, or
+with \fBSLOTS_PER_PROCESSOR\fR, is rejected and skipped.
+.SH DESCRIPTION
+.BR
+.PP
+.SS Syntax
+.BR
+.PP
+.PP
+\fBDESCRIPTION = \fR\fI"text"\fR
+.SS Description
+.BR
+.PP
+.PP
+Free-form description of the limit. Optional. The text is truncated to
+4095 characters if it is longer.
+.SS Default
+.BR
+.PP
+.PP
+Undefined
+.SH LSF Compatibility
+.BR
+.PP
+.PP
+In addition to the Volclava format described above, the file is also
+compatible with the traditional LSF limit definition in horizontal format;
+the format is auto-detected per limit block and the two cannot be mixed
+within a single block.
+.PP
+New configurations should prefer the Volclava format, which is the
+default and recommended format.
+.SH Examples
+.BR
+.PP
+.PP
+A cluster-wide limit of 100 slots:
+.PP
+.nf
+\&Begin Limit
+\&NAME = cluster_slots
+\&RESOURCES = [SLOTS, 100]
+\&End Limit
+.fi
+.PP
+A per-queue limit of 50 jobs on the \fBnormal\fR queue:
+.PP
+.nf
+\&Begin Limit
+\&NAME = normal_jobs
+\&QUEUES = PER(normal)
+\&RESOURCES = [JOBS, 50]
+\&End Limit
+.fi
+.PP
+A per-host limit: 4 slots and 50% of memory on each of \fBhostA\fR
+and \fBhostB\fR:
+.PP
+.nf
+\&Begin Limit
+\&NAME = per_host_mem
+\&HOSTS = PER(hostA hostB)
+\&RESOURCES = [SLOTS, 4] [MEM, 50%]
+\&End Limit
+.fi
+.PP
+A shared limit: \fBuserA\fR and \fBuserB\fR together may use 8
+licenses; \fBuserA\fR is excluded from a separate per-user slots
+limit of 10:
+.PP
+.nf
+\&Begin Limit
+\&NAME = shared_lic
+\&USERS = SHARED(userA userB)
+\&RESOURCES = [lic, 8]
+\&End Limit
+
+\&Begin Limit
+\&NAME = per_user_slots
+\&USERS = PER(all ~userA)
+\&RESOURCES = [SLOTS, 10]
+\&End Limit
+.fi
+.PP
+A fully specified limit using all four fields (HOSTS, QUEUES, USERS,
+PROJECTS):
+.PP
+.nf
+\&Begin Limit
+\&NAME = full_limit
+\&HOSTS    = PER(hostA hostB)
+\&QUEUES   = PER(normal short)
+\&USERS    = SHARED(ug1 ~user1)
+\&PROJECTS = PER(default proj1)
+\&RESOURCES = [JOBS, 3] [SLOTS, 10]
+\&DESCRIPTION = "Demo full limit"
+\&End Limit
+.fi

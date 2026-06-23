@@ -634,8 +634,11 @@ do_jobInfoReq(XDR *xdrs,
 
     i = jobInfoHead.numHosts = 0;
     if (jobInfoReq.options & HOST_NAME) {
-        jobInfoHead.hostNames = my_calloc(numofhosts(),
+        /* index 0 reserved for "all hosts" (hostId=0 in reasonTb) */
+        jobInfoHead.hostNames = my_calloc(numofhosts() + 1,
                                           sizeof(char *), fname);
+        jobInfoHead.hostNames[0] = "all hosts";
+        i = 1;
         for (hPtr = (struct hData *)hostList->forw;
              hPtr != (void *)hostList;
              hPtr = (struct hData *)hPtr->forw) {
@@ -643,7 +646,7 @@ do_jobInfoReq(XDR *xdrs,
             ++i;
         }
 
-        jobInfoHead.numHosts = numofhosts();
+        jobInfoHead.numHosts = numofhosts() + 1;
     }
 
     len = sizeof(struct jobInfoHead)
@@ -853,6 +856,14 @@ jobInfoReplyXdrBufLen(struct jobInfoReply *jobInfoReplyPtr)
     len += ALIGNWORD_(strlen(jobInfoReply.mergedResReq) + 1);
     len += ALIGNWORD_(strlen(jobInfoReply.effeResReq) + 1);
 
+    for (i = 0; i < jobInfoReply.numLimitDetail; i++) {
+        const char *ln = jobInfoReply.limitDetailTb[i].limitName;
+        const char *rn = jobInfoReply.limitDetailTb[i].resName;
+        len += ALIGNWORD_((ln ? strlen(ln) : 0) + 1);
+        len += ALIGNWORD_((rn ? strlen(rn) : 0) + 1);
+        len += sizeof(float) + sizeof(int) + sizeof(int);
+    }
+
     return(len);
 }
 
@@ -869,6 +880,22 @@ jobInfoReplyXdrBufLen(struct jobInfoReply *jobInfoReplyPtr)
  * @param[in] version: Protocol version
  * @return: Length of the encoded reply buffer
  */
+
+/* Copy a daemon-side limitDetail into an RPC limitDetailEnt. Fields are
+ * identical; strings are references into generalRLConf (static, owned by
+ * daemon), so no allocation is done. */
+static struct limitDetailEnt
+toLimitDetailEnt(const struct limitDetail *d)
+{
+    struct limitDetailEnt e;
+    e.limitName = d->limitName;
+    e.resName = d->resName;
+    e.value = d->value;
+    e.isPercent = d->isPercent;
+    e.hostId = d->hostId;
+    return e;
+}
+
 int
 packJobInfo(struct jData * jobData,
             int remain,
@@ -884,6 +911,9 @@ packJobInfo(struct jData * jobData,
     char *request_buf = NULL;
     int *reasonTb = NULL;
     int *jReasonTb;
+    struct limitDetailEnt *limitDetailTb = NULL;
+    struct limitDetailEnt *detailByHostId = NULL;
+    struct limitDetailEnt emptyDetail;
     XDR xdrs;
     int i;
     int k;
@@ -905,10 +935,17 @@ packJobInfo(struct jData * jobData,
     job_numReasons = jobData->numReasons;
     job_reasonTb = jobData->reasonTb;
 
+    memset(&emptyDetail, 0, sizeof(emptyDetail));
     if (reasonTb == NULL) {
         reasonTb = my_calloc(numofhosts() + 1, sizeof(int), fname);
         jReasonTb = my_calloc(numofhosts() + 1, sizeof(int), fname);
     }
+    /* limitDetailTb parallels the output reasonTb (size numofhosts()+1);
+     * detailByHostId is indexed by hostId for staging job-level details. */
+    limitDetailTb = my_calloc(numofhosts() + 1, sizeof(struct limitDetailEnt),
+                              fname);
+    detailByHostId = my_calloc(numofhosts() + 1,
+                               sizeof(struct limitDetailEnt), fname);
 
     jobInfoReply.jobId = jobData->jobId;
     jobInfoReply.startTime = jobData->startTime;
@@ -935,6 +972,8 @@ packJobInfo(struct jData * jobData,
         jobInfoReply.reasons = jobData->newReason;
     jobInfoReply.subreasons = jobData->subreasons;
     jobInfoReply.reasonTb = reasonTb;
+    jobInfoReply.limitDetailTb = limitDetailTb;
+    jobInfoReply.numLimitDetail = 0;
 
     if (logclass & LC_PEND)
         ls_syslog(LOG_DEBUG3, "%s: job=%s, rs=%d, nrs=%d srs=%d, qNrs=%d, jNrs=%d nLsb=%d nQU=%d mStage=%d", fname, lsb_jobid2str(jobData->jobId), jobData->oldReason, jobData->newReason, jobData->subreasons, jobData->qPtr->numReasons, job_numReasons, numLsbUsable, jobData->qPtr->numUsable, mSchedStage);
@@ -952,9 +991,18 @@ packJobInfo(struct jData * jobData,
         }
 
         jobInfoReply.numReasons = 0;
+        jobInfoReply.numLimitDetail = 0;
         if (svReason) {
-
+            /* single job-scope reason: pairs with limitDetail[0] if the
+             * job recorded one for newReason (numReasons==0 mode). */
             jobInfoReply.reasonTb[jobInfoReply.numReasons++] = svReason;
+            if (jobData->numPendLimitDetail > 0
+                && jobData->pendLimitDetail[0].limitName != NULL) {
+                limitDetailTb[0] = toLimitDetailEnt(&jobData->pendLimitDetail[0]);
+                jobInfoReply.numLimitDetail = 1;
+            } else {
+                limitDetailTb[0] = emptyDetail;
+            }
         } else {
 
             pkHReasonTb = hReasonTb[0];
@@ -966,6 +1014,7 @@ packJobInfo(struct jData * jobData,
                     jReasonTb[i] = PEND_HOST_USR_SPEC;
                 else
                     jReasonTb[i] = 0;
+                detailByHostId[i] = emptyDetail;
             }
 
             for (i = 0; i < jobData->numAskedPtr; i++) {
@@ -979,12 +1028,24 @@ packJobInfo(struct jData * jobData,
                         || jReasonTb[k] == PEND_HOST_USR_SPEC)
                         continue;
                     jReasonTb[k] = job_reasonTb[i];
+                    /* stage matching limitDetail (jobData->pendLimitDetail
+                     * is index-aligned with job_reasonTb). */
+                    if (i < jobData->numPendLimitDetail
+                        && jobData->pendLimitDetail[i].limitName != NULL)
+                        detailByHostId[k] = toLimitDetailEnt(&jobData->pendLimitDetail[i]);
                 }
             }
             if (svReason == 0) {
                 if (logclass & LC_PEND)
                     ls_syslog(LOG_DEBUG2, "%s: Get h/u/q reasons", fname);
                 k = 0;
+
+                /* job-level reasons (hostId=0 = "all hosts") */
+                if (jReasonTb[0]) {
+                    jobInfoReply.reasonTb[k] = jReasonTb[0];
+                    limitDetailTb[k] = detailByHostId[0];
+                    k++;
+                }
 
                 /* traverse the list of hosts
                  */
@@ -1005,6 +1066,7 @@ packJobInfo(struct jData * jobData,
                     if (pkHReasonTb[i]) {
                         jobInfoReply.reasonTb[k] = pkHReasonTb[i];
                         PUT_HIGH(jobInfoReply.reasonTb[k], i);
+                        limitDetailTb[k] = emptyDetail;
                         k++;
                         if (debug && (logclass & LC_PEND))
                             ls_syslog(LOG_DEBUG2, "%s: hReasonTb[%d]=%d",
@@ -1014,6 +1076,7 @@ packJobInfo(struct jData * jobData,
                     if (pkQReasonTb[i]) {
                         jobInfoReply.reasonTb[k] = pkQReasonTb[i];
                         PUT_HIGH(jobInfoReply.reasonTb[k], i);
+                        limitDetailTb[k] = emptyDetail;
                         k++;
                         if (debug && (logclass & LC_PEND))
                             ls_syslog(LOG_DEBUG2, "%s: qReason[%d]=%d",
@@ -1023,6 +1086,7 @@ packJobInfo(struct jData * jobData,
                     if (pkUReasonTb[i]) {
                         jobInfoReply.reasonTb[k] = pkUReasonTb[i];
                         PUT_HIGH(jobInfoReply.reasonTb[k], i);
+                        limitDetailTb[k] = emptyDetail;
                         k++;
                         if (debug && (logclass & LC_PEND))
                             ls_syslog(LOG_DEBUG2, "%s: uReason[%d]=%d",
@@ -1030,7 +1094,9 @@ packJobInfo(struct jData * jobData,
                         continue;
                     }
                     if (jReasonTb[i]) {
-                        jobInfoReply.reasonTb[k++] = jReasonTb[i];
+                        jobInfoReply.reasonTb[k] = jReasonTb[i];
+                        limitDetailTb[k] = detailByHostId[i];
+                        k++;
                         if (debug && (logclass & LC_PEND)) {
                             int rs;
                             GET_LOW(rs, jReasonTb[i]);
@@ -1043,6 +1109,7 @@ packJobInfo(struct jData * jobData,
                 } /* for (hPtr = hostList->back; ...; ...) */
             }
             jobInfoReply.numReasons = k;
+            jobInfoReply.numLimitDetail = k;
         }
     } else
         jobInfoReply.numReasons = 0;
@@ -1190,6 +1257,8 @@ packJobInfo(struct jData * jobData,
         freeJobInfoReply (&jobInfoReply);
         FREEUP(reasonTb);
         FREEUP(jReasonTb);
+        FREEUP(limitDetailTb);
+        FREEUP(detailByHostId);
         FREEUP(loadSched);
         FREEUP(loadStop);
         FREEUP (request_buf);
@@ -1197,6 +1266,8 @@ packJobInfo(struct jData * jobData,
     }
     FREEUP(reasonTb);
     FREEUP(jReasonTb);
+    FREEUP(limitDetailTb);
+    FREEUP(detailByHostId);
     FREEUP(loadSched);
     FREEUP(loadStop);
     freeJobInfoReply (&jobInfoReply);
@@ -3277,6 +3348,77 @@ do_resourceInfoReq (XDR *xdrs, int chfd, struct sockaddr_in *from,
     return(0);
 
 }
+
+
+/********************************************************************************
+ * do_rsrcLimitInfoReq
+ * Description:
+ *     Handle BATCH_RSRC_LIMIT_INFO requests from clients (blimits command).
+ *     Decode the request, build a rsrcLimitInfoReply from generalRLConf and
+ *     rlAccountTab via buildRsrcLimitInfoReply(), encode and send back.
+ ********************************************************************************/
+int
+do_rsrcLimitInfoReq(XDR *xdrs, int chfd, struct sockaddr_in *from,
+                   struct LSFHeader *reqHdr)
+{
+    static char fname[] = "do_rsrcLimitInfoReq";
+    XDR xdrs2;
+    struct rsrcLimitInfoReq req;
+    struct rsrcLimitInfoReply reply;
+    int replyCode;
+    char *reply_buf;
+    int len;
+    struct LSFHeader replyHdr;
+    char *replyStruct;
+
+    if (logclass & LC_TRACE)
+        ls_syslog(LOG_DEBUG1, "%s: Entering this routine...", fname);
+
+    memset(&req, 0, sizeof(req));
+    memset(&reply, 0, sizeof(reply));
+
+    if (!xdr_rsrcLimitInfoReq(xdrs, &req, reqHdr)) {
+        ls_syslog(LOG_ERR, I18N_FUNC_FAIL, fname, "xdr_rsrcLimitInfoReq");
+        replyCode = LSBE_XDR;
+        len = MSGSIZE;
+    } else {
+        replyCode = buildRsrcLimitInfoReply(&req, &reply);
+        len = sizeof(struct LSFHeader)
+              + xdrsize_RsrcLimitInfoReply(&reply) + 100;
+    }
+
+    reply_buf = (char *)my_malloc(len, fname);
+    xdrmem_create(&xdrs2, reply_buf, len, XDR_ENCODE);
+
+    xdr_lsffree(xdr_rsrcLimitInfoReq, (char *)&req, reqHdr);
+
+    initLSFHeader_(&replyHdr);
+    replyHdr.opCode = replyCode;
+    replyStruct = (replyCode == LSBE_NO_ERROR) ? (char *)&reply : NULL;
+
+    if (!xdr_encodeMsg(&xdrs2, replyStruct, &replyHdr,
+                       xdr_rsrcLimitInfoReply, 0, NULL)) {
+        ls_syslog(LOG_ERR, I18N_FUNC_FAIL, fname, "xdr_encodeMsg");
+        xdr_destroy(&xdrs2);
+        FREEUP(reply_buf);
+        freeRsrcLimitInfoReply(&reply);
+        return -1;
+    }
+
+    if (chanWrite_(chfd, reply_buf, XDR_GETPOS(&xdrs2)) <= 0) {
+        ls_syslog(LOG_ERR, I18N_FUNC_D_FAIL_M, fname,
+                  "chanWrite_", XDR_GETPOS(&xdrs2));
+        xdr_destroy(&xdrs2);
+        FREEUP(reply_buf);
+        freeRsrcLimitInfoReply(&reply);
+        return -1;
+    }
+
+    xdr_destroy(&xdrs2);
+    FREEUP(reply_buf);
+    freeRsrcLimitInfoReply(&reply);
+    return 0;
+} /*do_rsrcLimitInfoReq*/
 
 
 static void

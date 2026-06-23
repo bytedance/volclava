@@ -1902,7 +1902,9 @@ prtJobStateMsg(struct jobInfoEnt *job, struct jobInfoHead *jInfoH)
     case JOB_STAT_PSUSP:
     case JOB_STAT_PEND:
         pendReasons = lsb_pendreason(job->numReasons, job->reasonTb,
-                                     jInfoH, loadIndex);
+                                     jInfoH, loadIndex,
+                                     job->numLimitDetail,
+                                     job->limitDetailTb);
         sprintf(prline,"%s",pendReasons);
         prtLine(prline);
 

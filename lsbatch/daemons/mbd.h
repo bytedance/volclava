@@ -233,6 +233,18 @@ struct groupCandHosts {
     struct candHost  *members;
 };
 
+/* Detail info for a pending reason caused by a resource limit.
+ * limitName and resName are references (not owned); value is the configured
+ * limit value of the restricting resource; hostId is 0 for non-host level
+ * limits (cluster/queue/user/project), or the hostId of the host that the
+ * limit applies to for host-based limits. */
+struct limitDetail {
+    char  *limitName;
+    char  *resName;
+    float  value;
+    int    isPercent;
+    int    hostId;
+};
 
 struct jData {
     struct  jData *forw;
@@ -339,6 +351,15 @@ struct jData {
     struct hEnt *effeResReqEnt; /*refer to effective resreq entry*/
     int    maxMem;
     int    avgMem;
+
+    /* Per-reason resource limit detail. Two modes (distinguished by
+     * numReasons, since numPendLimitDetail alone is ambiguous):
+     *   single mode (numReasons==0): detail[0] pairs with newReason.
+     *   multi  mode (numReasons>=1): detail[i] pairs with reasonTb[i].
+     * Use getPendLimitDetail4Reason() for safe access.
+     * Lifecycle follows reasonTb. */
+    struct limitDetail *pendLimitDetail;
+    int    numPendLimitDetail;
 };
 
 
@@ -429,6 +450,7 @@ struct uData {
     LS_BITSET_T *parents;
     LS_BITSET_T *ancestors;
     LIST_T *pxySJL;
+    int    *rlBitmap;
 };
 
 #define USER_GROUP_IS_ALL_USERS(UserGroup) \
@@ -596,6 +618,7 @@ struct qData {
     struct fairsharePolicy * policy;
     struct fsFactors fsFactors;
     char   *actionComment;
+    int    *rlBitmap;
 };
 
 
@@ -651,6 +674,7 @@ struct hData {
     LIST_T    *pxyRsvJL;
     float     leftRusageMem;
     char      *actionComment;
+    int       *rlBitmap;
 };
 
 
@@ -1216,6 +1240,14 @@ extern int                  uJobLimitOk (struct jData *, struct hTab *,
 extern int                  hostSlots (int, struct jData *, struct hData *,
                                        int disp, int *);
 extern void                 disp_clean_job(struct jData *);
+extern void                 freePendLimitDetail(struct jData *);
+extern void                 reallocPendLimitDetail(struct jData *, int n);
+/* Return limitDetail for a reason slot, or NULL.
+ * reasonIdx=-1: pairs with newReason (single mode only).
+ * reasonIdx=i:  pairs with reasonTb[i] (multi mode).
+ * Pointer valid until next reasonTb rebuild. */
+extern struct limitDetail  *getPendLimitDetail4Reason(struct jData *jp,
+                                                      int reasonIdx);
 extern bool_t               dispatch_it(struct jData *);
 extern int                  findBestHosts (struct jData *, struct resVal *, int, int, struct candHost *, bool_t);
 extern int                  hJobLimitOk (struct hData *, struct hostAcct *, int);
@@ -1305,6 +1337,9 @@ extern void                 doProbeReply(struct sbdNode *, int);
 extern void                 doSignalJobReply(struct sbdNode *sbdPtr, int);
 extern void                 doSwitchJobReply(struct sbdNode *sbdPtr, int);
 extern int                  do_resourceInfoReq (XDR *, int,
+                                                struct sockaddr_in *,
+                                                struct LSFHeader *);
+extern int                  do_rsrcLimitInfoReq (XDR *, int,
                                                 struct sockaddr_in *,
                                                 struct LSFHeader *);
 extern int                   do_runJobReq(XDR *,

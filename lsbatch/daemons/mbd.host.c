@@ -1562,10 +1562,11 @@ adjLsbLoad(struct jData *jpbw, int forResume, bool_t doAdj) {
 
         if (jpbw->hPtr[i]->flags & HOST_LOST_FOUND) {
             /*lost_and_found host has no hostId(hostId is generated in updHostList())
-             *hostTab has lost_and_found,but hostList not. So we just use numofhosts()
-             *as lost_and_found's hostId to distinguish with normal hosts.
+             *hostTab has lost_and_found,but hostList not. So we just use numofhosts()+1
+             *as lost_and_found's hostId to distinguish with normal hosts
+             *(normal hosts have hostId 1..numofhosts(), 0 is reserved for "all hosts").
              */
-            hostId = numofhosts();
+            hostId = numofhosts() + 1;
         } else {
             hostId = jpbw->hPtr[i]->hostId;
         }

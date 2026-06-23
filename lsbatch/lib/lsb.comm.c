@@ -475,8 +475,7 @@ callmbd(char *clusterName,
     qmbd_port = get_qmbd_port();
     mbd_port = get_mbd_port();
     xdr_destroy(&xdrs);
-    if (qmbd_port && (mbdReqtype == BATCH_JOB_INFO || mbdReqtype == BATCH_QUE_INFO || mbdReqtype == BATCH_HOST_INFO || mbdReqtype == BATCH_RESOURCE_INFO
-        || mbdReqtype == BATCH_USER_INFO || mbdReqtype == BATCH_GRP_INFO || mbdReqtype == BATCH_PARAM_INFO || mbdReqtype == BATCH_JOB_PEEK || mbdReqtype == BATCH_SHOWCONF)) {
+    if (qmbd_port && (mbdReqtype == BATCH_JOB_INFO || mbdReqtype == BATCH_QUE_INFO || mbdReqtype == BATCH_HOST_INFO || mbdReqtype == BATCH_RESOURCE_INFO || mbdReqtype == BATCH_USER_INFO || mbdReqtype == BATCH_GRP_INFO || mbdReqtype == BATCH_PARAM_INFO || mbdReqtype == BATCH_JOB_PEEK || mbdReqtype == BATCH_SHOWCONF || mbdReqtype == BATCH_RSRC_LIMIT_INFO)) {
         isQuery = 1;
     }
     if (logclass & LC_TRACE)

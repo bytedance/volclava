@@ -19,6 +19,8 @@
 
 #include "mbd.h"
 #include "mbd.fairshare.h"
+#include "mbd.rsrclimit.h"
+#include <sched.h>
 
 #define NL_SETN         10
 
@@ -303,6 +305,7 @@ init_log(void)
                 if (IS_START(jp->jStatus)) {
                     proxyUSJLAddEntry(jp);
                     proxyHSJLAddEntry(jp);
+                    updRLAccount4Job(jp, NULL);
                 }
             }
         }

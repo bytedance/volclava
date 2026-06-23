@@ -12,7 +12,7 @@
 etcdir = $(prefix)/etc
 config_files = volclava volclava.sh volclava.csh volclava.setup \
 	lsf.conf lsf.cluster.@volclavacluster@ lsf.shared lsf.task \
-	lsb.hosts lsb.params lsb.queues lsb.users 
+	lsb.hosts lsb.params lsb.queues lsb.users lsb.resources
 
 INTERACTIVE=@INTERACTIVE@
 

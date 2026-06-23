@@ -102,6 +102,7 @@ AC_CONFIG_FILES([
   config/lsb.params
   config/lsb.queues
   config/lsb.users
+  config/lsb.resources
   ${CLUSTERFILE}
   config/lsf.shared
   config/lsf.task

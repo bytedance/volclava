@@ -40,6 +40,7 @@ override_dh_auto_install:
 	install -m 755 lsbatch/cmd/bhosts      debian/volclava/opt/volclava-2.2/bin
 	install -m 755 lsbatch/cmd/bjobs       debian/volclava/opt/volclava-2.2/bin
 	install -m 755 lsbatch/cmd/bkill       debian/volclava/opt/volclava-2.2/bin
+	install -m 755 lsbatch/cmd/blimits     debian/volclava/opt/volclava-2.2/bin
 	install -m 755 lsbatch/cmd/bmgroup     debian/volclava/opt/volclava-2.2/bin
 	install -m 755 lsbatch/cmd/bmig        debian/volclava/opt/volclava-2.2/bin
 	install -m 755 lsbatch/cmd/bmod        debian/volclava/opt/volclava-2.2/bin
@@ -86,6 +87,7 @@ override_dh_auto_install:
 	install	-m	644	lsbatch/man1/bhosts.1			debian/volclava/opt/volclava-2.2/share/man/man1
 	install	-m	644	lsbatch/man1/bjobs.1			debian/volclava/opt/volclava-2.2/share/man/man1
 	install	-m	644	lsbatch/man1/bkill.1			debian/volclava/opt/volclava-2.2/share/man/man1
+	install	-m	644	lsbatch/man1/blimits.1			debian/volclava/opt/volclava-2.2/share/man/man1
 	install	-m	644	lsbatch/man1/bmgroup.1			debian/volclava/opt/volclava-2.2/share/man/man1
 	install	-m	644	lsbatch/man1/bmig.1			debian/volclava/opt/volclava-2.2/share/man/man1
 	install	-m	644	lsbatch/man1/bmod.1			debian/volclava/opt/volclava-2.2/share/man/man1
@@ -120,6 +122,7 @@ override_dh_auto_install:
 	install	-m	644	lsbatch/man5/lsb.hosts.5		debian/volclava/opt/volclava-2.2/share/man/man5
 	install	-m	644	lsbatch/man5/lsb.params.5		debian/volclava/opt/volclava-2.2/share/man/man5
 	install	-m	644	lsbatch/man5/lsb.queues.5		debian/volclava/opt/volclava-2.2/share/man/man5
+	install	-m	644	lsbatch/man5/lsb.resources.5		debian/volclava/opt/volclava-2.2/share/man/man5
 	install	-m	644	lsbatch/man5/lsb.users.5		debian/volclava/opt/volclava-2.2/share/man/man5
 	install	-m	644	lsf/man/man5/lim.acct.5			debian/volclava/opt/volclava-2.2/share/man/man5
 	install	-m	644	lsf/man/man5/lsf.acct.5			debian/volclava/opt/volclava-2.2/share/man/man5
@@ -150,6 +153,7 @@ override_dh_auto_install:
 	install	-m	644	config/lsb.queues				debian/volclava/opt/volclava-2.2/etc
 	install	-m	644	config/lsb.hosts				debian/volclava/opt/volclava-2.2/etc
 	install	-m	644	config/lsb.users				debian/volclava/opt/volclava-2.2/etc
+	install	-m	644	config/lsb.resources			debian/volclava/opt/volclava-2.2/etc
 	install	-m	644	config/volclava.setup				debian/volclava/opt/volclava-2.2/etc
 	install	-m	755	config/volclava					debian/volclava/opt/volclava-2.2/etc
 	install	-m	755	config/volclava.sh				debian/volclava/opt/volclava-2.2/etc
@@ -175,4 +179,5 @@ override_dh_shlibdeps:
 
 override_dh_auto_clean:
 	$(MAKE) clean || true
+
 

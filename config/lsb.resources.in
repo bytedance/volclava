@@ -1,0 +1,76 @@
+# The lsb.resources file contains configuration information for resource
+# allocation limits. This file is optional.
+#
+# Each limit restricts how much of a resource (such as slots, memory,
+# or a custom resource) can be consumed simultaneously by jobs that
+# match a given set of hosts, queues, users, and projects. If the
+# file is not present, no resource allocation limits are enforced.
+#
+# After changing the lsb.resources file, run "badmin reconfig" or
+# "badmin mbdrestart" to reconfigure mbatchd.
+#
+# A minimal limit must define at least NAME and one resource entry
+# in RESOURCES. The definitions recognized in a Limit section are:
+#   NAME        - name of the limit (required)
+#   HOSTS       - hosts and host groups the limit applies to (optional)
+#   QUEUES      - queues the limit applies to (optional)
+#   USERS       - users and user groups the limit applies to (optional)
+#   PROJECTS    - projects the limit applies to (optional)
+#   RESOURCES   - the resource(s) and their limit values (required)
+#   DESCRIPTION - free-form description of the limit (optional)
+#
+# The HOSTS, QUEUES, USERS, and PROJECTS fields each wrap their name
+# list in PER(...) or SHARED(...):
+#   PER(...)    - enforce the limit separately for each matching host,
+#                 queue, user, or project
+#   SHARED(...) - enforce a single shared limit across all the listed
+#                 entries
+#
+# Built-in resource names:
+#   JOBS                  - the number of jobs that may run concurrently
+#   SLOTS                 - the total number of job slots that may be in use
+#   MEM                   - memory (units per LSF_UNIT_FOR_LIMITS in lsf.conf)
+#   SWP                   - swap (units per LSF_UNIT_FOR_LIMITS)
+#   TMP                   - temporary file space (units per LSF_UNIT_FOR_LIMITS)
+#   SLOTS_PER_PROCESSOR   - the number of job slots allowed per processor
+# Any other name is treated as a custom resource taken from lsf.shared.
+#
+# All the example definitions here are commented out
+
+# A cluster-wide limit of 100 slots:
+#Begin Limit
+#NAME = cluster_slots
+#RESOURCES = [SLOTS, 100]
+#End Limit
+
+# A per-queue limit of 50 jobs on the normal queue:
+#Begin Limit
+#NAME = normal_jobs
+#QUEUES = PER(normal)
+#RESOURCES = [JOBS, 50]
+#End Limit
+
+# A per-host limit: 4 slots and 50% of memory on each of hostA and hostB:
+#Begin Limit
+#NAME = per_host_mem
+#HOSTS = PER(hostA hostB)
+#RESOURCES = [SLOTS, 4] [MEM, 50%]
+#End Limit
+
+# A shared limit: userA and userB together may use 8 licenses:
+#Begin Limit
+#NAME = shared_lic
+#USERS = SHARED(userA userB)
+#RESOURCES = [lic, 8]
+#End Limit
+
+# A fully specified limit using all four fields:
+#Begin Limit
+#NAME = full_limit
+#HOSTS    = PER(hostA hostB)
+#QUEUES   = PER(normal short)
+#USERS    = SHARED(ug1 ~user1)
+#PROJECTS = PER(default proj1)
+#RESOURCES = [JOBS, 3] [SLOTS, 10]
+#DESCRIPTION = "Demo full limit"
+#End Limit

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2021-2025 Bytedance Ltd. and/or its affiliates
+ * Copyright (C) 2021-2026 Bytedance Ltd. and/or its affiliates
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of version 2 of the GNU General Public License as
@@ -444,6 +444,10 @@ static void* processRequest(void* arg) {
                 ret = do_resourceInfoReq(reqContext->xdr, reqContext->client->chanfd, &reqContext->client->from, &reqContext->reqHdr);
                 break;
 
+            case BATCH_RSRC_LIMIT_INFO:
+                ret = do_rsrcLimitInfoReq(reqContext->xdr, reqContext->client->chanfd, &reqContext->client->from, &reqContext->reqHdr);
+                break;
+            
             case BATCH_JOB_PEEK:
                 ret = do_jobPeekReq(reqContext->xdr, reqContext->client->chanfd, &reqContext->client->from, reqContext->client->fromHost, &reqContext->reqHdr, &auth);
                 break;

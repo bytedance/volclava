@@ -1499,7 +1499,7 @@ static int parseUserShares(struct userShares **userShares,
     /*count number of [user, share]*/
     p = localStr;
     count = 0;
-    while ((p != '\0') && ((p = strchr(p, '[')) != NULL)) {
+    while ((*p != '\0') && ((p = strchr(p, '[')) != NULL)) {
         count++;
         p++;
     }   

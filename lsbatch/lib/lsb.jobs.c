@@ -310,6 +310,8 @@ lsb_readjobinfo(int *more)
     jobInfo.reasonTb = jobInfoReply.reasonTb;
     jobInfo.reasons = jobInfoReply.reasons;
     jobInfo.subreasons = jobInfoReply.subreasons;
+    jobInfo.numLimitDetail = jobInfoReply.numLimitDetail;
+    jobInfo.limitDetailTb = jobInfoReply.limitDetailTb;
     jobInfo.startTime = jobInfoReply.startTime;
     jobInfo.predictedStartTime = jobInfoReply.predictedStartTime;
     jobInfo.endTime  = jobInfoReply.endTime;
