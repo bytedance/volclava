@@ -1,5 +1,5 @@
 ## Description
-**volclava**, whose latest version is 2.1.1, is developed based on OpenLava 2.0 with following its license of GPL 2.0.
+**volclava**, whose latest version is 2.2, is developed based on OpenLava 2.0 with following its license of GPL 2.0.
 
 OpenLava is a free and open-source workload scheduler that's fully compatible with IBM LSF. It supports diverse high-performance computing and analytical applications.
 It came from an early version of LSF through open-sourcing. Its command-line and file formats are similar to most LSF functions, so both users and administrators can easily get the hang of operating it.
@@ -14,7 +14,7 @@ Everyone is welcomed to feed back via git issue.
 - Redhat/Rocky 8
 - Ubuntu 20.04
 
-The development and testing operating system for the volclava project 2.1.1 is CentOS Linux release 7.9.2009 (Core), which is also one of the commonly used operating system versions in IC design.
+The development and testing operating system for the volclava project 2.2 is CentOS Linux release 7.9.2009 (Core), which is also one of the commonly used operating system versions in IC design.
 CentOS 6, CentOS 7, CentOS 8, as well as their corresponding Red Hat and Rocky versions should all be able to run. The main potential risk lies in that differences in system library versions may affect the operation of some components.
 
 ## Install
@@ -35,7 +35,7 @@ The following uses the setup of a 3-node cluster (master-test,cmp1-test,cmp2-tes
 Edit the file, then save it with the following content:
 ```
 [root@master-test test]# cat ./install.conf
-VOLC_PREFIX=/software/volclava-2.1
+VOLC_PREFIX=/software/volclava-2.2
 VOLC_ADMIN=volclava
 VOLC_CLUSTER_NAME=volclava
 VOLC_HOSTS="master-test cmp1-test cmp2-test"
@@ -53,8 +53,8 @@ Congratulates, installation is done and enjoy the journey!
 ```
 5. Log on compute nodes and install
 ```
-[root@cmp1-test ~]# sh /install_pkg/volclava/volcinstall.sh --type=server --env=/software/volclava-2.1
-[root@cmp2-test ~]# sh /install_pkg/volclava/volcinstall.sh --type=server --env=/software/volclava-2.1
+[root@cmp1-test ~]# sh /install_pkg/volclava/volcinstall.sh --type=server --env=/software/volclava-2.2
+[root@cmp2-test ~]# sh /install_pkg/volclava/volcinstall.sh --type=server --env=/software/volclava-2.2
 ```
 
 6. The directory of installed volclava
@@ -73,7 +73,7 @@ Congratulates, installation is done and enjoy the journey!
 ```
 2. Edit the lsf.cluster.volclava file to configure hosts attributes if need, and then save and exit.
 ```
-[root@master-test-test etc]# vim /software/volclava-2.1/etc/lsf.cluster.volclava
+[root@master-test-test etc]# vim /software/volclava-2.2/etc/lsf.cluster.volclava
 ```
 ![cluster-content](images/lsf.cluster.file.png)
 
@@ -96,7 +96,7 @@ sbatchd pid: <5927>
 lim mbatchd: <5940>
 
 [root@master-test ~]# lsid  ##check cluster status
-volclava project 2.1.1, Nov 11 2025
+volclava project 2.2, Nov 11 2025
 
 My cluster name is volclava
 My master name is master-test

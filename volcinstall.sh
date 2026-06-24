@@ -43,7 +43,7 @@
 source ./libinstall.sh
 
 TYPE="code"
-VERSION="2.1"
+VERSION="2.2"
 PACKAGE_NAME="volclava-${VERSION}"
 VOLCADMIN="volclava"
 CLUSTERNAME="volclava"
@@ -245,7 +245,7 @@ function install() {
 
         if [ $SET_PREFIX -ne 0 ]; then
             #install deb with prefix
-            dpkg -x ../volclava_2.1*.deb $PREFIX
+            dpkg -x ../volclava_2.2*.deb $PREFIX
             #append hosts into lsf.cluster file
             if [ ! -z "$HOSTS" ]; then
                  addHosts2Cluster  "$HOSTS" ${PREFIX}/opt/${PACKAGE_NAME}/etc/lsf.cluster.${CLUSTERNAME}
@@ -255,7 +255,7 @@ function install() {
             chown ${VOLCADMIN}:${VOLCADMIN}  -R $PREFIX
             chmod 755 -R $PREFIX
         else
-            dpkg -i ../volclava_2.1*.deb
+            dpkg -i ../volclava_2.2*.deb
             #append hosts into lsf.cluster file
             if [[  $CLS_FILE_EXIST == 0 && -n "$HOSTS" ]]; then
                  addHosts2Cluster  "$HOSTS" /opt/${PACKAGE_NAME}/etc/lsf.cluster.${CLUSTERNAME}
@@ -287,11 +287,11 @@ function install() {
 
         #install volclava from rpm package
         cd ~/rpmbuild/RPMS/x86_64/
-        chmod 755 volclava-2.1*
-        if rpm -qa | grep volclava-2.1* > /dev/null 2>&1; then
-            rpm -e volclava-2.1*
+        chmod 755 volclava-2.2*
+        if rpm -qa | grep volclava-2.2* > /dev/null 2>&1; then
+            rpm -e volclava-2.2*
         fi
-        rpm -ivh --prefix $PREFIX volclava-2.1*
+        rpm -ivh --prefix $PREFIX volclava-2.2*
 
         #append hosts into lsf.cluster file
         if [[ $CLS_FILE_EXIST == 0 && -n "$HOSTS" ]]; then

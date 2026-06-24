@@ -1,10 +1,30 @@
+volclava (2.2-0.b.20260630) UNRELEASED; urgency=medium
+
+  * support offloading client query requests to a dedicated query mbd subprocess with multi-threaded handling, improving query throughput and latency under high load;
+  * migrate inter-process communication to epoll I/O model, enabling larger host MXJ and MAX_SBD_CONNS for large-scale clusters;
+  * support LSF_NON_PRIVILEGED_PORTS to use non-privileged ports above 1024, resolving port exhaustion and connect latency under high concurrency;
+  * optimize bsub -pack to batch-submit validated jobs in a single request, with LSB_PACK_SKIP_ERROR and LSB_MAX_PACK_JOBS for finer control;
+  * unify merging rules for job-level and queue-level resource requirements (select/order/span/rusage) and refine bjobs -l Combined/Effective output;
+  * support computing and displaying job maxMem and avgMem in bjobs -l/UF;
+  * support LSB_ESUB_METHOD in lsf.conf and bsub -a/bmod -a for flexible esub configuration;
+  * support bsub -Jd to attach a job description (up to 4095 chars) at submission, modifiable via bmod -Jd/-Jdn and visible in bjobs -l/bhist;
+  * fix to optimize mbd-lim communication to reduce frequent calls during job dispatching;
+  * fix bsub/bjobs coredump when job array is in wrong format;
+  * fix host remaining in 'close' state after mbd restart if previously used by an exclusive job;
+  * fix memory leak in sbatchd when starting jobs;
+  * fix shell syntax in volclava.sh to support dash;
+
+ -- Nan Qi <qinan.cn@bytedance.com>  Mon, 30 Jun 2026 18:00:00 +0800
+
 volclava (2.1-1.20251116) RELEASED; urgency=medium
 
   * support sorting hosts for job scheduling via order[slots];
   * enhance mixed-OS deployment installation to maintain compatibility with single-platform mode;
   * fix volclava script error on Ubuntu
 
-volclava (2.1-0.b.20250912) UNRELEASED; urgency=medium
+ -- Nan Qi <qinan.cn@bytedance.com>  Sun, 16 Nov 2025 18:00:00 +0800
+
+volclava (2.1-0.b.20250912) RELEASED; urgency=medium
   
   * support adding comments to badmin operations;
   * JOB_SPOOL_DIR supports the %U dynamic pattern format;
@@ -15,7 +35,7 @@ volclava (2.1-0.b.20250912) UNRELEASED; urgency=medium
 
  -- Nan Qi <qinan.cn@bytedance.com>  Mon, 12 Sep 2025 18:00:00 +0800
 
-volclava (2.0-0.b.20250616) UNRELEASED; urgency=medium
+volclava (2.0-0.b.20250616) RELEASED; urgency=medium
 
   * support fairshare scheduling policy for users at queue level;
   * support customize unit by configure LSF_UNIT_FOR_LIMITS in lsf.conf;
@@ -30,7 +50,7 @@ volclava (2.0-0.b.20250616) UNRELEASED; urgency=medium
 
  -- Mingze Li <limingze.jiayou@bytedance.com>  Mon, 16 Jun 2025 11:57:00 +0800
 
-volclava (1.0-1.b.20250226) UNRELEASED; urgency=medium
+volclava (1.0-1.b.20250226) RELEASED; urgency=medium
 
   * lsb.users: support MAX_PEND_JOBS and MAX_PEND_SLOTS;
   * lsb.params: support MAX_PEND_JOBS and MAX_PEND_SLOTS and SUB_TRY_INTERVAL;
@@ -42,7 +62,7 @@ volclava (1.0-1.b.20250226) UNRELEASED; urgency=medium
 
  -- Mingze Li <limingze.jiayou@bytedance.com>  Wed, 26 Feb 2025 17:17:18 +0800
 
-volclava (1.0-1.b.20250106) UNRELEASED; urgency=medium
+volclava (1.0-1.b.20250106) RELEASED; urgency=medium
 
   * bugfix: revert check for tcl result with function in tcl 8.6;
   * configure: set default limit from cpu to cpu>=0 in lsf.task;
@@ -52,7 +72,7 @@ volclava (1.0-1.b.20250106) UNRELEASED; urgency=medium
   * make install script support ubuntu OS;
  -- Mingze Li <limingze.jiayou@bytedance.com>  Mon, 06 Jan 2025 15:57:18 +0800
 
-volclava (1.0-1.b.20241126) UNRELEASED; urgency=medium
+volclava (1.0-1.b.20241126) RELEASED; urgency=medium
 
   * Multiple feature support: bjobs -UF; bjobs -o/-json; bsub -pack; bsub -Ep; etc.
   * Multiple bugfix: MXJ not equal with maxCpus when set "!"; lshosts -l segmentation fault;
