@@ -39,6 +39,8 @@ static int    returnHostInfo(struct hostDataReply *, int, struct hData **,
 
 static struct resPair * getResPairs(struct hData *);
 
+static void freeLIMHostFields(struct hostInfo *);
+static void copyLIMHostInfo(struct hostInfo *, struct hostInfo *);
 static void addMigrantHost(struct hostInfo *);
 static int rmMigrantHost(void);
 static void migrantHostJobs(struct hData *);
@@ -49,6 +51,77 @@ typedef enum {
     UNREACH_UNAVAIL,
     UNAVAIL_OK
 } hostChange;
+
+/*
+ * Release dynamically allocated fields owned by an mbd LIM host cache entry
+ * Keep scalar fields untouched because callers either overwrite or discard the entry
+ * @param[in,out] host: LIM host cache entry to clean
+ */
+static void
+freeLIMHostFields(struct hostInfo *host)
+{
+    int i;
+
+    if (host == NULL)
+        return;
+
+    FREEUP(host->hostType);
+    FREEUP(host->hostModel);
+    FREEUP(host->windows);
+    FREEUP(host->busyThreshold);
+
+    if (host->resources != NULL) {
+        for (i = 0; i < host->nRes; i++)
+            FREEUP(host->resources[i]);
+        FREEUP(host->resources);
+    }
+
+    host->nRes = 0;
+    host->windows = NULL;
+    host->busyThreshold = NULL;
+    host->numIndx = 0;
+}
+
+/*
+ * Deep copy LIM host information into mbd-owned storage
+ * This prevents LIMhosts from pointing at ls_gethostinfo() static storage
+ * @param[out] desc: Destination LIM host cache entry
+ * @param[in] src: Source host information returned by LIM
+ */
+static void
+copyLIMHostInfo(struct hostInfo *desc, struct hostInfo *src)
+{
+    int i;
+
+    memset(desc, 0, sizeof(*desc));
+
+    strcpy(desc->hostName, src->hostName);
+    desc->hostType = safeSave(src->hostType);
+    desc->hostModel = safeSave(src->hostModel);
+    desc->cpuFactor = src->cpuFactor;
+    desc->maxCpus = src->maxCpus;
+    desc->maxMem = src->maxMem;
+    desc->maxSwap = src->maxSwap;
+    desc->maxTmp = src->maxTmp;
+    desc->nDisks = src->nDisks;
+    desc->isServer = src->isServer;
+    desc->rexPriority = src->rexPriority;
+    desc->numIndx = src->numIndx;
+    desc->windows = safeSave(src->windows);
+
+    if (src->numIndx > 0 && src->busyThreshold != NULL) {
+        desc->busyThreshold = my_malloc(src->numIndx * sizeof(float), __func__);
+        memcpy(desc->busyThreshold, src->busyThreshold,
+               src->numIndx * sizeof(float));
+    }
+
+    if (src->nRes > 0 && src->resources != NULL) {
+        desc->nRes = src->nRes;
+        desc->resources = my_malloc(desc->nRes * sizeof(char *), __func__);
+        for (i = 0; i < desc->nRes; i++)
+            desc->resources[i] = safeSave(src->resources[i]);
+    }
+}
 
 int
 checkHosts(struct infoReq *hostsReqPtr,
@@ -1014,6 +1087,7 @@ getLsbAHostInfo(char *hName)
     struct qData *qp;
     struct hData *hPtr = NULL;
     struct hostInfo *hInfo = NULL;
+    struct hostInfo *limHost = NULL;
     int i;
 
     if (logclass & LC_TRACE) {
@@ -1049,20 +1123,37 @@ getLsbAHostInfo(char *hName)
         return;
     }
 
+    for (i = 0; i < numLIMhosts; i++) {
+        if (equalHost_(hInfo->hostName, LIMhosts[i].hostName)) {
+            limHost = &LIMhosts[i];
+            freeLIMHostFields(limHost);
+            copyLIMHostInfo(limHost, hInfo);
+            break;
+        }
+    }
+    if (limHost == NULL) {
+        LIMhosts = (struct hostInfo *) my_realloc(LIMhosts,
+                                                  (numLIMhosts + 1) * sizeof(struct hostInfo),
+                                                  "getLsbAHostInfo");
+        limHost = &LIMhosts[numLIMhosts];
+        copyLIMHostInfo(limHost, hInfo);
+        numLIMhosts++;
+    }
+
     if ((hPtr = getHostData(hName)) == NULL) {
 
         /* volclava add batch host with some
          * reasonable defaults.
          */
-        addMigrantHost(hInfo);
+        addMigrantHost(limHost);
     } else {
         numofprocs -= hPtr->numCPUs;
 
-        hPtr->cpuFactor = hInfo->cpuFactor;
-        if (hInfo->maxCpus <= 0) {
+        hPtr->cpuFactor = limHost->cpuFactor;
+        if (limHost->maxCpus <= 0) {
             hPtr->numCPUs = 1;
         } else {
-            hPtr->numCPUs = hInfo->maxCpus;
+            hPtr->numCPUs = limHost->maxCpus;
         }
 
         if (hPtr->flags & HOST_AUTOCONF_MXJ) {
@@ -1075,20 +1166,20 @@ getLsbAHostInfo(char *hName)
 
         numofprocs += hPtr->numCPUs;
         FREEUP (hPtr->hostType);
-        hPtr->hostType = safeSave (hInfo->hostType);
+        hPtr->hostType = safeSave (limHost->hostType);
         FREEUP (hPtr->hostModel);
-        hPtr->hostModel = safeSave (hInfo->hostModel);
-        hPtr->maxMem    = hInfo->maxMem;
+        hPtr->hostModel = safeSave (limHost->hostModel);
+        hPtr->maxMem    = limHost->maxMem;
 
         if (hPtr->leftRusageMem == INFINIT_LOAD && hPtr->maxMem != 0)
             hPtr->leftRusageMem = hPtr->maxMem;
 
-        hPtr->maxSwap = hInfo->maxSwap;
-        hPtr->maxTmp  = hInfo->maxTmp;
-        hPtr->nDisks  = hInfo->nDisks;
+        hPtr->maxSwap = limHost->maxSwap;
+        hPtr->maxTmp  = limHost->maxTmp;
+        hPtr->nDisks  = limHost->nDisks;
         FREEUP (hPtr->resBitMaps);
-        hPtr->resBitMaps = getResMaps(hInfo->nRes,
-                                      hInfo->resources);
+        hPtr->resBitMaps = getResMaps(limHost->nRes,
+                                      limHost->resources);
     }
 
     i = TRUE;
@@ -1722,33 +1813,48 @@ adjLsbLoad(struct jData *jpbw, int forResume, bool_t doAdj) {
 void
 getLsfHostInfo(int retry)
 {
+    struct hostInfo *hostInfo = NULL;
+    int numHosts = 0;
     int i;
 
-    /* openlava 2.0 we don't copy the host information
-     * we get from lim anymore for performance reasons.
-     * This also means thet we must always call this
-     * functiona sking about all lim hosts since the libray
-     * is keeping the memory state for us.
+    /* Keep an mbd-owned copy because ls_gethostinfo() returns static
+     * library storage that is rebuilt by later host info calls.
      */
 
     TIMEIT(0,
-           LIMhosts = ls_gethostinfo("-",
-                                     &numLIMhosts,
+           hostInfo = ls_gethostinfo("-",
+                                     &numHosts,
                                      NULL,
                                      0,
                                      LOCAL_ONLY),
            __func__);
 
-    for (i = 0; i < 3 && LIMhosts == NULL
+    for (i = 0; i < 3 && hostInfo == NULL
              && lserrno == LSE_TIME_OUT && retry == TRUE; i++) {
         millisleep_(6000);
-        TIMEIT(0, LIMhosts = ls_gethostinfo("-",
-                                            &numLIMhosts,
+        TIMEIT(0, hostInfo = ls_gethostinfo("-",
+                                            &numHosts,
                                             NULL,
                                             0,
                                             LOCAL_ONLY),
                __func__);
     }
+
+    if (hostInfo == NULL)
+        return;
+
+    for (i = 0; i < numLIMhosts; i++)
+        freeLIMHostFields(&LIMhosts[i]);
+    FREEUP(LIMhosts);
+    numLIMhosts = 0;
+
+    if (numHosts <= 0)
+        return;
+
+    LIMhosts = my_malloc(numHosts * sizeof(struct hostInfo), __func__);
+    for (i = 0; i < numHosts; i++)
+        copyLIMHostInfo(&LIMhosts[i], &hostInfo[i]);
+    numLIMhosts = numHosts;
 }
 
 struct hostInfo *
