@@ -715,6 +715,28 @@ Lava Base, Lava Batch
 .PP
 .PP
 LSB_ECHKPNT_METHOD, LSB_ECHKPNT_METHOD_DIR
+.SH LSB_ESUB_METHOD
+.BR
+.PP
+.SS Syntax
+.BR
+.PP
+.PP
+\fBLSB_ESUB_METHOD = \fR"\fBapplication_name [application_name] ...\fR"
+.SS Description
+.BR
+.PP
+.PP
+Specifies a mandatory esub that applies to all job submissions. The name of the esub program must be a valid file name. Valid file names contain only alphanumeric characters, underscore (_) and hyphen (-). The value of LSB_ESUB_METHOD must correspond to an actual esub file. For example, to use LSB_ESUB_METHOD=app1, the esub.app1 file must exist in LSF_SERVERDIR.
+.PP
+LSB_ESUB_METHOD can also be defined as an environment variable.
+.PP
+If a default esub exists and the job also specifies a job-level esub via bsub -a, the three esub executables are executed in the following order: default esub → LSB_ESUB_METHOLD → bsub -a
+.SS Default
+.BR
+.PP
+.PP
+Undefined
 .SH LSB_INTERACT_MSG_ENH
 .BR
 .PP
