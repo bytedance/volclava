@@ -581,7 +581,7 @@ void mkJobMergedResReqEntry(struct jData *jp) {
     struct resReqEntry *resReqEnt = NULL;
 
     /* key = job_resreq#jobAttr#queueName*/
-    if (jp->numAskedPtr > 0 || jp->askedOthPrio >= 0) {
+    if (jp->numAskedPtr > 0 || jp->askedOthPrio >= 0 || (jp->shared->jobBill.options & SUB_HOST)) {
         jobAttr |= MERGE_RESREQ_ANY;
     }
 

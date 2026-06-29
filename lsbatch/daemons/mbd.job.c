@@ -899,6 +899,7 @@ chkAskedHosts(int inNumAskedHosts, char **inAskedHosts, int numProcessors,
 
 
     if (numAskedHosts == 0 && *askedOthPrio >= 0 && allSpecified == FALSE) {
+        *badHostIndx = 0;
         FREEUP(askedHosts);
         return LSBE_BAD_HOST;
     }
