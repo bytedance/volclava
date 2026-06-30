@@ -1,5 +1,5 @@
 #!/bin/bash
-# Copyright (C) 2021-2025 Bytedance Ltd. and/or its affiliates
+# Copyright (C) 2021-2026 Bytedance Ltd. and/or its affiliates
 # Description:
 # You can use this script in two ways to install volclava in shared file system:
 # Way1: Install volclava in cluster by three steps:

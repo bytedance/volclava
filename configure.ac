@@ -1,7 +1,7 @@
 #
 # volclava project
 #
-# Copyright (C) 2021-2025 Bytedance Ltd. and/or its affiliates
+# Copyright (C) 2021-2026 Bytedance Ltd. and/or its affiliates
 # Copyright (C) 2011 David Bigagli
 #
 AC_INIT([volclava], [2.2], [https://github.com/bytedance/volclava/issues])

@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Copyright (C) 2021-2025 Bytedance Ltd. and/or its affiliates
+# Copyright (C) 2021-2026 Bytedance Ltd. and/or its affiliates
 
 source ./libinstall.sh
 
