@@ -1,5 +1,5 @@
 ## Description
-**volclava**, whose latest version is 2.2.0 beta, is developed based on OpenLava 2.0 with following its license of GPL 2.0.
+**volclava**, whose latest version is 2.2.0-beta, is developed based on OpenLava 2.0 with following its license of GPL 2.0.
 
 OpenLava is a free and open-source workload scheduler that's fully compatible with IBM LSF. It supports diverse high-performance computing and analytical applications.
 It came from an early version of LSF through open-sourcing. Its command-line and file formats are similar to most LSF functions, so both users and administrators can easily get the hang of operating it.
@@ -10,9 +10,9 @@ Everyone is welcomed to feed back via git issue.
 
 ## Latest Version
 
-**Volclava 2.2.0.beta** - Public Beta Release
+**Volclava 2.2.0-beta** - Public Beta Release
 
-This version is built from the master branch with source code tagged as `2.2.0.beta`.
+This version is built from the master branch with source code tagged as `2.2.0-beta`.
 
 For detailed release notes and updates, please visit: [Release Notes](https://github.com/bytedance/volclava/releases)
 
@@ -30,9 +30,9 @@ The following uses the setup of a 3-node cluster (master-test,cmp1-test,cmp2-tes
 1. Download the code onto the master node
 ```
 [user1@master-test install_pkg]# git clone https://github.com/bytedance/volclava.git
-(Optional) Checkout to specific version tag. For example, to use version 2.2.0.beta:
+(Optional) Checkout to specific version tag. For example, to use version 2.2.0-beta:
 [user1@master-test install_pkg]# cd volclava
-[user1@master-test volclava]# git checkout 2.2.0.beta
+[user1@master-test volclava]# git checkout 2.2.0-beta
 ```
 2. Log on master node as root, and enter the source code package directory
 ```

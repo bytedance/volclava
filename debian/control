@@ -9,4 +9,4 @@ Homepage:
 Package: volclava
 Architecture: any
 Depends: tcl-dev, libncurses-dev
-Description: volclava 2.2.0 beta for Ubuntu/Debian
+Description: volclava 2.2.0-beta for Ubuntu/Debian
