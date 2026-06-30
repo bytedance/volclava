@@ -96,14 +96,16 @@ fill_struct(struct requeueEStruct **rquest, int seqnum, int value, char mode)
 	if ((*rquest)[i].value == value) 
 	    return -1;
     if (seqnum >= numAlloc-1) {
-	numAlloc <<= 1; 
-	if (!(*rquest=(struct requeueEStruct *)
-	    realloc(*rquest, numAlloc*sizeof (struct requeueEStruct)))) {
-	    numAlloc >>= 1; 
-	    return -1;
-	}	
-    }
-    (*rquest)[seqnum].value = value; 
+	int newAlloc = numAlloc << 1;
+	struct requeueEStruct *tmp = (struct requeueEStruct *)
+	    realloc(*rquest, newAlloc*sizeof (struct requeueEStruct));
+		if (!tmp) {
+		    return -1;
+		}
+		*rquest = tmp;
+		numAlloc = newAlloc;
+	    }
+    (*rquest)[seqnum].value = value;
     (*rquest)[seqnum].type = mode;
     (*rquest)[seqnum].interval = 1;
     (*rquest)[seqnum+1].type = RQE_END;   

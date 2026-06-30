@@ -1210,6 +1210,7 @@ getClusterConfig(void)
     if (fp == NULL) {
         ls_syslog(LOG_ERR, "\
 %s: popen(%s) failed %m", __func__, buf);
+        return -1;
     }
 
     memset(buf, 0, sizeof(buf));

@@ -132,7 +132,7 @@ _i18n_printf(const char *format, ...)
     va_list ap;
 
     va_start(ap, format);
-    vsprintf(i18nPrintBuffer, format, ap);
+    vsnprintf(i18nPrintBuffer, sizeof(i18nPrintBuffer), format, ap);
     va_end(ap);
     return(i18nPrintBuffer);
 } 
