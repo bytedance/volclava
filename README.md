@@ -149,4 +149,4 @@ The following article offers plentiful user and administrator operation guides, 
 ## Contact Us
 We welcome inquiries and collaboration opportunities regarding the advanced applications of our scheduler, such as developing new features and coming up with new product design. Let's jointly promote the growth of VolcLava. Please feel free to contact us at volclava@picoheart.com
 
-&copy; Copyright (C) 2021-2026 ByteBance Ltd. and/or its affiliates
+&copy; Copyright (C) 2021-2026 ByteDance Ltd. and/or its affiliates
