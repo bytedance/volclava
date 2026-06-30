@@ -2,7 +2,7 @@
 	    Mingze Li <limingze.jiayou@bytedance.com>
 	    Yinkai Lu <luyinkai@bytedance.com>
 
-	* release volclava 2.2.0 beta
+	* release volclava 2.2.0-beta
 
 	* Summary of changes:
 	1. support offloading client query requests to a dedicated query mbd subprocess with multi-threaded handling, improving query throughput and latency under high load;
