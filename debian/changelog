@@ -1,4 +1,4 @@
-volclava (2.2-0.b.20260630) UNRELEASED; urgency=medium
+volclava (2.2-0.b.20260630) RELEASED; urgency=medium
 
   * support offloading client query requests to a dedicated query mbd subprocess with multi-threaded handling, improving query throughput and latency under high load;
   * migrate inter-process communication to epoll I/O model, enabling larger host MXJ and MAX_SBD_CONNS for large-scale clusters;
