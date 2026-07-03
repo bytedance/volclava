@@ -42,7 +42,7 @@ main (int argc, char **argv)
 	exit (-1);
 
 #if defined(DEBUG)
-    sprintf(logfile, "%s/eauth.log", LSTMPDIR);
+    snprintf(logfile, sizeof(logfile), "%s/eauth.log", LSTMPDIR);
     
     if ((logfp = fopen(logfile, "a+")) == NULL) {
 	perror("fopen failed!");
