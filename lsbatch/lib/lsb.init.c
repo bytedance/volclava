@@ -55,7 +55,6 @@ int _lsb_recvtimeout = DEFAULT_API_RECVTIMEOUT;
 int _lsb_fakesetuid = 0;
 
 int lsbMode_ = LSB_MODE_BATCH;
-unitTypes lsbUnitForLimits = Megabytes;
 
 extern int bExceptionTabInit(void);
 extern int mySubUsage_(void *);
@@ -111,11 +110,6 @@ lsb_init (char *appName)
      
     getLogClass_(lsbParams[LSB_DEBUG_CMD].paramValue,
                  lsbParams[LSB_TIME_CMD].paramValue);
-
-    if (lsbParams[LSB_UNIT_FOR_LIMITS].paramValue != NULL) {
-        strToUpper_(lsbParams[LSB_UNIT_FOR_LIMITS].paramValue);
-        lsbUnitForLimits = setUnitForLimits(lsbParams[LSB_UNIT_FOR_LIMITS].paramValue);
-    }
 
     if (bExceptionTabInit()) {
 	lsberrno = LSBE_LSBLIB;

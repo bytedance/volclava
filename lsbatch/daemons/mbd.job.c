@@ -6989,7 +6989,7 @@ checkResReq(char *resReq, int checkOptions)
     if (checkOptions & PARSE_XOR)
         options |= PR_XOR;
 
-    if (parseResReq (resReq, resValPtr, allLsInfo, options, unitForLimits) != PARSE_OK) {
+    if (parseResReq (resReq, resValPtr, allLsInfo, options) != PARSE_OK) {
         goto error;
     }
 

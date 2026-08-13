@@ -1261,7 +1261,7 @@ replay_jobEffeResReq(char * resreq) {
             my_calloc(1, sizeof(struct resVal), "replay_jobEffeResReq");
 
         /* Parse the resource requirement string */
-        if (parseResReq(resreq, resValPtr, allLsInfo, (PR_ALL | PR_BATCH), unitForLimits) != PARSE_OK) {
+        if (parseResReq(resreq, resValPtr, allLsInfo, (PR_ALL | PR_BATCH)) != PARSE_OK) {
             freeResVal(resValPtr);
             return NULL;
         }

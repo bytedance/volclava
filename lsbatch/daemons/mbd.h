@@ -956,7 +956,6 @@ extern int                    debug;
 extern int                    errno;
 extern int                    nextId;
 extern int                    numRemoteJobsInList;
-extern unitTypes              unitForLimits;
 extern int                    packSkipErrFlag;
 extern struct hTab            jobMergedResReqTab;
 extern struct hTab            jobEffeResReqTab;

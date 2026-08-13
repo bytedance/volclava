@@ -89,7 +89,6 @@ extern int getHostAttribNonLim(char *hname, int updateIntvl);
 extern int            parseResReq (char *,
                                    struct resVal *,
                                    struct lsInfo *,
-                                   int,
                                    int);
 extern void           initParse(struct lsInfo *);
 extern int            getResEntry(const char *);

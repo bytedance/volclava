@@ -56,8 +56,6 @@ int  numHostResources;
 struct sharedResource **hostResources = NULL;
 u_short lsfSharedCkSum = 0;
 
-unitTypes unitForLimits = Megabytes;
-
 pid_t pimPid = -1;
 static void startPIM(int, char **);
 
@@ -213,11 +211,6 @@ Reading configuration from %s/lsf.conf\n", env_dir);
         lim_debug = atoi(limParams[LSF_LIM_DEBUG].paramValue);
         if (lim_debug <= 0)
             lim_debug = 1;
-    }
-
-    if (limParams[LSF_UNIT_FOR_LIMITS].paramValue != NULL) {
-        strToUpper_(limParams[LSF_UNIT_FOR_LIMITS].paramValue);
-        unitForLimits = setUnitForLimits(limParams[LSF_UNIT_FOR_LIMITS].paramValue);
     }
 
     if (getuid() != 0) {
