@@ -1,7 +1,7 @@
 #Specify top directory, installer will install volclava under this directory.
-#If not defined, installer will install volclava under /opt/volclava-version.
-#e.g. /opt/volclava-2.2
-VOLC_PREFIX=/opt/volclava-version
+#If not defined, installer will install volclava under /opt/volclava-2.2.
+#For example:
+#VOLC_PREFIX=/opt/volclava-2.2
 
 #Specify the cluster administrator. If not defined, installer will create
 #volclava user as cluster administrator
