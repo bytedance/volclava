@@ -143,7 +143,7 @@ Please refer to [Installation guide](docs/volclava%20%E5%AE%89%E8%A3%85%E5%8F%8A
 
 ## Documentation
 The following article offers plentiful user and administrator operation guides, which can assist you in understanding and using the functions of volclava better.
-- [User Guide](docs/volclava%20%E5%AE%89%E8%A3%85%E5%8F%8A%E9%85%8D%E7%BD%AE%E6%96%87%E6%A1%A3.pdf)
+- [User Guide](docs/volclava%20%E7%94%A8%E6%88%B7%E6%89%8B%E5%86%8C.pdf)
 - [Administrator Guide](docs/volclava%20%E7%AE%A1%E7%90%86%E5%91%98%E6%89%8B%E5%86%8C.pdf)
 
 ## Contact Us
