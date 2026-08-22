@@ -63,8 +63,8 @@ Congratulates, installation is done and enjoy the journey!
 ```
 5. Log on compute nodes and install
 ```
-[root@cmp1-test ~]# sh /install_pkg/volclava/volcinstall.sh --type=server --env=/software/volclava-2.2
-[root@cmp2-test ~]# sh /install_pkg/volclava/volcinstall.sh --type=server --env=/software/volclava-2.2
+[root@cmp1-test ~]# /install_pkg/volclava/volcinstall.sh --type=server --env=/software/volclava-2.2
+[root@cmp2-test ~]# /install_pkg/volclava/volcinstall.sh --type=server --env=/software/volclava-2.2
 ```
 
 6. The directory of installed volclava

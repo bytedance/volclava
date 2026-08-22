@@ -1,5 +1,10 @@
 #!/bin/bash
 # Copyright (C) 2021-2026 Bytedance Ltd. and/or its affiliates
+
+if [ -z "${BASH_VERSION:-}" ]; then
+    exec bash "$0" "$@"
+fi
+
 # Description:
 # You can use this script in two ways to install volclava in shared file system:
 # Way1: Install volclava in cluster by three steps:
@@ -40,7 +45,8 @@
 # 1. initialize variables
 #######################################
 #Default values
-source ./libinstall.sh
+SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+source "${SCRIPT_DIR}/libinstall.sh"
 
 TYPE="code"
 VERSION="2.2"
