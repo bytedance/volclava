@@ -45,8 +45,8 @@ fi
 # 1. initialize variables
 #######################################
 #Default values
-SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
-source "${SCRIPT_DIR}/libinstall.sh"
+CWD="$(dirname "$(realpath "$0")")"
+source "${CWD}/libinstall.sh"
 
 TYPE="code"
 VERSION="2.2"
@@ -67,7 +67,6 @@ VOLC_SH_EXIT=0
 VOLC_CSH_EXIT=0
 
 SCRIPT_PATH="$(realpath "$0")"
-CWD="$(dirname "$(realpath "$0")")"
 
 #######################################
 # 2. define functions
