@@ -2,7 +2,7 @@ Source: volclava
 Section: misc
 Priority: optional
 Maintainer: Mingze Li <limingze.jiayou@bytedance.com>; Guangbo Shu <shuguangbo@bytedance.com>; Nan Qi <qinan.cn@bytedance.com>
-Build-Depends: autoconf, automake, tcl-dev, libncurses-dev
+Build-Depends: autoconf, automake, tcl-dev, libncurses-dev, libtirpc-dev
 Standards-Version: 2.2-0
 Homepage:
 
