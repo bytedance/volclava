@@ -1,3 +1,15 @@
+2026-09-1  Nan Qi <qinan.cn@bytedance.com>
+	   Mingze Li <limingze.jiayou@bytedance.com>
+	   Yinkai Lu <luyinkai@bytedance.com>
+
+	* release volclava 2.2.0
+
+	* Summary of changes:
+	1. Fixed an issue where the interactive job working directory size could not be resized.
+	2. Fixed mbatchd core dump when bsub -pack jobs use -f.
+	3. Fixed incorrect resreq display and unit conversion when LSF_UNIT_FOR_LIMITS is set.
+	4. Fixed installer helper resolution from the script directory. 
+
 2026-06-30  Nan Qi <qinan.cn@bytedance.com>
 	    Mingze Li <limingze.jiayou@bytedance.com>
 	    Yinkai Lu <luyinkai@bytedance.com>
