@@ -825,7 +825,9 @@ addHost(struct hostInfo *lsf,
 
             hPtr->loadSched[i] = thPtr->loadSched[i];
             if (i == MEM || i == SWP || i == TMP) {
-                hPtr->loadSched[i] = convertUnitToMB(hPtr->loadSched[i]);
+                for (j = 0; j < unitForLimits; j++) {
+                    hPtr->loadSched[i] *=  1024;
+                }
             }
         }
 
@@ -834,9 +836,12 @@ addHost(struct hostInfo *lsf,
 
             hPtr->loadStop[i] = thPtr->loadStop[i];
             if (i == MEM || i == SWP || i == TMP) {
-                hPtr->loadStop[i] = convertUnitToMB(hPtr->loadStop[i]);
+                for (j = 0; j < unitForLimits; j++) {
+                    hPtr->loadStop[i] *=  1024;
+                }
             }
         }
+
     }
 
     hPtr->flags |= HOST_UPDATE;
@@ -2627,7 +2632,9 @@ addQData(struct queueConf *queueConf, int mbdInitFlags )
 
                 qPtr->loadSched[j] = queue->loadSched[j];
                 if (j == MEM || j == SWP || j == TMP) {
-                    qPtr->loadSched[j]  = convertUnitToMB(qPtr->loadSched[j]);
+                    for (k = 0; k < unitForLimits; k++) {
+                        qPtr->loadSched[j] *=  1024;
+                    }
                 }
             }
 
@@ -2635,7 +2642,9 @@ addQData(struct queueConf *queueConf, int mbdInitFlags )
 
                 qPtr->loadStop[j] = queue->loadStop[j];
                 if (j == MEM || j == SWP || j == TMP) {
-                    qPtr->loadStop[j]  = convertUnitToMB(qPtr->loadStop[j]);
+                    for (k = 0; k < unitForLimits; k++) {
+                        qPtr->loadStop[j] *=  1024;
+                    }
                 }
             }
         }

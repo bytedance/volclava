@@ -1,5 +1,5 @@
 ## Description
-**volclava**, whose latest version is 2.2.0, is developed based on OpenLava 2.0 with following its license of GPL 2.0.
+**volclava**, whose latest version is 2.2.0-beta, is developed based on OpenLava 2.0 with following its license of GPL 2.0.
 
 OpenLava is a free and open-source workload scheduler that's fully compatible with IBM LSF. It supports diverse high-performance computing and analytical applications.
 It came from an early version of LSF through open-sourcing. Its command-line and file formats are similar to most LSF functions, so both users and administrators can easily get the hang of operating it.
@@ -10,9 +10,9 @@ Everyone is welcomed to feed back via git issue.
 
 ## Latest Version
 
-**Volclava 2.2.0** - Public Release
+**Volclava 2.2.0-beta** - Public Beta Release
 
-This version is built from the master branch with source code tagged as `2.2.0`.
+This version is built from the master branch with source code tagged as `2.2.0-beta`.
 
 For detailed release notes and updates, please visit: [Release Notes](https://github.com/bytedance/volclava/releases)
 
@@ -30,9 +30,9 @@ The following uses the setup of a 3-node cluster (master-test,cmp1-test,cmp2-tes
 1. Download the code onto the master node
 ```
 [user1@master-test install_pkg]# git clone https://github.com/bytedance/volclava.git
-(Optional) Checkout to specific version tag. For example, to use version 2.2.0:
+(Optional) Checkout to specific version tag. For example, to use version 2.2.0-beta:
 [user1@master-test install_pkg]# cd volclava
-[user1@master-test volclava]# git checkout 2.2.0
+[user1@master-test volclava]# git checkout 2.2.0-beta
 ```
 2. Log on master node as root, and enter the source code package directory
 ```
@@ -63,8 +63,8 @@ Congratulates, installation is done and enjoy the journey!
 ```
 5. Log on compute nodes and install
 ```
-[root@cmp1-test ~]# /install_pkg/volclava/volcinstall.sh --type=server --env=/software/volclava-2.2
-[root@cmp2-test ~]# /install_pkg/volclava/volcinstall.sh --type=server --env=/software/volclava-2.2
+[root@cmp1-test ~]# sh /install_pkg/volclava/volcinstall.sh --type=server --env=/software/volclava-2.2
+[root@cmp2-test ~]# sh /install_pkg/volclava/volcinstall.sh --type=server --env=/software/volclava-2.2
 ```
 
 6. The directory of installed volclava
@@ -143,7 +143,7 @@ Please refer to [Installation guide](docs/volclava%20%E5%AE%89%E8%A3%85%E5%8F%8A
 
 ## Documentation
 The following article offers plentiful user and administrator operation guides, which can assist you in understanding and using the functions of volclava better.
-- [User Guide](docs/volclava%20%E7%94%A8%E6%88%B7%E6%89%8B%E5%86%8C.pdf)
+- [User Guide](docs/volclava%20%E5%AE%89%E8%A3%85%E5%8F%8A%E9%85%8D%E7%BD%AE%E6%96%87%E6%A1%A3.pdf)
 - [Administrator Guide](docs/volclava%20%E7%AE%A1%E7%90%86%E5%91%98%E6%89%8B%E5%86%8C.pdf)
 
 ## Contact Us

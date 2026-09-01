@@ -52,7 +52,7 @@ Summary: volclava Distributed Batch Scheduler
 Name: volclava
 Version: %{version}
 # Release: 0.b.%{build_timestamp}
-Release: %{release}.20260901
+Release: %{release}.b.20260630
 License: GPLv2
 Group: Applications/Productivity
 Vendor: volclava foundation
@@ -456,15 +456,13 @@ fi
 %dir %attr(0755,%{VOLCADMIN},%{VOLCADMIN}) %{_volclavatop}/work/logdir
 
 %changelog
-* Tue Sep 1 2026 Releasing volclava 2.2 by Bytedance Ltd. and/or its affiliates
-- upgrade volclava to version 2.2.0
-* Tue Jun 30 2026 Releasing volclava 2.2 beta by Bytedance Ltd. and/or its affiliates
-- upgrade volclava to version 2.2.0-beta
+* Mon Jun 23 2026 Releasing volclava 2.2 by Bytedance Ltd. and/or its affiliates
+- upgrade volclava to version 2.2
 * Sun Nov 16 2025 Releasing volclava 2.1.1 by Bytedance Ltd. and/or its affiliates
 - support sorting hosts for job scheduling via order[slots];
 - enhance mixed-OS deployment installation to maintain compatibility with single-platform mode;
 - fix volclava script error on Ubuntu;
-* Fri Sep 12 2025 Releasing volclava 2.1.0 by Bytedance Ltd. and/or its affiliates
+* Mon Sep 12 2025 Releasing volclava 2.1.0 by Bytedance Ltd. and/or its affiliates
 - support adding comments to badmin operations;
 - JOB_SPOOL_DIR supports the %U dynamic pattern format;
 - support the customization of the admin and cluster name using the environment variables
@@ -574,7 +572,7 @@ the GNU autoconf project.
 - Fix symlinks for MVAPICH1/2.
 * Tue May 27 2008 Gerry Wen <gwen@platform.com> 1.0-2
 - Add wrapper script for MPICH2 mpiexec
-* Wed Feb 13 2008 Shawn Starr <sstarr@platform.com> 1.0-1
+* Mon Feb 13 2008 Shawn Starr <sstarr@platform.com> 1.0-1
 - Make home directory for openlava user.
-* Wed Jan 23 2008 Shawn Starr <sstarr@platform.com> 1.0-0
+* Mon Jan 23 2008 Shawn Starr <sstarr@platform.com> 1.0-0
 - Initial release of Lava 1.0

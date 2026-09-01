@@ -979,6 +979,7 @@ extern int ls_rmhost(const char *);
 extern struct lsEventRec  *ls_readeventrec(FILE *);
 extern int ls_writeeventrec(FILE *, struct lsEventRec *);
 extern int freeHostEntryLog(struct hostEntryLog **);
+extern unitTypes setUnitForLimits(char *);
 extern void strToUpper_(char *);
 
 struct extResInfo {

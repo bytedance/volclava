@@ -390,6 +390,8 @@ extern int isMasterCandidate;
 extern int limConfReady;
 extern int kernelPerm;
 
+extern unitTypes    unitForLimits;
+
 
 
 extern int readShared(void);

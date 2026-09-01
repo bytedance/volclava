@@ -897,13 +897,6 @@ do_rstty2_(int s, int io_fd, int redirect, int async)
 	if (redirect)
 	    tty.termattr.c_lflag &= ~ECHO;
 
-#ifdef TIOCGWINSZ
-	if (ioctl(io_fd, TIOCGWINSZ, (char *)&tty.ws) < 0) {
-	    tty.ws.ws_row = 24;
-	    tty.ws.ws_col = 80;
-	    tty.ws.ws_xpixel = tty.ws.ws_ypixel = 0;
-	}
-#else
 	if ((cp = getenv("LINES")) != NULL)
 	    tty.ws.ws_row = atoi(cp);
 	else
@@ -913,7 +906,6 @@ do_rstty2_(int s, int io_fd, int redirect, int async)
 	else
 	    tty.ws.ws_col = 80;
 	tty.ws.ws_xpixel = tty.ws.ws_ypixel = 0;
-#endif
     }
 
     if (!async) {
