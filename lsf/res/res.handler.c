@@ -3495,6 +3495,12 @@ setptymode(ttyStruct *tts, int slave)
         }
     }
 
+#ifdef TIOCSWINSZ
+    if (ioctl(slave, TIOCSWINSZ, (char *)&tts->ws) < 0) {
+        ls_syslog(LOG_DEBUG, "%s: ioctl TIOCSWINSZ failed: %m", fname);
+    }
+#endif
+
     if (debug > 1)
         ls_syslog(LOG_DEBUG, "setptymode: Leaving");
 
@@ -5928,6 +5934,9 @@ resUpdatetty(struct LSFHeader msgHdr) {
     ttyStruct ttyInfo;
     char *tempBuf;
     int cc;
+#ifdef TIOCSWINSZ
+    int i;
+#endif
 
     if (logclass & LC_TRACE) {
         ls_syslog(LOG_DEBUG, "%s: Entering", fname);
@@ -5967,7 +5976,22 @@ resUpdatetty(struct LSFHeader msgHdr) {
     ttyInfo.attr = restty.termattr;
     ttyInfo.ws = restty.ws;
 
-
+#ifdef TIOCSWINSZ
+    for (i = 0; i < child_cnt; i++) {
+        if (children[i]->stdio != INVALID_FD
+            && (children[i]->rexflag & REXF_USEPTY)) {
+            if (ioctl(children[i]->stdio, TIOCSWINSZ,
+                      (char *)&ttyInfo.ws) < 0) {
+                ls_syslog(LOG_DEBUG,
+                          "%s: ioctl(TIOCSWINSZ) on child %d failed: %m",
+                          fname, children[i]->pid);
+            }
+        }
+        if (children[i]->backClnPtr != NULL) {
+            children[i]->backClnPtr->tty.ws = ttyInfo.ws;
+        }
+    }
+#endif
 
     return 0;
 

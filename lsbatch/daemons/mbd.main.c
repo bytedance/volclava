@@ -114,7 +114,6 @@ struct jData *jDataList[ALLJLIST];
 int    pendJobSlots = 0;
 struct jData *chkJList;
 
-unitTypes unitForLimits = Megabytes;
 int packSkipErrFlag = FALSE;
 
 struct hTab cpuFactors;
@@ -1693,11 +1692,6 @@ initDaemonParams(void)
     if (daemonParams[LSB_PTILE_PACK].paramValue != NULL
         && (strcasecmp(daemonParams[LSB_PTILE_PACK].paramValue, "y") == 0)) {
         setLsbPtilePack(TRUE);
-    }
-
-    if (daemonParams[LSF_UNIT_FOR_LIMITS].paramValue != NULL) {
-        strToUpper_(daemonParams[LSF_UNIT_FOR_LIMITS].paramValue);
-        unitForLimits = setUnitForLimits(daemonParams[LSF_UNIT_FOR_LIMITS].paramValue);
     }
 
     if (daemonParams[LSB_PACK_SKIP_ERROR].paramValue != NULL

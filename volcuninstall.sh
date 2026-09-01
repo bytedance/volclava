@@ -2,7 +2,12 @@
 
 # Copyright (C) 2021-2026 Bytedance Ltd. and/or its affiliates
 
-source ./libinstall.sh
+if [ -z "${BASH_VERSION:-}" ]; then
+    exec bash "$0" "$@"
+fi
+
+SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+source "${SCRIPT_DIR}/libinstall.sh"
 
 function usage() {
     echo "Usage: volcuninstall.sh [--help]"

@@ -920,31 +920,3 @@ cleanDynDbgEnv(void)
         putEnv("DYN_DBG_LOGFILENAME", "");
     }
 }
-
-void
-displayEnhancementNames(void) {
-}
-
-unitTypes setUnitForLimits(char *unitParamValue) {
-    if (strcasecmp(unitParamValue, UNIT_M) == 0 || strcasecmp(unitParamValue, UNIT_MB) == 0) {
-        return Megabytes;
-    }
-
-    if (strcasecmp(unitParamValue, UNIT_G) == 0 || strcasecmp(unitParamValue, UNIT_GB) == 0) {
-        return Gigabytes;
-    }
-
-    if (strcasecmp(unitParamValue, UNIT_T) == 0 || strcasecmp(unitParamValue, UNIT_TB) == 0) {
-        return Terabytes;
-    }
-
-    if (strcasecmp(unitParamValue, UNIT_P) == 0 || strcasecmp(unitParamValue, UNIT_PB) == 0) {
-        return Petabytes;
-    }
-
-    if (strcasecmp(unitParamValue, UNIT_E) == 0 || strcasecmp(unitParamValue, UNIT_EB) == 0) {
-        return Exabytes;
-    }
-
-    return Megabytes;
-}

@@ -16,6 +16,8 @@
 .BR
 .PP
 .br
+[\fB-a \fIapplication_name\fR ...]
+.br
 [\fB-B\fR | \fB-Bn\fR] 
 .br
 [\fB-N\fR | \fB-Nn\fR]
@@ -157,6 +159,15 @@ Modifies jobs with the specified job ID.
 .IP
 Modifies job array elements specified by \fB"\fR\fIjob_ID\fR\fB[\fR\fIindex\fR\fB]"\fR.
 
+.TP
+\fB-a \fIapplication_name\fR ...
+.IP
+Specifies one or more application-specific esub executables for the modified
+job. Each application name must correspond to an \fBesub.\fR\fIapplication_name\fR
+file in LSF_SERVERDIR.
+.IP
+The value is stored as \fBLSB_SUB_ADDITIONAL\fR in the job parameter file
+(\fBLSB_SUB_PARM_FILE\fR), where it can be read by an \fBesub\fR.
 
 .TP 
 \fB-Jd\fR \fIjob_description\fR

@@ -18,6 +18,7 @@
  */
 
 #include "intlibout.h"
+#include "../lib/lproto.h"
 #include <pthread.h> 
 struct sections {
     char   *select;
@@ -34,7 +35,6 @@ static int parseSelect(char * ,
                        struct resVal *,
                        struct lsInfo *,
                        bool_t,
-                       int,
                        int);
 static int parseOrder(char * ,
                       struct resVal *,
@@ -44,19 +44,16 @@ static int parseFilter(char * ,
                        struct lsInfo *);
 static int parseUsage(char * ,
                       struct resVal *,
-                      struct lsInfo *,
-                      int);
+                      struct lsInfo *);
 static int parseSpan (char *,
                       struct resVal *);
 static int resToClassNew(char * ,
                          struct resVal *,
                          struct lsInfo *,
-                         int,
                          int);
 static int resToClassOld(char * ,
                          struct resVal *,
                          struct lsInfo *,
-                         int,
                          int);
 static int setDefaults(struct resVal *,
                        struct lsInfo *,
@@ -216,8 +213,7 @@ int
 parseResReq(char *resReq,
             struct resVal *resVal,
             struct lsInfo *lsInfo,
-            int options,
-            int unitForLimits)
+            int options)
 {
     static char       fname[] = "parseResReq()";
     int               cc;
@@ -251,8 +247,7 @@ parseResReq(char *resReq,
                                   resVal,
                                   lsInfo,
                                   TRUE,
-                                  options,
-                                  unitForLimits)) != PARSE_OK){
+                                  options)) != PARSE_OK){
                 pthread_mutex_unlock(&parseMutex);
                 return(cc);
             }
@@ -261,8 +256,7 @@ parseResReq(char *resReq,
                                   resVal,
                                   lsInfo,
                                   FALSE,
-                                  options,
-                                  unitForLimits)) != PARSE_OK){
+                                  options)) != PARSE_OK){
                 pthread_mutex_unlock(&parseMutex);
                 return(cc);
         }
@@ -281,8 +275,7 @@ parseResReq(char *resReq,
     if (options & PR_RUSAGE) {
         if ((cc = parseUsage(reqSect.rusage,
                              resVal,
-                             lsInfo,
-                             unitForLimits)) != PARSE_OK){
+                             lsInfo)) != PARSE_OK){
             pthread_mutex_unlock(&parseMutex);
             return(cc);
         }
@@ -438,7 +431,7 @@ parseSection(char *resReq, struct sections *section)
 }
 
 static int
-parseSelect(char *resReq, struct resVal *resVal, struct lsInfo *lsInfo, bool_t parseXor, int options, int unitForLimits)
+parseSelect(char *resReq, struct resVal *resVal, struct lsInfo *lsInfo, bool_t parseXor, int options)
 {
     static char fname[] = "parseSelect";
     int cc;
@@ -509,7 +502,7 @@ parseSelect(char *resReq, struct resVal *resVal, struct lsInfo *lsInfo, bool_t p
                     FREEUP(resReq2);
                     return (PARSE_BAD_MEM);
                 }
-                if ((cc = parseSelect(expr, &tmpResVal, lsInfo, FALSE, options, unitForLimits)) != PARSE_OK) {
+                if ((cc = parseSelect(expr, &tmpResVal, lsInfo, FALSE, options)) != PARSE_OK) {
                     for (i--;i>=0; i--) {
                         FREEUP(resVal->xorExprs[i]);
                     }
@@ -553,28 +546,28 @@ parseSelect(char *resReq, struct resVal *resVal, struct lsInfo *lsInfo, bool_t p
     syntax = getSyntax(resReq);
     switch(syntax) {
         case OLD:
-            if ( (cc =resToClassOld(resReq, resVal, lsInfo, unitForLimits, options)) != PARSE_OK) {
+            if ( (cc =resToClassOld(resReq, resVal, lsInfo, options)) != PARSE_OK) {
                 resVal->selectStr[0] = '\0';
                 FREEUP(resReq2);
                 return(cc);
             }
             break;
         case NEW:
-            if ( (cc =resToClassNew(resReq, resVal, lsInfo, unitForLimits, options)) != PARSE_OK) {
+            if ( (cc =resToClassNew(resReq, resVal, lsInfo, options)) != PARSE_OK) {
                 resVal->selectStr[0] = '\0';
                 FREEUP(resReq2);
                 return (cc);
             }
             break;
         case EITHER:
-            if ((cc =resToClassOld(resReq, resVal, lsInfo, unitForLimits, options)) != PARSE_OK)  {
+            if ((cc =resToClassOld(resReq, resVal, lsInfo, options)) != PARSE_OK)  {
 
                 if (cc == PARSE_BAD_NAME || cc == PARSE_BAD_VAL) {
                     resVal->selectStr[0] = '\0';
                     FREEUP(resReq2);
                     return (cc);
                 }
-                if ( (cc =resToClassNew(resReq, resVal, lsInfo, unitForLimits, options)) != PARSE_OK) {
+                if ( (cc =resToClassNew(resReq, resVal, lsInfo, options)) != PARSE_OK) {
                     resVal->selectStr[0] = '\0';
                     FREEUP(resReq2);
                     return (cc);
@@ -665,9 +658,9 @@ parseFilter(char *filter, struct resVal *resVal, struct lsInfo *lsInfo)
 }
 
 static int
-parseUsage (char *usageReq, struct resVal *resVal, struct lsInfo *lsInfo, int unitForLimits)
+parseUsage (char *usageReq, struct resVal *resVal, struct lsInfo *lsInfo)
 {
-    int i, j, m, entry;
+    int i, m, entry;
     float value;
     char *token;
 
@@ -737,10 +730,7 @@ parseUsage (char *usageReq, struct resVal *resVal, struct lsInfo *lsInfo, int un
 
             // deal with LSF_UNIT_FOR_LIMITS
             if (entry == MEM || entry == SWP || entry == TMP) {
-                for (j = 0; j < unitForLimits; j++) {
-                    resVal->val[entry] = resVal->val[entry] * 1000;
-                    value = value * 1000;
-                }
+                resVal->val[entry] = convertUnitToMB(resVal->val[entry]);
             }
         }
     }
@@ -866,9 +856,9 @@ validValue(char *value, struct lsInfo *lsInfo, int nentry)
 
 static int
 resToClassNew(char *resReq, struct resVal *resVal,
-              struct lsInfo *lsInfo, int unitForLimits, int options)
+              struct lsInfo *lsInfo, int options)
 {
-    int i, j, s, t, len, entry, hasQuote;
+    int i, s, t, len, entry, hasQuote;
     char res[MAXLSFNAMELEN], val[MAXLSFNAMELEN];
     char tmpbuf[MAXLSFNAMELEN * 7];
     char *sp, *op;
@@ -902,14 +892,6 @@ resToClassNew(char *resReq, struct resVal *resVal,
 
         if (IS_DIGIT(resReq[s])){
             sp[t++] = resReq[s++];
-
-            // deal with LSF_UNIT_FOR_LIMITS
-            if (( resReq[s] == '\0' || ! IS_DIGIT(resReq[s]) ) && ( entry == MEM || entry == SWP || entry == TMP )) {
-                for (j = 0; j < unitForLimits * 3 ; j++) {
-                    sp[t++] = '0';
-                }
-            }
-
             continue;
         }
 
@@ -1050,10 +1032,10 @@ resToClassNew(char *resReq, struct resVal *resVal,
 
 static int
 resToClassOld(char *resReq, struct resVal *resVal,
-              struct lsInfo *lsInfo, int unitForLimits,
+              struct lsInfo *lsInfo,
               int options)
 {
-    int i, j, m, entry;
+    int i, m, entry;
     char *token;
     char tmpbuf[MAXLINELEN];
     float value;
@@ -1141,12 +1123,7 @@ resToClassOld(char *resReq, struct resVal *resVal,
                  }
 
             // deal with LSF_UNIT_FOR_LIMITS
-            if (entry == MEM || entry == SWP || entry == TMP) {
-                for (j = 0; j < unitForLimits; j++) {
-                    resVal->val[entry] = resVal->val[entry] * 1000;
-                    value = value * 1000;
-                }
-            }
+            // unit conversion is deferred to evalResReq() numericValue()
 
             if (valueSpecified) {
                 if (lsInfo->resTable[entry].orderType == INCR)

@@ -1,3 +1,11 @@
+volclava (2.2-0.20260901) RELEASED; urgency=medium
+  * Fixed an issue where the interactive job working directory size could not be resized.
+  * Fixed mbatchd core dump when bsub -pack jobs use -f.
+  * Fixed incorrect resreq display and unit conversion when LSF_UNIT_FOR_LIMITS is set.
+  * Fixed installer helper resolution from the script directory.
+
+ -- Nan Qi <qinan.cn@bytedance.com>  Tue, 01 Sep 2026 18:00:00 +0800
+
 volclava (2.2-0.b.20260630) RELEASED; urgency=medium
 
   * support offloading client query requests to a dedicated query mbd subprocess with multi-threaded handling, improving query throughput and latency under high load;
@@ -33,7 +41,7 @@ volclava (2.1-0.b.20250912) RELEASED; urgency=medium
   * support mixed OS deployment in clusters installed via source code;
   * modernize code for LIM compilation;
 
- -- Nan Qi <qinan.cn@bytedance.com>  Mon, 12 Sep 2025 18:00:00 +0800
+ -- Nan Qi <qinan.cn@bytedance.com>  Fri, 12 Sep 2025 18:00:00 +0800
 
 volclava (2.0-0.b.20250616) RELEASED; urgency=medium
 

@@ -640,7 +640,7 @@ checkThresholdCond (char *resReq, int unitForLimits)
     resValPtr = (struct resVal *)my_malloc (sizeof (struct resVal),
                                 "checkThresholdCond");
     initResVal (resValPtr);
-    if (parseResReq (resReq, resValPtr, allLsInfo, PR_SELECT, unitForLimits)
+    if (parseResReq (resReq, resValPtr, allLsInfo, PR_SELECT)
             != PARSE_OK) {
         lsbFreeResVal (&resValPtr);
         if (logclass & (LC_EXEC) && resReq)

@@ -195,6 +195,8 @@ extern void inithostsock_(void);
 
 extern int initenv_(struct config_param *, char *);
 extern char *lsTmpDir_;
+extern unitTypes unitForLimits;
+
 extern short getMasterCandidateNoByName_(char *);
 extern char *getMasterCandidateNameByNo_(short);
 extern int getNumMasterCandidates_();
@@ -403,5 +405,7 @@ extern int getOSUserName_(const char *lsfUserName,
                           char *osUserName, unsigned int osUserNameSize);
 extern int getOSUid_(const char *lsfUserName, uid_t *uid);
 extern int getNonPrivilegedPorts();
+extern float convertUnitToMB(float value);
+extern float convertUnitFromMB(float valueMB);
 
 #endif

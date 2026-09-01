@@ -215,7 +215,6 @@ extern float myFactor;
 extern int pgSuspIdleT;
 extern char *env_dir;
 extern time_t bootTime;
-extern unitTypes unitForLimits;
 
 extern struct listEntry *jobQue;
 extern struct jobCard *jobQueHead;

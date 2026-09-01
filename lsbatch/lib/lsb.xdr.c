@@ -64,6 +64,10 @@ xdr_submitReq (XDR *xdrs, struct submitReq *submitReq, struct LSFHeader *hdr)
             FREEUP(submitReq->askedHosts);
             submitReq->askedHosts = NULL;
         }
+        if(submitReq->nxf > 0){
+            FREEUP(submitReq->xf);
+        }
+        submitReq->nxf = 0;
         submitReq->numAskedHosts = 0;
     }
 
@@ -1944,7 +1948,12 @@ bool_t
 xdr_xFile(XDR *xdrs, struct xFile *xf, struct LSFHeader *hdr)
 {
     char *sp;
-
+    /*
+    * struct xFile contains no pointer members, so its fields must not be
+    * freed individually. The memory referenced by xf must be freed by its owner.
+    */
+    if(xdrs->x_op == XDR_FREE)
+        return (TRUE);
     if (xdrs->x_op == XDR_DECODE) {
 	xf->subFn[0] = '\0';
 	xf->execFn[0] = '\0';
