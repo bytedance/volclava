@@ -75,7 +75,6 @@ initConn2NIOS(void)
     conn2NIOS.sock.rbuf->bcount = conn2NIOS.sock.wbuf->bcount = 0;
 }
 
-
 void
 init_res(void)
 {
@@ -85,8 +84,6 @@ init_res(void)
     if (logclass & (LC_TRACE | LC_HANG))
         ls_syslog(LOG_DEBUG, "%s: Entering this routine...", fname);
 
-
-
     if (!sbdMode) {
 	if (! debug) {
 
@@ -95,31 +92,15 @@ init_res(void)
 		fflush(stderr);
 		resExit_(1);
 	    }
-
-
-
 	    chdir("/tmp");
 	}
-
-
 
 	if (debug <= 1) {
 
 	    daemonize_();
-
-
-
 	    ls_openlog("res", resParams[LSF_LOGDIR].paramValue, 0,
 		       resParams[LSF_LOG_MASK].paramValue);
-
-
-
 	    umask(0);
-
-
-
-
-
 	    nice(NICE_LEAST);
 	}
     }
@@ -130,16 +111,15 @@ init_res(void)
     }
 
 
+    defaultTty.ws.ws_row = 24;
+    defaultTty.ws.ws_col = 80;
+    defaultTty.ws.ws_xpixel = defaultTty.ws.ws_ypixel = 0;
     if (isatty(0)) {
         tcgetattr(0, &defaultTty.attr);
-
-        defaultTty.ws.ws_row = 24;
-	defaultTty.ws.ws_col = 80;
-        defaultTty.ws.ws_xpixel = defaultTty.ws.ws_ypixel = 0;
-    } else {
-        defaultTty.ws.ws_row = 24;
-	defaultTty.ws.ws_col = 80;
-        defaultTty.ws.ws_xpixel = defaultTty.ws.ws_ypixel = 0;
+#ifdef TIOCGWINSZ
+        /* Try to get actual window size, keep default if fails */
+        ioctl(0, TIOCGWINSZ, (char *)&defaultTty.ws);
+#endif
     }
 
     if (!sbdMode) {

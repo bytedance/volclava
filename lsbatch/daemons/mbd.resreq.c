@@ -74,7 +74,7 @@ struct resVal * mergeResReq(struct jData *jp, int options) {
 
         if (options & MERGE_RESREQ_ANY) {
             char defStr[] = "select[type == any] order[r15s:pg]";
-            if ((cc = parseResReq(defStr, merge, allLsInfo, (PR_ALL | PR_BATCH), unitForLimits)) != PARSE_OK) {
+            if ((cc = parseResReq(defStr, merge, allLsInfo, (PR_ALL | PR_BATCH))) != PARSE_OK) {
                 ls_syslog(LOG_ERR, "\
 %s: Failed to create default resource requirement for job <%s>, cc <%d>. %m", __func__, lsb_jobid2str(jp->jobId), cc);
                 lsbFreeResVal(&merge);
@@ -82,7 +82,7 @@ struct resVal * mergeResReq(struct jData *jp, int options) {
             }
         } else {
             char defStr[] = "select[type == local] order[r15s:pg]";
-            if ((cc = parseResReq(defStr, merge, allLsInfo, (PR_ALL | PR_BATCH), unitForLimits)) != PARSE_OK) {
+            if ((cc = parseResReq(defStr, merge, allLsInfo, (PR_ALL | PR_BATCH))) != PARSE_OK) {
                 ls_syslog(LOG_ERR, "\
 %s: Failed to create default resource requirement for job <%s>, cc <%d>. %m", __func__, lsb_jobid2str(jp->jobId), cc);
                 lsbFreeResVal(&merge);
@@ -1195,7 +1195,7 @@ static char * rusage2Str(struct resVal *resVal){
                     "%s%s=%0.2f", 
                     curSize == 0 ? "" : ":",
                     allLsInfo->resTable[i].name,
-                    resVal->val[i]);
+                    (i == MEM || i == SWP || i == TMP) ? convertUnitFromMB(resVal->val[i]) : resVal->val[i]); 
         }
     }
 

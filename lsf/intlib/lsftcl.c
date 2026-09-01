@@ -37,6 +37,7 @@ static char                 runTimeDataQueried;
 static int                  numIndx;
 static int                  nRes;
 static struct tclLsInfo     *myTclLsInfo;
+
 /* Arrays holding symbols used in resource requirement
  * expressions.
  */
@@ -63,6 +64,7 @@ numericValue(ClientData clientData,
     int     *indx;
     float   cpuf;
     char    *value;
+    float   divisor = 1.0;
 
     indx = clientData;
 
@@ -73,13 +75,22 @@ numericValue(ClientData clientData,
     resultPtr->type        = TCL_INT;
     runTimeDataQueried     = TRUE;
 
+    /* Host-side MEM/SWP/TMP load indices and maxMem/maxSwap/maxTmp
+     * are in MB. Convert to the unit specified by LSF_UNIT_FOR_LIMITS
+     * so they compare against user-supplied select/rusage values. */
+    if (unitForLimits > 0
+        && (*indx == MEM || *indx == SWP || *indx == TMP
+            || *indx == MAXMEM || *indx == MAXSWAP || *indx == MAXTMP)) {
+        divisor = convertUnitToMB(divisor);
+    }
+
     if (*indx < numIndx) {
 
         resultPtr->type = TCL_DOUBLE;
         if (*indx <= R15M) {
             resultPtr->doubleValue = hPtr->loadIndex[*indx] * cpuf - 1;
         } else {
-            resultPtr->doubleValue = hPtr->loadIndex[*indx];
+            resultPtr->doubleValue = hPtr->loadIndex[*indx] / divisor;
             if (hPtr->loadIndex[*indx] >= (INFINIT_LOAD - 10.0)
                 && hPtr->flag !=  TCL_CHECK_SYNTAX) {
 
@@ -110,15 +121,18 @@ numericValue(ClientData clientData,
 
     } else if (*indx == MAXMEM) {
 
-        resultPtr->intValue = hPtr->maxMem;
+        resultPtr->type = TCL_DOUBLE;
+        resultPtr->doubleValue = hPtr->maxMem / divisor;
 
     } else if (*indx == MAXSWAP) {
 
-     resultPtr->intValue = hPtr->maxSwap;
+        resultPtr->type = TCL_DOUBLE;
+        resultPtr->doubleValue = hPtr->maxSwap / divisor;
 
     } else if (*indx == MAXTMP) {
 
-        resultPtr->intValue = hPtr->maxTmp;
+        resultPtr->type = TCL_DOUBLE;
+        resultPtr->doubleValue = hPtr->maxTmp / divisor;
 
     } else if (*indx == SERVER) {
 

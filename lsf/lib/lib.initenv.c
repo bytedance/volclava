@@ -49,6 +49,7 @@ struct config_param genParams_[] =
     {"HOSTS_FILE", NULL},
     {"LSB_SHAREDIR", NULL},
     {"LSF_NON_PRIVILEGED_PORTS", NULL},
+    {"LSF_UNIT_FOR_LIMITS", NULL},
     {NULL, NULL}
 };
 
@@ -56,10 +57,15 @@ char *stripDomains_ = NULL;
 int  errLineNum_ = 0;
 char *lsTmpDir_;
 
+/* Global unit-for-limits setting (LSF_UNIT_FOR_LIMITS from lsf.conf).
+ * Owned by liblsf.a; set by initenv_().
+ * Read by lib and daemons/libs linking liblsf.a. */
+unitTypes unitForLimits = Megabytes;
 
 static int parseLine(char *line, char **keyPtr, char **valuePtr);
 static int matchEnv(char *, struct config_param *);
 static int setConfEnv(char *, char *, struct config_param *);
+static unitTypes getUnitForLimits(char *);
 
 static int
 doEnvParams_(struct config_param *plp)
@@ -169,6 +175,7 @@ initenv_(struct config_param *userEnv, char *pathname)
     }
 
     lsTmpDir_ = getTempDir_();
+    unitForLimits = getUnitForLimits(genParams_[LSF_UNIT_FOR_LIMITS].paramValue);
 
     if (Error)
         return(-1);
@@ -365,3 +372,20 @@ setConfEnv (char *name, char *value, struct config_param *paramList)
     return(1);
 }
 
+static unitTypes
+getUnitForLimits(char *unitParamValue)
+{
+    if (unitParamValue == NULL)
+        return Megabytes;
+    if (strcasecmp(unitParamValue, UNIT_M) == 0 || strcasecmp(unitParamValue, UNIT_MB) == 0)
+        return Megabytes;
+    if (strcasecmp(unitParamValue, UNIT_G) == 0 || strcasecmp(unitParamValue, UNIT_GB) == 0)
+        return Gigabytes;
+    if (strcasecmp(unitParamValue, UNIT_T) == 0 || strcasecmp(unitParamValue, UNIT_TB) == 0)
+        return Terabytes;
+    if (strcasecmp(unitParamValue, UNIT_P) == 0 || strcasecmp(unitParamValue, UNIT_PB) == 0)
+        return Petabytes;
+    if (strcasecmp(unitParamValue, UNIT_E) == 0 || strcasecmp(unitParamValue, UNIT_EB) == 0)
+        return Exabytes;
+    return Megabytes;
+}

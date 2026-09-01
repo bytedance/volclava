@@ -119,8 +119,6 @@ int lsbJobCpuLimit = -1;
 int lsbJobMemLimit = -1;
 int lsbStdoutDirect = FALSE;
 
-unitTypes unitForLimits = Megabytes;
-
 int sbdLogMask;
 
 
@@ -175,11 +173,6 @@ main (int argc, char **argv)
 	&&(daemonParams[LSB_STDOUT_DIRECT].paramValue[0] == 'y'
            || daemonParams[LSB_STDOUT_DIRECT].paramValue[0] == 'Y' ) ) {
         lsbStdoutDirect = TRUE;
-    }
-
-    if (daemonParams[LSF_UNIT_FOR_LIMITS].paramValue != NULL) {
-        strToUpper_(daemonParams[LSF_UNIT_FOR_LIMITS].paramValue);
-        unitForLimits = setUnitForLimits(daemonParams[LSF_UNIT_FOR_LIMITS].paramValue);
     }
 
     ls_syslog(LOG_WARNING, "\

@@ -102,7 +102,8 @@ typedef enum {
     LSF_INTERACTIVE_STDERR,
     NO_HOSTS_FILE,
     LSB_SHAREDIR, /* we share this with batch system */
-    LSF_NON_PRIVILEGED_PORTS
+    LSF_NON_PRIVILEGED_PORTS,
+    LSF_UNIT_FOR_LIMITS
 } genparams_t;
 
 #define AM_LAST  (!(genParams_[LSF_AM_OPTIONS].paramValue && \

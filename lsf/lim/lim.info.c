@@ -382,7 +382,7 @@ hostInfoReq(XDR *xdrs,
 
     getTclHostData (&tclHostData, myHostPtr, myHostPtr, TRUE);
     tclHostData.ignDedicatedResource = ignDedicatedResource;
-    cc = parseResReq(hostInfoRequest.resReq, &resVal, &allInfo, propt, unitForLimits);
+    cc = parseResReq(hostInfoRequest.resReq, &resVal, &allInfo, propt);
     if (cc != PARSE_OK
         || evalResReq(resVal.selectStr,
                       &tclHostData,

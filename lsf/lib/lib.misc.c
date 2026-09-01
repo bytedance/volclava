@@ -971,3 +971,45 @@ int getNonPrivilegedPorts() {
         return 1;
     }
 }
+
+/********************************************************************************
+ * convertUnitToMB
+ * Description:
+ *     Convert a value from the unit configured via LSF_UNIT_FOR_LIMITS to MB.
+ *
+ * Input:
+ *     value [in]: value in LSF_UNIT_FOR_LIMITS unit
+ *
+ * Return:
+ *     value in MB
+ ********************************************************************************/
+float
+convertUnitToMB(float value)
+{
+    int j;
+    for (j = 0; j < unitForLimits; j++) {
+        value *= 1024;
+    }
+    return value;
+}
+
+/********************************************************************************
+ * convertUnitFromMB
+ * Description:
+ *     Reverse of convertUnitToMB: convert an MB value back to the unit configured.
+ *
+ * Input:
+ *     valueMB [in]: value in MB
+ *
+ * Return:
+ *     value in LSF_UNIT_FOR_LIMITS unit
+ ********************************************************************************/
+float
+convertUnitFromMB(float valueMB)
+{
+    int j;
+    for (j = 0; j < unitForLimits; j++) {
+        valueMB /= 1024;
+    }
+    return valueMB;
+}

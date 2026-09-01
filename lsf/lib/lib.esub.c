@@ -240,11 +240,11 @@ runEexec_(char *option, int job, struct lenData *eexec, char *path)
 
 
     if (stat(eexecPath, &sbuf) < 0) {
-	    if (logclass & LC_TRACE)
-	        ls_syslog(LOG_DEBUG,
+        if (logclass & LC_TRACE)
+            ls_syslog(LOG_DEBUG,
 		      "%s: Job/task <%d> eexec will not be run, stat(%s) failed: %m", fname, job, eexecPath);
-	        lserrno = LSE_ESUB;
-	        return (-1);
+        lserrno = LSE_ESUB;
+        return (-1);
     }
 
     i = 0;
