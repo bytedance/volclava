@@ -60,7 +60,10 @@ ExclusiveArch: x86_64
 URL: https://www.bytedance.com/
 Source: %{name}-%{version}.tar.gz
 Buildroot: %{_tmppath}/%{name}-%{version}-buildroot
-BuildRequires: gcc, tcl-devel, ncurses-devel
+BuildRequires: gcc, tcl-devel, ncurses-devel, libtirpc-devel
+%if 0%{?rhel} >= 8
+BuildRequires: libnsl2-devel
+%endif
 Requires: ncurses, tcl
 Requires(pre): /usr/sbin/useradd
 Requires(post): /sbin/chkconfig
