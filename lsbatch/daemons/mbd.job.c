@@ -2448,6 +2448,7 @@ sbatchdJobs (struct sbdPackage *sbdPackage, struct hData *hData)
     sbdPackage->rusageUpdateRate = rusageUpdateRate;
     sbdPackage->rusageUpdatePercent = rusageUpdatePercent;
     sbdPackage->jobTerminateInterval = jobTerminateInterval;
+    sbdPackage->jobCwdTtl = jobCwdTtl;
     sbdPackage->nAdmins = nManagers;
     if ((sbdPackage->admins = (char **)my_calloc(
              nManagers, sizeof(char *), fname)) != NULL) {
@@ -2492,6 +2493,45 @@ countNumSpecs (struct hData *hData)
 
     return numSpecs;
 
+}
+
+static int
+cwdHasPattern(const char *cwd)
+{
+    return (strstr(cwd, "%J") != NULL || strstr(cwd, "%I") != NULL
+            || strstr(cwd, "%U") != NULL || strstr(cwd, "%P") != NULL
+            || strstr(cwd, "%H") != NULL);
+}
+
+/*
+ * Resolve DEFAULT_JOB_CWD into the cwd string stored in jobSpecs.
+ *
+ * Resolves a relative DEFAULT_JOB_CWD against the job's submission
+ * directory, not the user's home directory.  An absolute value is used
+ * as-is.  The result is normalized to an absolute path so that sbatchd
+ * uses it directly.
+ */
+static void
+resolveDefaultJobCwd(char *dest, const char *defaultCwd,
+                     const char *subHomeDir, const char *submitCwd)
+{
+    char base[MAXFILENAMELEN];
+
+    if (defaultCwd[0] == '/') {
+        strncpy(dest, defaultCwd, MAXFILENAMELEN - 1);
+        dest[MAXFILENAMELEN - 1] = '\0';
+        return;
+    }
+
+    /* Absolute form of the submission directory. */
+    if (submitCwd != NULL && submitCwd[0] == '/')
+        snprintf(base, sizeof(base), "%s", submitCwd);
+    else if (submitCwd != NULL && submitCwd[0] != '\0')
+        snprintf(base, sizeof(base), "%s/%s", subHomeDir, submitCwd);
+    else
+        snprintf(base, sizeof(base), "%s", subHomeDir);
+
+    snprintf(dest, MAXFILENAMELEN, "%s/%s", base, defaultCwd);
 }
 
 void
@@ -2690,7 +2730,32 @@ packJobSpecs (struct jData *jDataPtr, struct jobSpecs *jobSpecs)
 
     jobSpecs->umask = jDataPtr->shared->jobBill.umask;
     strcpy (jobSpecs->cwd, jDataPtr->shared->jobBill.cwd);
+
+    if (!(jDataPtr->shared->jobBill.options2 & SUB2_JOB_CWD)
+        && defaultJobCwd != NULL) {
+        resolveDefaultJobCwd(jobSpecs->cwd, defaultJobCwd,
+                             jDataPtr->shared->jobBill.subHomeDir,
+                             jDataPtr->shared->jobBill.submitCwd);
+        jobSpecs->options2 |= SUB2_JOB_CWD;
+    }
+
+    if (jobSpecs->options2 & SUB2_JOB_CWD && cwdHasPattern(jobSpecs->cwd))
+        jobSpecs->options2 |= SUB2_JOB_CWD_PATTERN;
+
+    if (jobSpecs->options2 & SUB2_JOB_CWD) {
+        char jobIdStr[16], indexStr[16];
+        sprintf(jobIdStr, "%d", LSB_ARRAY_JOBID(jDataPtr->jobId));
+        sprintf(indexStr, "%d", LSB_ARRAY_IDX(jDataPtr->jobId));
+        replaceString(jobSpecs->cwd, "%J", jobIdStr);
+        replaceString(jobSpecs->cwd, "%I", indexStr);
+        replaceString(jobSpecs->cwd, "%U", jDataPtr->userName);
+        replaceString(jobSpecs->cwd, "%P", jDataPtr->shared->jobBill.projectName);
+        if (jDataPtr->numHostPtr > 0 && jDataPtr->hPtr[0])
+            replaceString(jobSpecs->cwd, "%H", jDataPtr->hPtr[0]->host);
+    }
+
     strcpy (jobSpecs->subHomeDir, jDataPtr->shared->jobBill.subHomeDir);
+    strcpy (jobSpecs->submitCwd, jDataPtr->shared->jobBill.submitCwd);
 
     jobSpecs->restartPid = jDataPtr->restartPid;
 
@@ -7092,6 +7157,7 @@ copyJobBill (struct submitReq *subReq, struct submitReq *jobBill, LS_LONG_INT jo
     jobBill->cwd = safeSave(subReq->cwd);
     jobBill->fromHost  = safeSave(subReq->fromHost);
     jobBill->subHomeDir = safeSave(subReq->subHomeDir);
+    jobBill->submitCwd = safeSave(subReq->submitCwd);
     jobBill->command = safeSave(subReq->command);
 
     jobBill->queue = safeSave (subReq->queue);
@@ -7304,6 +7370,7 @@ freeSubmitReq (struct submitReq *jobBill)
     FREEUP (jobBill->projectName);
     FREEUP (jobBill->cwd);
     FREEUP (jobBill->subHomeDir);
+    FREEUP (jobBill->submitCwd);
     FREEUP (jobBill->fromHost);
     FREEUP (jobBill->loginShell);
     FREEUP (jobBill->schedHostType);
@@ -7338,9 +7405,28 @@ mergeSubReq (struct submitReq *to, struct submitReq *old,
     to->numAskedHosts = 0;
     to->askedHosts = NULL;
 
-    to->cwd = safeSave(old->cwd);
+    if (new->options2 & SUB2_JOB_CWD) {
+        to->options2 |= SUB2_JOB_CWD;
+        to->cwd = safeSave(new->cwd);
+    } else if ((old->options2 & SUB2_JOB_CWD) && !(delOptions2 & SUB2_JOB_CWD)) {
+        to->options2 |= SUB2_JOB_CWD;
+        to->cwd = safeSave(old->cwd);
+    } else {
+        /* -cwdn removes -cwd: reset cwd to the original submission
+         * directory (submitCwd); otherwise keep old->cwd */
+        if (old->options2 & SUB2_JOB_CWD)
+            to->cwd = safeSave(old->submitCwd);
+        else
+            to->cwd = safeSave(old->cwd);
+    }
     to->fromHost  = safeSave(old->fromHost);
     to->subHomeDir = safeSave(old->subHomeDir);
+    /* submitCwd is the directory bsub was run from; immutable for the life of
+     * the job.  bmod must never change it: -cwdn rolls back to it, and a bmod
+     * issued by a queue administrator would otherwise redirect the job to the
+     * administrator's cwd.  Modify requests carry submitCwd == "" and it is
+     * deliberately ignored here. */
+    to->submitCwd = safeSave(old->submitCwd);
 
     to->schedHostType = safeSave(old->schedHostType);
     to->jobFile = safeSave(old->jobFile);
@@ -8197,6 +8283,7 @@ initSubmitReq(struct submitReq *jobBill)
     jobBill->projectName = NULL;
     jobBill->cwd = NULL;
     jobBill->subHomeDir = NULL;
+    jobBill->submitCwd = NULL;
     jobBill->fromHost = NULL;
     jobBill->askedHosts = NULL;
     jobBill->xf = NULL;

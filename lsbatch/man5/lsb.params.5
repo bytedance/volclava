@@ -459,6 +459,91 @@ If %HOME% is specified in the user environment, uses that
 directory instead of %windir% for spooled output.
 
 
+.SH JOB_CWD_TTL
+.BR
+.PP
+.SS Syntax
+.BR
+.PP
+.PP
+\fBJOB_CWD_TTL =\fR \fIhours\fR
+.SS Description
+.BR
+.PP
+.PP
+Specifies the time-to-live in hours for the current working directory
+(CWD) of a job created by the \fB-cwd\fR option of \fBbsub\fR.
+The system cleans created CWD directories after a job finishes based
+on the TTL value. Only directories that were created by the system for
+the job are deleted. The following values are available:
+.PP
+\fB0\fR: sbatchd deletes CWD when all processes related to the job finish.
+.PP
+\fB2147483647\fR: Never delete the CWD for a job.
+.PP
+\fB1\fR to \fB2147483646\fR: Delete the CWD for a job after the specified
+number of hours expires.
+.PP
+The system checks the directory list every 5 minutes and deletes only
+the last directory of the path to avoid conflicts when multiple jobs
+share parent directories. TTL is calculated after the post-exec script
+finishes. When sbatchd starts, it checks the directory list file and
+deletes expired CWDs.
+.SS Default
+.BR
+.PP
+.PP
+Not defined. The value of 2147483647 is used, meaning the CWD is not deleted.
+.SH DEFAULT_JOB_CWD
+.BR
+.PP
+.SS Syntax
+.BR
+.PP
+.PP
+\fBDEFAULT_JOB_CWD =\fR \fIpath\fR
+.SS Description
+.BR
+.PP
+.PP
+Specifies a cluster-wide default current working directory for all jobs.
+When defined, this path is used as the CWD for jobs that do not
+explicitly specify a \fB-cwd\fR option and do not have the
+\fBLSB_JOB_CWD\fR environment variable set.
+.PP
+The path supports the same dynamic patterns as \fBbsub -cwd\fR:
+.PP
+\fB%J\fR: Job ID
+.PP
+\fB%I\fR: Index in a job array (0 if not an array job)
+.PP
+\fB%U\fR: User name
+.PP
+\fB%P\fR: Project name
+.PP
+\fB%H\fR: First execution host name
+.PP
+The directory is automatically created on the execution host if it
+does not exist. The \fBJOB_CWD_TTL\fR parameter controls the
+lifecycle of created directories.
+.SS Priority
+.BR
+.PP
+.PP
+CWD is determined in the following priority order:
+.PP
+1. \fBbsub -cwd\fR (highest)
+.PP
+2. \fBLSB_JOB_CWD\fR environment variable
+.PP
+3. \fBDEFAULT_JOB_CWD\fR in lsb.params
+.PP
+4. Submission directory (lowest)
+.SS Default
+.BR
+.PP
+.PP
+Not defined. The submission directory is used as the job CWD.
 .SH JOB_TERMINATE_INTERVAL
 .BR
 .PP
@@ -472,12 +557,12 @@ directory instead of %windir% for spooled output.
 .BR
 .PP
 .PP
-UNIX only. 
+UNIX only.
 .PP
-Specifies the time interval in seconds between sending SIGINT, 
-SIGTERM, and SIGKILL when terminating a job. When a job is 
-terminated, the job is sent SIGINT, SIGTERM, and SIGKILL in sequence 
-with a sleep time of JOB_TERMINATE_INTERVAL between sending the 
+Specifies the time interval in seconds between sending SIGINT,
+SIGTERM, and SIGKILL when terminating a job. When a job is
+terminated, the job is sent SIGINT, SIGTERM, and SIGKILL in sequence
+with a sleep time of JOB_TERMINATE_INTERVAL between sending the
 signals. This allows the job to clean up if necessary.
 .SS Default
 .BR

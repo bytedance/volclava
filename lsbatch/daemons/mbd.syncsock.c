@@ -830,6 +830,7 @@ static int qmbdInitSubmitReqForDecode(struct submitReq *subReq)
     subReq->commandSpool = (char *)my_malloc(MAXFILENAMELEN, fname);
     subReq->cwd = (char *)my_malloc(MAXFILENAMELEN, fname);
     subReq->subHomeDir = (char *)my_malloc(MAXFILENAMELEN, fname);
+    subReq->submitCwd = (char *)my_malloc(MAXFILENAMELEN, fname);
     subReq->chkpntDir = (char *)my_malloc(MAXFILENAMELEN, fname);
     subReq->hostSpec = (char *)my_malloc(MAXHOSTNAMELEN, fname);
 

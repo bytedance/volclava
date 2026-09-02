@@ -201,6 +201,7 @@ lsb_submit(struct submit  *jobSubReq, struct submitReply *submitRep)
     LS_LONG_INT jobId = -1;
     struct lsfAuth auth;
     char cwd[MAXFILENAMELEN];
+    char submitCwd[MAXFILENAMELEN];
     struct group *grpEntry;
     int loop;
     char * queue = NULL;
@@ -263,6 +264,50 @@ lsb_submit(struct submit  *jobSubReq, struct submitReply *submitRep)
     if (getUserInfo(&submitReq, jobSubReq, TRUE) < 0)
         return (-1);
 
+    strcpy(submitCwd, cwd);
+    submitReq.submitCwd = submitCwd;
+
+    if (jobSubReq->options2 & SUB2_JOB_CWD) {
+        if (jobSubReq->cwd == NULL) {
+            lsberrno = LSBE_BAD_ARG;
+            return (-1);
+        }
+        if (jobSubReq->cwd[0] == '/') {
+            strncpy(cwd, jobSubReq->cwd, MAXFILENAMELEN - 1);
+            cwd[MAXFILENAMELEN - 1] = '\0';
+        } else {
+            char tmpCwd[MAXFILENAMELEN];
+            strncpy(tmpCwd, cwd, MAXFILENAMELEN - 1);
+            tmpCwd[MAXFILENAMELEN - 1] = '\0';
+            if (strlen(tmpCwd) + 1 + strlen(jobSubReq->cwd)
+                >= MAXFILENAMELEN) {
+                lsberrno = LSBE_SYS_CALL;
+                errno = ENAMETOOLONG;
+                return (-1);
+            }
+            snprintf(cwd, MAXFILENAMELEN, "%s/%s", tmpCwd, jobSubReq->cwd);
+        }
+    } else {
+        char *envCwd = getenv("LSB_JOB_CWD");
+        if (envCwd != NULL && envCwd[0] != '\0') {
+            if (envCwd[0] == '/') {
+                strncpy(cwd, envCwd, MAXFILENAMELEN - 1);
+                cwd[MAXFILENAMELEN - 1] = '\0';
+            } else {
+                char tmpCwd[MAXFILENAMELEN];
+                strncpy(tmpCwd, cwd, MAXFILENAMELEN - 1);
+                tmpCwd[MAXFILENAMELEN - 1] = '\0';
+                if (strlen(tmpCwd) + 1 + strlen(envCwd)
+                    >= MAXFILENAMELEN) {
+                    lsberrno = LSBE_SYS_CALL;
+                    errno = ENAMETOOLONG;
+                    return (-1);
+                }
+                snprintf(cwd, MAXFILENAMELEN, "%s/%s", tmpCwd, envCwd);
+            }
+            jobSubReq->options2 |= SUB2_JOB_CWD;
+        }
+    }
 
     if (!(jobSubReq->options & SUB_QUEUE)) {
         if (queue != NULL && queue[0] != '\0') {
@@ -314,7 +359,7 @@ lsb_submit_pack(struct submit **jobSubReqs, int jobCount,
     struct submitPackReq packReq;
     struct lsfAuth auth;
     struct lenData *jf_array = NULL;
-    char **homeDir = NULL, **resReq = NULL, **cmd = NULL, **cwd = NULL;
+    char **homeDir = NULL, **resReq = NULL, **cmd = NULL, **cwd = NULL, **submitCwd = NULL;
     LSB_SUB_SPOOL_FILE_T subSpoolFiles;
     int numSubmitJobs = -1;
     int i, loop;
@@ -334,6 +379,7 @@ lsb_submit_pack(struct submit **jobSubReqs, int jobCount,
     resReq = (char **) malloc(jobCount * sizeof(char *));
     cmd = (char **) malloc(jobCount * sizeof(char *));
     cwd = (char **) malloc(jobCount * sizeof(char *));
+    submitCwd = (char **) malloc(jobCount * sizeof(char *));
     jf_array = (struct lenData *) malloc(jobCount * sizeof(struct lenData));
 
     if (!homeDir || !resReq || !cmd || !cwd || !jf_array)
@@ -344,7 +390,8 @@ lsb_submit_pack(struct submit **jobSubReqs, int jobCount,
         resReq[i] = (char *) malloc(MAXLINELEN);
         cmd[i] = (char *) malloc(MAXLINELEN);
         cwd[i] = (char *) malloc(MAXFILENAMELEN);
-        if (!homeDir[i] || !resReq[i] || !cmd[i] || !cwd[i])
+        submitCwd[i] = (char *) malloc(MAXFILENAMELEN);
+        if (!homeDir[i] || !resReq[i] || !cmd[i] || !cwd[i] || !submitCwd[i])
             goto cleanup;
     }
 
@@ -395,11 +442,58 @@ lsb_submit_pack(struct submit **jobSubReqs, int jobCount,
         packReq.jobs[i].resReq = resReq[i];
         packReq.jobs[i].command = cmd[i];
         packReq.jobs[i].cwd = cwd[i];
+        packReq.jobs[i].submitCwd = submitCwd[i];
 
         /* getUserInfo (includes esub processing) */
         if (getUserInfo(&packReq.jobs[i], jobSubReqs[i], FALSE) < 0) {
             ls_syslog(LOG_ERR, "%s: getUserInfo failed for job %d", fname, i);
             goto cleanup;
+        }
+
+        strcpy(submitCwd[i], cwd[i]);
+
+        if (jobSubReqs[i]->options2 & SUB2_JOB_CWD) {
+            if (jobSubReqs[i]->cwd == NULL) {
+                lsberrno = LSBE_BAD_ARG;
+                goto cleanup;
+            }
+            if (jobSubReqs[i]->cwd[0] == '/') {
+                strncpy(cwd[i], jobSubReqs[i]->cwd, MAXFILENAMELEN - 1);
+                cwd[i][MAXFILENAMELEN - 1] = '\0';
+            } else {
+                char tmpCwd[MAXFILENAMELEN];
+                strncpy(tmpCwd, cwd[i], MAXFILENAMELEN - 1);
+                tmpCwd[MAXFILENAMELEN - 1] = '\0';
+                if (strlen(tmpCwd) + 1 + strlen(jobSubReqs[i]->cwd)
+                    >= MAXFILENAMELEN) {
+                    lsberrno = LSBE_SYS_CALL;
+                    errno = ENAMETOOLONG;
+                    goto cleanup;
+                }
+                snprintf(cwd[i], MAXFILENAMELEN, "%s/%s", tmpCwd,
+                         jobSubReqs[i]->cwd);
+            }
+        } else {
+            char *envCwd = getenv("LSB_JOB_CWD");
+            if (envCwd != NULL && envCwd[0] != '\0') {
+                if (envCwd[0] == '/') {
+                    strncpy(cwd[i], envCwd, MAXFILENAMELEN - 1);
+                    cwd[i][MAXFILENAMELEN - 1] = '\0';
+                } else {
+                    char tmpCwd[MAXFILENAMELEN];
+                    strncpy(tmpCwd, cwd[i], MAXFILENAMELEN - 1);
+                    tmpCwd[MAXFILENAMELEN - 1] = '\0';
+                    if (strlen(tmpCwd) + 1 + strlen(envCwd)
+                        >= MAXFILENAMELEN) {
+                        lsberrno = LSBE_SYS_CALL;
+                        errno = ENAMETOOLONG;
+                        goto cleanup;
+                    }
+                    snprintf(cwd[i], MAXFILENAMELEN, "%s/%s", tmpCwd,
+                             envCwd);
+                }
+                jobSubReqs[i]->options2 |= SUB2_JOB_CWD;
+            }
         }
 
         /* call getCommonParams to setup submitReq */
@@ -449,12 +543,14 @@ cleanup:
         FREEUP(resReq[i]);
         FREEUP(cmd[i]);
         FREEUP(cwd[i]);
+        FREEUP(submitCwd[i]);
         if (jf_array) FREEUP(jf_array[i].data);
     }
     FREEUP(homeDir);
     FREEUP(resReq);
     FREEUP(cmd);
     FREEUP(cwd);
+    FREEUP(submitCwd);
     FREEUP(jf_array);
 
     FREEUP(packReq.jobs);
@@ -1580,6 +1676,7 @@ sendErr:
     if (strlen(jobLog->subHomeDir) >= MAXFILENAMELEN - 1)
         goto parentErr;
     submitReq->subHomeDir = jobLog->subHomeDir;
+    submitReq->submitCwd = jobLog->submitCwd;
 
     submitReq->sigValue = (jobLog->options & SUB_WINDOW_SIG)
         ? sig_encode(jobLog->sigValue) : 0;
@@ -2451,6 +2548,17 @@ getOtherParams (struct submit  *jobSubReq, struct submitReq *submitReq,
 	    strcpy(submitReq->cwd, submitReq->cwd+i+1);
     }
 
+    for (i = 0; pw->pw_dir[i] != '\0'
+	    && submitReq->submitCwd[i] == pw->pw_dir[i]; i++);
+
+    if ((i != 0) && (pw->pw_dir[i] == '\0')) {
+	if (submitReq->submitCwd[i] == '\0')
+	    submitReq->submitCwd[0] = '\0';
+	else if (submitReq->submitCwd[i] == '/')
+	    memmove(submitReq->submitCwd, submitReq->submitCwd+i+1,
+		    strlen(submitReq->submitCwd+i+1) + 1);
+    }
+
     strcpy(submitReq->subHomeDir, pw->pw_dir);
 
     submitReq->sigValue = (jobSubReq->options & SUB_WINDOW_SIG)
@@ -2833,6 +2941,7 @@ xdrSubReqSize(struct submitReq *req)
 	  ALIGNWORD_(strlen(req->hostSpec) + 1) + 4 +
 	  ALIGNWORD_(strlen(req->chkpntDir) + 1) + 4 +
 	  ALIGNWORD_(strlen(req->subHomeDir) + 1) + 4 +
+	  ALIGNWORD_(strlen(req->submitCwd) + 1) + 4 +
 	  ALIGNWORD_(strlen(req->cwd) + 1) + 4 +
 	  ALIGNWORD_(strlen(req->mailUser) + 1) + 4 +
 	  ALIGNWORD_(strlen(req->projectName) + 1) + 4 +
@@ -3887,6 +3996,39 @@ setOption_ (int argc, char **argv, char *template, struct submit *req,
 	    break;
 
 	case 'c':
+        if (strncmp(optName, "cwd", 3) == 0) {
+            if (flagPack) {
+                myArgs.argc = req->options;
+                lsb_throw("LSB_BAD_BSUBARGS", &myArgs);
+
+                return (-1);
+            }
+            flagPackConflict = 1;
+
+            checkSubDelOption2(SUB2_JOB_CWD, "cwdn");
+
+            if (req->options & SUB_MODIFY
+                && req->delOptions2 & SUB2_JOB_CWD) {
+                fprintf(stderr, (_i18n_msg_get(ls_catd,NL_SETN,406,
+                    "You cannot modify and set default at the same time"))); /* catgets 406 */
+                return (-1);
+            }
+
+            req->options2 |= SUB2_MODIFY_PEND_JOB;
+            if (!(mask2 & SUB2_JOB_CWD))
+                break;
+
+            if (strlen(optarg) > MAXFILENAMELEN - 1) {
+                PRINT_ERRMSG1(errMsg, _i18n_msg_get(ls_catd,NL_SETN,410,
+                    "%s: File name too long"),
+                    optarg);
+                return(-1);
+            }
+            req->cwd = optarg;
+            req->options2 |= SUB2_JOB_CWD;
+            break;
+        }
+
         if (flagPack) {
             myArgs.argc = req->options;
             lsb_throw("LSB_BAD_BSUBARGS", &myArgs);
@@ -4638,6 +4780,7 @@ subUsage_(int option, char **errMsg)
 	    fprintf(stderr, "\t\t[-u mail_user | -un] [[-f \"lfile op [rfile]\"] ... | -fn] \n");
 	    fprintf(stderr, "\t\t[-E \"pre_exec_command [argument ...]\" | -En]\n");
 	    fprintf(stderr, "\t\t[-sp job_priority | -spn]\n");
+	    fprintf(stderr, "\t\t[-cwd \"current_working_directory\" | -cwdn]\n");
 	    fprintf(stderr, "\t\t[-Z \"new_command\" | -Zs \"new_command\" | -Zsn] \n");
 	    fprintf(stderr, "\t\t[-a additional_esub_information]\n");
 	    fprintf(stderr, "\t\tjobId | \"jobId[index_list]\"\n");
@@ -4666,6 +4809,7 @@ subUsage_(int option, char **errMsg)
 	    fprintf(stderr, "\t\t[-E \"pre_exec_command [argument ...]\"] [-Zs]\n");
         fprintf(stderr, "\t\t[-Ep \"post_exec_command [argument ...]\"\n");
 	    fprintf(stderr, "\t\t[-sp job_priority]\n");
+	    fprintf(stderr, "\t\t[-cwd \"current_working_directory\"]\n");
 	    fprintf(stderr, "\t\t[-pack job_submission_file]\n");
 	    fprintf(stderr, "\t\t[-a additional_esub_information]\n");
 	    fprintf(stderr, "\t\tcommand [argument ...]\n");

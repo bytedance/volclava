@@ -239,6 +239,7 @@ lsb_readjobinfo(int *more)
 	    || (submitReq.hostSpec = malloc(MAXHOSTNAMELEN)) == NULL
 	    || (submitReq.chkpntDir = malloc(MAXFILENAMELEN)) == NULL
 	    || (submitReq.subHomeDir = malloc(MAXFILENAMELEN)) == NULL
+	    || (submitReq.submitCwd = malloc(MAXFILENAMELEN)) == NULL
 	    || (jobInfoReply.userName  = malloc(MAXLSFNAMELEN)) == NULL
 	    || (submitReq.cwd       = malloc(MAXFILENAMELEN)) == NULL) {
 	    lsberrno = LSBE_NO_MEM;
@@ -252,6 +253,7 @@ lsb_readjobinfo(int *more)
 	    FREEUP(submitReq.hostSpec);
 	    FREEUP(submitReq.chkpntDir);
 	    FREEUP(submitReq.subHomeDir);
+	    FREEUP(submitReq.submitCwd);
 	    FREEUP(jobInfoReply.userName);
 	    FREEUP(submitReq.cwd);
 
@@ -341,7 +343,7 @@ lsb_readjobinfo(int *more)
 
     jobInfo.submitTime = jobInfoReply.jobBill->submitTime;
     jobInfo.umask = jobInfoReply.jobBill->umask;
-    jobInfo.cwd = jobInfoReply.jobBill->cwd;
+    jobInfo.cwd = jobInfoReply.jobBill->submitCwd;
     jobInfo.subHomeDir = jobInfoReply.jobBill->subHomeDir;
     jobInfo.submit.options = jobInfoReply.jobBill->options;
     jobInfo.submit.options2 = jobInfoReply.jobBill->options2;
@@ -378,6 +380,7 @@ lsb_readjobinfo(int *more)
     jobInfo.submit.nxf = jobInfoReply.jobBill->nxf;
     jobInfo.submit.xf = jobInfoReply.jobBill->xf;
     jobInfo.submit.jobDesc = jobInfoReply.jobBill->jobDesc;
+    jobInfo.submit.cwd = jobInfoReply.jobBill->cwd;
 
 
 

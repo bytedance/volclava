@@ -28,9 +28,11 @@
 .br
 [\fB-b \fR\fIbegin_time\fR | \fB-bn\fR] 
 .br
-[\fB-C\fR\fB \fR\fIcore_limit\fR | \fB-Cn\fR] 
+[\fB-C\fR\fB \fR\fIcore_limit\fR | \fB-Cn\fR]
 .br
 [\fB-c\fR [\fIhour\fR\fB:\fR]\fIminute\fR[\fB/\fR\fIhost_name\fR | \fB/\fR\fIhost_model\fR] | \fB-cn\fR]
+.br
+[\fB-cwd\fR \fI"current_working_directory"\fR | \fB-cwdn\fR]
 .br
 [\fB-D\fR\fB \fR\fIdata_limit\fR | \fB-Dn\fR] 
 .br
@@ -41,8 +43,6 @@
 [\fB-f\fR\fB \fR\fB"\fR\fIlocal_file op \fR[\fIremote_file\fR]\fB"\fR\fB \fR... | \fB-fn\fR]
 .br
 [\fB-F\fR \fIfile_limit\fR | \fB-Fn\fR] 
-.br
-[\fB-G\fR\fB \fR\fIuser_group\fR | \fB-Gn\fR]
 .br
 [\fB-i \fR\fIinput_file\fR | \fB-in\fR | \fB-is\fR \fIinput_file \fR |  \fB-isn\fR] 
 .br
@@ -63,8 +63,6 @@
 [\fB-o\fR\fB \fR\fIout_file\fR | \fB-on\fR] 
 .br
 [\fB-P\fR \fIproject_name\fR | \fB-Pn\fR] 
-.br
-[\fB-p\fR \fIprocess_limit\fR | \fB-Pn\fR] 
 .br
 [\fB-q\fR\fB "\fR\fIqueue_name\fR\fI ...\fR\fB"\fR | \fB-qn\fR] 
 .br
@@ -169,26 +167,47 @@ file in LSF_SERVERDIR.
 The value is stored as \fBLSB_SUB_ADDITIONAL\fR in the job parameter file
 (\fBLSB_SUB_PARM_FILE\fR), where it can be read by an \fBesub\fR.
 
-.TP 
+.TP
+\fB-cwd\fR \fI"current_working_directory"\fR
+.IP
+Specifies the current working directory (CWD) for the job. Only works
+if the job is in pending state. The path can be absolute or relative to
+the current working directory from which bmod is invoked. If the path
+includes dynamic patterns and the
+specified directory does not exist on the execution host, it is created
+automatically. If the CWD is not accessible on the execution host, the
+job runs in /tmp. If the environment variable
+\fBLSB_EXIT_IF_CWD_NOTEXIST\fR is set to \fBY\fR, the job exits with
+exit code 2 instead of falling back to /tmp.
+.IP
+The path can include dynamic patterns: %J (job ID), %I (array index),
+%U (user name), %P (project name), %H (first execution host).
+
+.TP
+\fB-cwdn\fR
+.IP
+Resets the CWD to the submission directory from the original bsub command.
+
+.TP
 \fB-Jd\fR \fIjob_description\fR
 \fR
 .IP
-Modifies the job description of the specified job. The job description 
-can contain up to 4095 characters. If the description exceeds 4095 
+Modifies the job description of the specified job. The job description
+can contain up to 4095 characters. If the description exceeds 4095
 characters, it will be truncated.
 
 .IP
 The job description can be modified for both pending and running jobs.
 
 
-.TP 
+.TP
 \fB-Jdn\fR
 \fR
 .IP
-Removes the job description from the specified job. The job description 
+Removes the job description from the specified job. The job description
 can be removed for both pending and running jobs.
 
-.TP 
+.TP
 \fB-h
 \fR
 .IP

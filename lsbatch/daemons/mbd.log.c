@@ -1353,7 +1353,6 @@ log_modifyjob(struct modifyReq * modReq, struct lsfAuth *auth)
 
     jobModLog->userPriority = modReq->submitReq.userPriority;
     jobModLog->jobDesc = modReq->submitReq.jobDesc;
-    jobModLog->specifiedCwd = "";
 
     if (putEventRec(fname) < 0) {
         ls_syslog(LOG_ERR, I18N_JOB_FAIL_S,
@@ -1471,6 +1470,7 @@ log_jobdata(struct jData * job, char *fname1, int type)
     strcpy(jobNewLog->fromHost, jobBill->fromHost);
     strcpy(jobNewLog->cwd, jobBill->cwd);
     strcpy(jobNewLog->subHomeDir, jobBill->subHomeDir);
+    strcpy(jobNewLog->submitCwd, jobBill->submitCwd);
     strcpy(jobNewLog->chkpntDir,  jobBill->chkpntDir);
 
     if ((jobBill->options & SUB_IN_FILE) == SUB_IN_FILE)
@@ -1541,8 +1541,6 @@ log_jobdata(struct jData * job, char *fname1, int type)
         strcpy(jobNewLog->jobDesc, jobBill->jobDesc);
     else
         strcpy(jobNewLog->jobDesc, "");
-
-    strcpy(jobNewLog->specifiedCwd, "");
 
     if (putEventRec(fname1) < 0) {
         ls_syslog(LOG_ERR, I18N_JOB_FAIL_S,
@@ -3652,6 +3650,7 @@ replay_modifyjob2(char *filename, int lineNum)
     struct lsfAuth          auth;
     int                     j;
 
+    (void)memset((void *)&modifyReq, '\0', sizeof (modifyReq));
     (void)memset((void *)&auth, '\0', sizeof (auth));
 
     jobModLog = &logPtr->eventLog.jobModLog;
@@ -3806,6 +3805,7 @@ replay_jobdata(char *filename, int lineNum, char *fname)
     jobBill->dependCond = safeSave(jobNewLog->dependCond);
     jobBill->cwd = safeSave(jobNewLog->cwd);
     jobBill->subHomeDir = safeSave(jobNewLog->subHomeDir);
+    jobBill->submitCwd = safeSave(jobNewLog->submitCwd);
     jobBill->chkpntDir = safeSave(jobNewLog->chkpntDir);
     jobBill->resReq = safeSave(jobNewLog->resReq);
     jobBill->loginShell = safeSave(jobNewLog->loginShell);
