@@ -60,9 +60,10 @@ int jsonflag = FALSE;
 
 char *fields[] = {
         "JOBID", "USER", "STAT", "QUEUE", "FROM_HOST", "EXEC_HOST", "JOB_NAME", "SUBMIT_TIME",
-        "PROJ_NAME", "CPU_USED", "MEM", "SWAP", "PIDS", "START_TIME", "FINISH_TIME"
+        "PROJ_NAME", "CPU_USED", "MEM", "SWAP", "PIDS", "START_TIME", "FINISH_TIME",
+        "EXIT_CODE", "JOBINDEX"
 };
-#define FIELD_INDEX          15
+#define FIELD_INDEX          17
 
 static int isLSFAdmin(void);
 static char *Timer2String(float timer);
@@ -863,7 +864,6 @@ displayO (struct jobInfoEnt *job, struct jobInfoHead *jInfoH,
     static char first = TRUE;
     char *status;
     char subtime[64], donetime[64];
-    static char  *exechostfmt;
     static struct loadIndexLog *loadIndex = NULL;
     char *exec_host = "";
     char *jobName, *pos;
@@ -873,16 +873,19 @@ displayO (struct jobInfoEnt *job, struct jobInfoHead *jInfoH,
 
     int                 i = 0;
 
-    char *customizedFields[FIELD_INDEX];
-    char *customizedField;
-    char header[MAXLINELEN];
+    char *customizedFields[FIELD_INDEX] = {NULL};
+    char *customizedField = NULL;
+    char fieldNameCopy[MAXLINELEN];
+    char header[MAXLINELEN] = "";
     int j = 0;
     int k = 0;
     int verifiedField = 0;
     char *delimiter = "";
 
     // TODO take field split out as a separate function
-    customizedField = strtok(fieldName, " ");
+    strncpy(fieldNameCopy, fieldName, MAXLINELEN - 1);
+    fieldNameCopy[MAXLINELEN - 1] = '\0';
+    customizedField = strtok(fieldNameCopy, " ");
 
     while (customizedField != NULL) {
         customizedFields[j] = string_upper(customizedField);
@@ -1059,6 +1062,20 @@ displayO (struct jobInfoEnt *job, struct jobInfoHead *jInfoH,
             }
             continue;
         }
+        if ( strcmp(customizedFields[j], "EXIT_CODE") == 0 ) {
+            if (IS_FINISH(job->status)) {
+                LS_WAIT_T wStatus;
+                LS_STATUS(wStatus) = job->exitStatus;
+                printf("%s%d", delimiter, WEXITSTATUS(wStatus));
+            } else {
+                printf("%s-", delimiter);
+            }
+            continue;
+        }
+        if ( strcmp(customizedFields[j], "JOBINDEX") == 0 ) {
+            printf("%s%d", delimiter, LSB_ARRAY_IDX(job->jobId));
+            continue;
+        }
     }
     printf("\n");
 
@@ -1074,10 +1091,8 @@ cJSON
 {
     char *fName = "displayJson";
     struct submit *submitInfo;
-    static char first = TRUE;
     char *status;
     char subtime[64], donetime[64];
-    static char  *exechostfmt;
     static struct loadIndexLog *loadIndex = NULL;
     char *exec_host = "";
     char *jobName, *pos;
@@ -1088,9 +1103,10 @@ cJSON
 
     int                 i = 0;
 
-    char *customizedFields[FIELD_INDEX];
-    char *customizedField;
-    char *customizedFieldUpper;
+    char *customizedFields[FIELD_INDEX] = {NULL};
+    char *customizedField = NULL;
+    char *customizedFieldUpper = NULL;
+    char fieldNameCopy[MAXLINELEN];
     int j = 0;
     int k = 0;
     int l;
@@ -1103,7 +1119,9 @@ cJSON
     cJSON *jobItem = cJSON_CreateObject();
 
     // TODO take field split out as a separate function
-    customizedField = strtok(fieldName, " ");
+    strncpy(fieldNameCopy, fieldName, MAXLINELEN - 1);
+    fieldNameCopy[MAXLINELEN - 1] = '\0';
+    customizedField = strtok(fieldNameCopy, " ");
 
     while (customizedField != NULL) {
         customizedFieldUpper = string_upper(customizedField);
@@ -1131,7 +1149,6 @@ cJSON
         }
 
         if (verifiedField == 0) {
-//            fprintf(stderr, "Invalid field specs %s\n", customizedField);
             fprintf(stderr, "<%s> in the format string is not a valid field name.\n", customizedField);
             exit(99);
         }
@@ -1298,6 +1315,24 @@ cJSON
             } else {
                 cJSON_AddStringToObject(jobItem, "FINISH_TIME", Time2String(job->endTime));
             }
+            continue;
+        }
+        if ( strcmp(customizedFields[j], "EXIT_CODE") == 0 ) {
+            char exitCodeStr[16];
+            if (IS_FINISH(job->status)) {
+                LS_WAIT_T wStatus;
+                LS_STATUS(wStatus) = job->exitStatus;
+                sprintf(exitCodeStr, "%d", WEXITSTATUS(wStatus));
+            } else {
+                strcpy(exitCodeStr, "-");
+            }
+            cJSON_AddStringToObject(jobItem, "EXIT_CODE", exitCodeStr);
+            continue;
+        }
+        if ( strcmp(customizedFields[j], "JOBINDEX") == 0 ) {
+            char jobIdxStr[16];
+            sprintf(jobIdxStr, "%d", LSB_ARRAY_IDX(job->jobId));
+            cJSON_AddStringToObject(jobItem, "JOBINDEX", jobIdxStr);
             continue;
         }
     }
