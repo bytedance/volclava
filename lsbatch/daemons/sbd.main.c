@@ -72,6 +72,7 @@ int    rusageUpdateRate = DEF_RUSAGE_UPDATE_RATE;
 int    rusageUpdatePercent = DEF_RUSAGE_UPDATE_PERCENT;
 
 int    jobTerminateInterval = DEF_JTERMINATE_INTERVAL;
+int    jobCwdTtl = DEF_JOB_CWD_TTL;
 char   psbdJobSpoolDir[MAXPATHLEN];
 
 time_t now;
@@ -981,6 +982,9 @@ init_sstate (void)
     rusageUpdateRate = sbdPackage.rusageUpdateRate;
     rusageUpdatePercent = sbdPackage.rusageUpdatePercent;
     jobTerminateInterval = sbdPackage.jobTerminateInterval;
+    jobCwdTtl = sbdPackage.jobCwdTtl;
+
+    cwdCleanupExpired();
 
     for (i = 0; i < sbdPackage.nAdmins; i++)
 	FREEUP(sbdPackage.admins[i]);
@@ -1050,6 +1054,14 @@ houseKeeping(void)
 	if (ls_servavail(2, 1) < 0)
 	    ls_syslog(LOG_ERR, I18N_FUNC_FAIL_MM, "main", "ls_servavail");
 	lastTime = now;
+    }
+
+    {
+        static time_t lastCwdCheck = 0;
+        if (now - lastCwdCheck >= 300) {
+            lastCwdCheck = now;
+            cwdCleanupExpired();
+        }
     }
 
 }

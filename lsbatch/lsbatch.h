@@ -523,6 +523,8 @@
 #define  SUB2_MODIFY_RUN_JOB 0x800
 #define  SUB2_MODIFY_PEND_JOB 0x1000
 #define  SUB2_JOB_DESC       0x2000
+#define  SUB2_JOB_CWD        0x4000
+#define  SUB2_JOB_CWD_PATTERN 0x8000
 
 #define  LOST_AND_FOUND  "lost_and_found"
 
@@ -577,6 +579,7 @@ struct submit {
     int    userPriority;
     char   *additionEsubInfo;
     char   *jobDesc;
+    char   *cwd;
 };
 
 struct submitReply {
@@ -925,6 +928,8 @@ struct parameterInfo {
     int  maxPendJobs;
     int  maxPendSlots;
     int  defaultLimitIgnoreUserGroup;
+    int  jobCwdTtl;
+    char *defaultJobCwd;
     float cpuTimeFactor;
     float runTimeFactor;
     float runJobFactor;
@@ -1048,7 +1053,7 @@ struct jobNewLog {
     int    idx;
     int    userPriority;
     char   jobDesc[MAX_JOB_DESC_LEN];
-    char   specifiedCwd[MAXFILENAMELEN];
+    char   submitCwd[MAXFILENAMELEN];
 };
 
 struct jobModLog {
@@ -1109,7 +1114,6 @@ struct jobModLog {
     char    *schedHostType;
     int     userPriority;
     char    *jobDesc;
-    char    *specifiedCwd;
 };
 struct jobStartLog {
     int jobId;

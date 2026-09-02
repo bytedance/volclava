@@ -85,6 +85,7 @@
 #define  DEF_RUSAGE_UPDATE_RATE 1
 #define  DEF_RUSAGE_UPDATE_PERCENT 10
 #define  DEF_JTERMINATE_INTERVAL   10
+#define  DEF_JOB_CWD_TTL          INFINIT_INT
 #define SLAVE_FATAL           101
 #define SLAVE_MEM             102
 #define SLAVE_RESTART	      103
@@ -261,6 +262,7 @@ struct jobSpecs {
     char      errFile[MAXFILENAMELEN];
     int       umask;
     char      cwd[MAXFILENAMELEN];
+    char      submitCwd[MAXFILENAMELEN];
     int       restartPid;
     int       nxf;
     struct    xFile *xf;
@@ -356,6 +358,7 @@ struct sbdPackage {
     int    rusageUpdateRate;
     int    rusageUpdatePercent;
     int    jobTerminateInterval;
+    int    jobCwdTtl;
     int    nAdmins;
     char   **admins;
 };
@@ -517,6 +520,8 @@ extern struct tclLsInfo  *tclLsInfo;
 extern int rusageUpdateRate;
 extern int rusageUpdatePrecent;
 extern int jobTerminateInterval;
+extern int jobCwdTtl;
+extern char *defaultJobCwd;
 extern int lsf_crossUnixNT;
 
 

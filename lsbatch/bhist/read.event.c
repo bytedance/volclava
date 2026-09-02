@@ -222,7 +222,8 @@ read_newjob(struct eventRec *log)
     strcpy(submitPtr->queue, jobNewLog->queue);
     STRNCPY(submitPtr->resReq, jobNewLog->resReq,MAXLINELEN);
     strcpy(job->fromHost, jobNewLog->fromHost);
-    strcpy(job->cwd, jobNewLog->cwd);
+    strcpy(job->cwd, jobNewLog->submitCwd);
+    strcpy(submitPtr->cwd, jobNewLog->cwd);
 
     strcpy(submitPtr->chkpntDir, jobNewLog->chkpntDir);
     strcpy(submitPtr->inFile, jobNewLog->inFile);
@@ -402,6 +403,7 @@ copyJobInfoEnt(struct jobInfoEnt *jobInfo)
     strcpy(submitPtr->resReq, jobInfo->submit.resReq);
     strcpy(job->fromHost, jobInfo->fromHost);
     strcpy(job->cwd, jobInfo->cwd);
+    strcpy(submitPtr->cwd, jobInfo->submit.cwd);
 
     strcpy(submitPtr->chkpntDir, jobInfo->submit.chkpntDir);
     strcpy(submitPtr->inFile, jobInfo->submit.inFile);
@@ -472,6 +474,7 @@ freeJobInfoEnt(struct jobInfoEnt *jobInfoEnt)
     FREEUP(jobInfoEnt->submit.projectName);
     FREEUP(jobInfoEnt->submit.loginShell);
     FREEUP(jobInfoEnt->submit.jobDesc);
+    FREEUP(jobInfoEnt->submit.cwd);
 
     if (jobInfoEnt->submit.numAskedHosts > 0) {
         for (i=0;i<jobInfoEnt->submit.numAskedHosts;i++)
@@ -1249,6 +1252,7 @@ initJobInfo (void)
     submitPtr->projectName = malloc(MAX_LSB_NAME_LEN);
     submitPtr->loginShell  = malloc(MAX_LSB_NAME_LEN);
     submitPtr->jobDesc     = malloc(MAX_JOB_DESC_LEN);
+    submitPtr->cwd         = malloc(MAXFILENAMELEN);
     job->user              = malloc(MAX_LSB_NAME_LEN);
     job->fromHost          = malloc(MAXHOSTNAMELEN);
     job->cwd               = malloc(MAXFILENAMELEN);
@@ -1272,6 +1276,7 @@ initJobInfo (void)
     submitPtr->projectName[0] = '\0';
     submitPtr->loginShell[0] = '\0';
     submitPtr->jobDesc[0]    = '\0';
+    submitPtr->cwd[0]       = '\0';
     job->user[0]     =  '\0';
     job->fromHost[0] =  '\0';
     job->cwd[0]      = '\0';

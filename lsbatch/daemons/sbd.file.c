@@ -409,7 +409,10 @@ initPaths(struct jobCard *jp, struct hostent *fromHp, struct lenData *jf)
 
 
     if (jp->jobSpecs.execCwd[0] == '\0') {
-        if (cwdJob(jp, cwd, fromHp) == -1) {
+        int cwdRc = cwdJob(jp, cwd, fromHp);
+        if (cwdRc == -2)
+            return (-2);
+        if (cwdRc == -1) {
             if (logclass & LC_EXEC) {
                 sprintf(errMsg, "cwdJob() failed");
                 sbdSyslog(LOG_DEBUG, errMsg);
@@ -422,6 +425,15 @@ initPaths(struct jobCard *jp, struct hostent *fromHp, struct lenData *jf)
     } else {
 
         if (chdir(jp->jobSpecs.execCwd) < 0) {
+            char *exitEnv = getenv("LSB_EXIT_IF_CWD_NOTEXIST");
+            if (exitEnv != NULL && (exitEnv[0] == 'Y' || exitEnv[0] == 'y')) {
+                sprintf(errMsg,
+                        "%s: Job <%s> chdir(%s) failed, LSB_EXIT_IF_CWD_NOTEXIST is set, job will exit",
+                        fname, lsb_jobidinstr(jp->jobSpecs.jobId),
+                        jp->jobSpecs.execCwd);
+                sbdSyslog(LOG_ERR, errMsg);
+                return (-2);
+            }
 
             sprintf(errMsg, _i18n_msg_get(ls_catd , NL_SETN, 314,
                                           "%s: Job <%s> chdir(%s) failed, errno=<%s>. Use <%s> as execCwd"), /* catgets 314 */
@@ -583,6 +595,47 @@ initPaths(struct jobCard *jp, struct hostent *fromHp, struct lenData *jf)
 }
 
 
+/*
+ * mkdirRecursive - create path and any missing parent directories.
+ *
+ * Return value is three-valued and callers rely on the distinction; do not
+ * collapse it to a plain success/failure:
+ *
+ *    0  we created the leaf directory
+ *    1  the path already existed, nothing was created
+ *   -1  creation failed (errno set by mkdir())
+ *
+ * Only a return of 0 makes the path eligible for JOB_CWD_TTL removal, which
+ * is what keeps root from deleting a directory the job did not create.  See
+ * the SAFETY note on cwdCleanupExpired() in sbd.job.c.
+ *
+ * Note this creates every missing level but cleanup only rmdir()s the leaf,
+ * so intermediate levels are intentionally left behind.
+ */
+static int
+mkdirRecursive(const char *path, mode_t mode)
+{
+    char tmp[MAXFILENAMELEN];
+    char *p = NULL;
+    struct stat st;
+
+    if (stat(path, &st) == 0)
+        return 1;   /* already exists: not created by us, skip TTL tracking */
+
+    strncpy(tmp, path, sizeof(tmp) - 1);
+    tmp[sizeof(tmp) - 1] = '\0';
+
+    for (p = tmp + 1; *p; p++) {
+        if (*p == '/') {
+            *p = '\0';
+            if (stat(tmp, &st) != 0)
+                mkdir(tmp, mode);
+            *p = '/';
+        }
+    }
+    return mkdir(tmp, mode);
+}
+
 static int
 cwdJob(struct jobCard *jp, char *cwd, struct hostent *fromHp)
 {
@@ -598,6 +651,13 @@ cwdJob(struct jobCard *jp, char *cwd, struct hostent *fromHp)
     if (isAbsolutePathSub(jp, jp->jobSpecs.cwd)) {
 
         strcpy(cwd, jp->jobSpecs.cwd);
+        if (jp->jobSpecs.options2 & SUB2_JOB_CWD_PATTERN) {
+            /* Register for TTL cleanup only when we created the directory
+             * ourselves; mkdirRecursive() returns non-zero if the path
+             * already existed.  See the SAFETY note on cwdCleanupExpired(). */
+            if (mkdirRecursive(cwd, 0755) == 0)
+                cwdTrackAdd(cwd, jp->jobSpecs.jobId);
+        }
         if (mychdir_(cwd, fromHp) == 0) {
             strcpy(cwd, chosenPath);
             return (0);
@@ -609,6 +669,17 @@ cwdJob(struct jobCard *jp, char *cwd, struct hostent *fromHp)
                     chosenPath, lsb_jobidinstr(jp->jobSpecs.jobId),
                     strerror(errno));
             sbdSyslog(LOG_DEBUG, errMsg);
+        }
+
+        {
+            char *exitEnv = getenv("LSB_EXIT_IF_CWD_NOTEXIST");
+            if (exitEnv != NULL && (exitEnv[0] == 'Y' || exitEnv[0] == 'y')) {
+                sprintf(errMsg,
+                        "cwdJob: CWD <%s> not accessible for job <%s>, LSB_EXIT_IF_CWD_NOTEXIST is set, job will exit",
+                        cwd, lsb_jobidinstr(jp->jobSpecs.jobId));
+                sbdSyslog(LOG_ERR, errMsg);
+                return (-2);
+            }
         }
 
 
@@ -657,11 +728,28 @@ cwdJob(struct jobCard *jp, char *cwd, struct hostent *fromHp)
     else
         sprintf(cwd, "%s/%s", jp->jobSpecs.subHomeDir, jp->jobSpecs.cwd);
 
+    if (jp->jobSpecs.options2 & SUB2_JOB_CWD_PATTERN) {
+        /* Register for TTL cleanup only when we created the directory
+         * ourselves; mkdirRecursive() returns non-zero if the path already
+         * existed.  See the SAFETY note on cwdCleanupExpired(). */
+        if (mkdirRecursive(cwd, 0755) == 0)
+            cwdTrackAdd(cwd, jp->jobSpecs.jobId);
+    }
     if (mychdir_(cwd, fromHp) == 0) {
         strcpy(cwd, chosenPath);
         return (0);
     }
 
+    {
+        char *exitEnv = getenv("LSB_EXIT_IF_CWD_NOTEXIST");
+        if (exitEnv != NULL && (exitEnv[0] == 'Y' || exitEnv[0] == 'y')) {
+            sprintf(errMsg,
+                    "cwdJob: CWD <%s> not accessible for job <%s>, LSB_EXIT_IF_CWD_NOTEXIST is set, job will exit",
+                    cwd, lsb_jobidinstr(jp->jobSpecs.jobId));
+            sbdSyslog(LOG_ERR, errMsg);
+            return (-2);
+        }
+    }
 
     if ((pw = getpwdirlsfuser_(jp->execUsername)) &&
         pw->pw_dir && isAbsolutePathExec(pw->pw_dir)) {

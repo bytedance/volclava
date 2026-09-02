@@ -654,12 +654,12 @@ fillReq (int argc, char **argv, int operate, struct submit *req, int isInPackFil
     } else if (operate == CMD_BMODIFY) {
         req->options = SUB_MODIFY;
         template = "h|V|O|Tn|T:xn|x|rn|r|Bn|B|Nn|N|En|E:a:"
-	"wn|w:fn|f:kn|k:Rn|R:mn|m:Jdn|Jd:Jn|J:isn|is:in|i:en|e:qn|q:bn|b:tn|t:spn|sp:sn|s:cn|c:Wn|W:Fn|F:Dn|D:Sn|S:Cn|C:Mn|M:on|o:nn|n:un|u:Pn|P:Ln|L:Xn|X:Zsn|Zs:Z:"
+	"wn|w:fn|f:kn|k:Rn|R:mn|m:Jdn|Jd:Jn|J:isn|is:in|i:en|e:qn|q:bn|b:tn|t:spn|sp:sn|s:cwdn|cwd:cn|c:Wn|W:Fn|F:Dn|D:Sn|S:Cn|C:Mn|M:on|o:nn|n:un|u:Pn|P:Ln|L:Xn|X:Zsn|Zs:Z:"
         ;
     } else if (operate == CMD_BSUB) {
 	req->options = 0;
         template = "E:T:a:"
-	"w:f:k:R:m:Jd:J:L:u:is:i:o:e:Zs|n:q:b:t:sp:s:c:v:p:W:F:D:S:C:M:O:P:Ip|Is|I|r|H|x|N|B|h|V|X:K|"
+	"w:f:k:R:m:Jd:J:L:u:is:i:o:e:Zs|n:q:b:t:sp:s:cwd:c:v:p:W:F:D:S:C:M:O:P:Ip|Is|I|r|H|x|N|B|h|V|X:K|"
         ;
     }
 
@@ -681,6 +681,7 @@ fillReq (int argc, char **argv, int operate, struct submit *req, int isInPackFil
     req->hostSpec = NULL;
     req->resReq = NULL;
     req->loginShell = NULL;
+    req->cwd = NULL;
     req->delOptions = 0;
     req->delOptions2 = 0;
     req->userPriority = -1;

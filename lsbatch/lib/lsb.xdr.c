@@ -83,6 +83,7 @@ xdr_submitReq (XDR *xdrs, struct submitReq *submitReq, struct LSFHeader *hdr)
 	submitReq->hostSpec[0] = '\0';
         submitReq->cwd[0] = '\0';
         submitReq->subHomeDir[0] = '\0';
+        submitReq->submitCwd[0] = '\0';
 
 
 	FREEUP (submitReq->queue);
@@ -173,6 +174,7 @@ xdr_submitReq (XDR *xdrs, struct submitReq *submitReq, struct LSFHeader *hdr)
 	 xdr_time_t(xdrs,&submitReq->chkpntPeriod) &&
          xdr_string(xdrs, &submitReq->chkpntDir, MAXFILENAMELEN) &&
          xdr_string(xdrs, &submitReq->subHomeDir, MAXFILENAMELEN) &&
+         xdr_string(xdrs, &submitReq->submitCwd, MAXFILENAMELEN) &&
          xdr_string(xdrs, &submitReq->cwd, MAXFILENAMELEN))) {
 	goto Error0;
     }
@@ -255,6 +257,7 @@ xdr_submitPackReq(XDR *xdrs, struct submitPackReq *packReq, struct LSFHeader *hd
 {
 
     int i;
+    int allocCount = 0;
     static int numJobs = 0;
     static struct submitReq *jobs = NULL;
     static char *sourceFile = NULL;
@@ -319,14 +322,22 @@ xdr_submitPackReq(XDR *xdrs, struct submitPackReq *packReq, struct LSFHeader *hd
             packReq->jobs[i].commandSpool = (char *)malloc(MAXFILENAMELEN);
             packReq->jobs[i].cwd = (char *)malloc(MAXFILENAMELEN);
             packReq->jobs[i].subHomeDir = (char *)malloc(MAXFILENAMELEN);
+            packReq->jobs[i].submitCwd = (char *)malloc(MAXFILENAMELEN);
             packReq->jobs[i].chkpntDir = (char *)malloc(MAXFILENAMELEN);
             packReq->jobs[i].hostSpec = (char *)malloc(MAXHOSTNAMELEN);
             if (!packReq->jobs[i].fromHost || !packReq->jobs[i].jobFile ||
                 !packReq->jobs[i].inFile || !packReq->jobs[i].outFile ||
-                !packReq->jobs[i].errFile || !packReq->jobs[i].cwd)
+                !packReq->jobs[i].errFile || !packReq->jobs[i].inFileSpool ||
+                !packReq->jobs[i].commandSpool || !packReq->jobs[i].cwd ||
+                !packReq->jobs[i].subHomeDir || !packReq->jobs[i].submitCwd ||
+                !packReq->jobs[i].chkpntDir || !packReq->jobs[i].hostSpec) {
+                allocCount = i + 1;
                 goto Error0;
+            }
         }
     }
+
+    allocCount = packReq->jobCount;
 
     for (i = 0; i < packReq->jobCount; i++) {
         if (!xdr_arrayElement(xdrs, (char *) &(packReq->jobs[i]), hdr, xdr_submitReq, NULL)) {
@@ -344,6 +355,12 @@ xdr_submitPackReq(XDR *xdrs, struct submitPackReq *packReq, struct LSFHeader *hd
 
     Error0:
     if (xdrs->x_op == XDR_DECODE) {
+        for (i = 0; i < allocCount; i++) {
+            XDR freeXdr;
+            xdrmem_create(&freeXdr, NULL, 0, XDR_FREE);
+            xdr_submitReq(&freeXdr, &packReq->jobs[i], hdr);
+            xdr_destroy(&freeXdr);
+        }
         FREEUP(packReq->jobs);
         FREEUP(packReq->sourceFile);
         packReq->jobCount = 0;
@@ -664,6 +681,7 @@ xdr_parameterInfo (XDR *xdrs, struct parameterInfo *paramInfo,
         FREEUP (paramInfo->defaultHostSpec);
 	FREEUP (paramInfo->defaultProject);
 	FREEUP (paramInfo->pjobSpoolDir);
+	FREEUP (paramInfo->defaultJobCwd);
     }
 
     if (!(xdr_var_string(xdrs, &paramInfo->defaultQueues) &&
@@ -736,6 +754,12 @@ xdr_parameterInfo (XDR *xdrs, struct parameterInfo *paramInfo,
           xdr_float(xdrs, &paramInfo->histHours))) {
         return (FALSE);
     }
+
+    if (!xdr_int(xdrs, &paramInfo->jobCwdTtl))
+        return (FALSE);
+
+    if (!xdr_var_string(xdrs, &paramInfo->defaultJobCwd))
+        return (FALSE);
 
     return(TRUE);
 }
