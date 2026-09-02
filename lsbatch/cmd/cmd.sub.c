@@ -342,8 +342,12 @@ LS_LONG_INT do_pack_sub_v2(int option, char **argv, struct submit *req)
         /* Cleanup edata */
         FREEUP(ed.data);
 
-        /* Save job request and file data */
-        job_requests[job_count] = malloc(sizeof(struct submit));
+        /* Save job request and file data.
+         * calloc, not malloc: the field-by-field copy below does not cover
+         * every member of struct submit, and the cleanup path FREEUP()s some
+         * of them.  Zeroing guarantees any member we miss stays NULL instead
+         * of holding uninitialised heap. */
+        job_requests[job_count] = calloc(1, sizeof(struct submit));
         if (!job_requests[job_count]) {
             snprintf(outputTmp, sizeof(outputTmp), "Line#%d Memory allocation failed for job request. Job not submitted.\n", lineNum);
             pack_outputs[packParsedNum-1]->outputMSG = strdup(outputTmp);
@@ -413,6 +417,9 @@ LS_LONG_INT do_pack_sub_v2(int option, char **argv, struct submit *req)
         }
         job_requests[job_count]->delOptions = packReq.delOptions;
         job_requests[job_count]->delOptions2 = packReq.delOptions2;
+        /* -n sets numProcessors and maxNumProcessors as a pair; copying only
+         * the max turns "-n 2" into a 1-2 range instead of exactly 2. */
+        job_requests[job_count]->numProcessors = packReq.numProcessors;
         job_requests[job_count]->maxNumProcessors = packReq.maxNumProcessors;
         job_requests[job_count]->userPriority = packReq.userPriority;
 
@@ -435,6 +442,7 @@ LS_LONG_INT do_pack_sub_v2(int option, char **argv, struct submit *req)
         job_requests[job_count]->projectName = packReq.projectName ? strdup(packReq.projectName) : NULL;
         job_requests[job_count]->loginShell = packReq.loginShell ? strdup(packReq.loginShell) : NULL;
         job_requests[job_count]->jobDesc = packReq.jobDesc ? strdup(packReq.jobDesc) : NULL;
+        job_requests[job_count]->cwd = packReq.cwd ? strdup(packReq.cwd) : NULL;
 
         pack_outputs[packParsedNum-1]->packSubmitIndex = job_count;
 
@@ -461,6 +469,15 @@ LS_LONG_INT do_pack_sub_v2(int option, char **argv, struct submit *req)
             if(pack_outputs[i]->packSubmitIndex >= 0){
                 // submitted to mbatchd
                 int index = pack_outputs[i]->packSubmitIndex;
+
+                if (packSubmit < 0) {
+                    /* lsb_submit_pack() failed before any per-job reply was
+                     * filled in.  submitReps[] is still all zeroes, and zero
+                     * is LSBE_NO_ERROR, so falling through would claim
+                     * "Job <0> is submitted" for a job that never reached
+                     * mbatchd.  The overall failure is reported below. */
+                    continue;
+                }
 
                 if (submitPackRep.submitReps[index].replyCode == LSBE_NO_ERROR) {
                     // mbatchd newJob successfully
@@ -526,6 +543,7 @@ cleanup:
             FREEUP(job_requests[i]->projectName);
             FREEUP(job_requests[i]->loginShell);
             FREEUP(job_requests[i]->jobDesc);
+            FREEUP(job_requests[i]->cwd);
             FREEUP(job_requests[i]->additionEsubInfo);
             if (job_requests[i]->askedHosts) {
                 for (j = 0; j < job_requests[i]->numAskedHosts; j++) {

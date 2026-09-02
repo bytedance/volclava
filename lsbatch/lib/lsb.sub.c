@@ -374,15 +374,18 @@ lsb_submit_pack(struct submit **jobSubReqs, int jobCount,
 
     lsberrno = LSBE_BAD_ARG;
 
-    /* Allocate buffer arrays for each job */
-    homeDir = (char **) malloc(jobCount * sizeof(char *));
-    resReq = (char **) malloc(jobCount * sizeof(char *));
-    cmd = (char **) malloc(jobCount * sizeof(char *));
-    cwd = (char **) malloc(jobCount * sizeof(char *));
-    submitCwd = (char **) malloc(jobCount * sizeof(char *));
-    jf_array = (struct lenData *) malloc(jobCount * sizeof(struct lenData));
+    /* Allocate buffer arrays for each job.
+     * calloc, not malloc: the cleanup path below FREEUP()s every slot up to
+     * jobCount, and any "goto cleanup" before the per-job allocation loop
+     * completes would otherwise free uninitialised heap. */
+    homeDir = (char **) calloc(jobCount, sizeof(char *));
+    resReq = (char **) calloc(jobCount, sizeof(char *));
+    cmd = (char **) calloc(jobCount, sizeof(char *));
+    cwd = (char **) calloc(jobCount, sizeof(char *));
+    submitCwd = (char **) calloc(jobCount, sizeof(char *));
+    jf_array = (struct lenData *) calloc(jobCount, sizeof(struct lenData));
 
-    if (!homeDir || !resReq || !cmd || !cwd || !jf_array)
+    if (!homeDir || !resReq || !cmd || !cwd || !submitCwd || !jf_array)
         goto cleanup;
 
     for (i = 0; i < jobCount; i++) {
@@ -537,13 +540,14 @@ lsb_submit_pack(struct submit **jobSubReqs, int jobCount,
 
 cleanup:
 
-    /* Free allocated resources - only jf_array and packReq.jobs need cleanup now */
+    /* Free allocated resources.  Each array is checked separately: an early
+     * "goto cleanup" can be taken while some of them are still NULL. */
     for (i = 0; i < jobCount; i++) {
-        FREEUP(homeDir[i]);
-        FREEUP(resReq[i]);
-        FREEUP(cmd[i]);
-        FREEUP(cwd[i]);
-        FREEUP(submitCwd[i]);
+        if (homeDir) FREEUP(homeDir[i]);
+        if (resReq) FREEUP(resReq[i]);
+        if (cmd) FREEUP(cmd[i]);
+        if (cwd) FREEUP(cwd[i]);
+        if (submitCwd) FREEUP(submitCwd[i]);
         if (jf_array) FREEUP(jf_array[i].data);
     }
     FREEUP(homeDir);
