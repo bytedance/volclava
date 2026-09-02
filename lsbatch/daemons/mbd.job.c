@@ -95,7 +95,7 @@ static char              ususpPendingEvent(struct jData *jpbw);
 static char              terminatePendingEvent(struct jData *jpbw);
 static void              initSubmitReq(struct submitReq *);
 static int               skipJobListByReq (int, int);
-static void              replaceString (char *, char *, char *);
+static void              replaceString (char *, int, char *, char *);
 static void initJobSig (struct jData *, struct jobSig *, int, time_t, int);
 static int modifyAJob (struct modifyReq *, struct submitMbdReply *,
                        struct lsfAuth *, struct jData *);
@@ -2746,12 +2746,12 @@ packJobSpecs (struct jData *jDataPtr, struct jobSpecs *jobSpecs)
         char jobIdStr[16], indexStr[16];
         sprintf(jobIdStr, "%d", LSB_ARRAY_JOBID(jDataPtr->jobId));
         sprintf(indexStr, "%d", LSB_ARRAY_IDX(jDataPtr->jobId));
-        replaceString(jobSpecs->cwd, "%J", jobIdStr);
-        replaceString(jobSpecs->cwd, "%I", indexStr);
-        replaceString(jobSpecs->cwd, "%U", jDataPtr->userName);
-        replaceString(jobSpecs->cwd, "%P", jDataPtr->shared->jobBill.projectName);
+        replaceString(jobSpecs->cwd, MAXFILENAMELEN, "%J", jobIdStr);
+        replaceString(jobSpecs->cwd, MAXFILENAMELEN, "%I", indexStr);
+        replaceString(jobSpecs->cwd, MAXFILENAMELEN, "%U", jDataPtr->userName);
+        replaceString(jobSpecs->cwd, MAXFILENAMELEN, "%P", jDataPtr->shared->jobBill.projectName);
         if (jDataPtr->numHostPtr > 0 && jDataPtr->hPtr[0])
-            replaceString(jobSpecs->cwd, "%H", jDataPtr->hPtr[0]->host);
+            replaceString(jobSpecs->cwd, MAXFILENAMELEN, "%H", jDataPtr->hPtr[0]->host);
     }
 
     strcpy (jobSpecs->subHomeDir, jDataPtr->shared->jobBill.subHomeDir);
@@ -9090,23 +9090,79 @@ job <%s>", fname, request->numHosts, lsb_jobid2str(job->jobId));
 
 
 static void
-replaceString (char *s1, char *s2, char *s3)
+replaceString (char *s1, int size, char *s2, char *s3)
 {
     char temp[MAXFILENAMELEN];
     char *last;
     char *next;
+    char *dst;
+    int remain;
+    int n;
+    int truncated = 0;
 
+    /* Bound every write so pattern expansion (%J/%I/%U/%P/%H) can never
+     * overflow the caller's fixed-size buffer; overflowing input is
+     * truncated and logged rather than corrupting the stack. */
+    if (size > MAXFILENAMELEN)
+        size = MAXFILENAMELEN;
+    if (size < 1)
+        return;
 
-    temp[0]='\0';
-    last=s1;
-    while ((next=(char *)strstr(last, s2)) != NULL) {
-        strncat(temp, last, next-last);
-        strcat(temp, s3);
+    dst = temp;
+    remain = size;
+    last = s1;
+    while ((next = (char *) strstr(last, s2)) != NULL) {
+        n = next - last;
+        if (n >= remain) {
+            n = remain - 1;
+            truncated = 1;
+        }
+        if (n > 0) {
+            memcpy(dst, last, n);
+            dst += n;
+            remain -= n;
+        }
+
+        if (remain > 1) {
+            n = strlen(s3);
+            if (n >= remain) {
+                n = remain - 1;
+                truncated = 1;
+            }
+            memcpy(dst, s3, n);
+            dst += n;
+            remain -= n;
+        } else if (*s3 != '\0') {
+            /* Replacement dropped because the buffer is exhausted. */
+            truncated = 1;
+        }
+
         last = next + strlen(s2);
+        if (remain <= 1)
+            break;
     }
-    strcat(temp, last);
-    strcpy(s1, temp);
 
+    if (remain > 1) {
+        n = strlen(last);
+        if (n >= remain) {
+            n = remain - 1;
+            truncated = 1;
+        }
+        memcpy(dst, last, n);
+        dst += n;
+    } else if (*last != '\0') {
+        /* Buffer exhausted with non-empty source tail remaining. */
+        truncated = 1;
+    }
+    *dst = '\0';
+
+    if (truncated)
+        ls_syslog(LOG_WARNING,
+                  "replaceString: result of replacing <%s> in <%s> longer than %d bytes; truncated",
+                  s2, s1, size - 1);
+
+    strncpy(s1, temp, size);
+    s1[size - 1] = '\0';
 }
 
 void
@@ -9123,10 +9179,10 @@ expandFileNameWithJobId (char *out, char *in, LS_LONG_INT jobId)
     strcpy(out, in);
 
 
-    replaceString(out, "%J", jobIdStr);
+    replaceString(out, MAXFILENAMELEN, "%J", jobIdStr);
 
 
-    replaceString(out, "%I", indexStr);
+    replaceString(out, MAXFILENAMELEN, "%I", indexStr);
 
 
 }
