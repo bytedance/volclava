@@ -208,7 +208,154 @@ keyword all specifies all users.
 \fB-o customized_fields
 \fR
 .IP
-Sets the customized output fields with default delimiter of space character, such as: bjobs -o "jobid USER STAT".
+Sets the customized output fields with default delimiter of space character,
+such as: bjobs -o "jobid USER STAT".
+
+.IP
+Field names are case-insensitive. Multiple fields are separated by spaces.
+An invalid field name will cause bjobs to exit with an error.
+
+.IP
+The following field names are supported:
+
+.IP
+CPU_USED
+.BR
+.RS
+.IP
+Cumulative total CPU time of all processes in a job.
+.RE
+
+.IP
+EXEC_HOST
+.BR
+.RS
+.IP
+The name of one or more hosts on which the job is executing (displayed
+as "-" if the job has not been dispatched).
+.RE
+
+.IP
+EXIT_CODE
+.BR
+.RS
+.IP
+The exit code of the job (displayed as "-" if the job has not finished).
+.RE
+
+.IP
+FINISH_TIME
+.BR
+.RS
+.IP
+The finish time of the job (displayed as "-" if the job has not finished).
+.RE
+
+.IP
+FROM_HOST
+.BR
+.RS
+.IP
+The name of the host from which the job was submitted.
+.RE
+
+.IP
+JOBID
+.BR
+.RS
+.IP
+The job ID that Lava assigned to the job. For a job array element,
+the job ID of the array.
+.RE
+
+.IP
+JOBINDEX
+.BR
+.RS
+.IP
+The index of a job array element. For a non-array job, the index is 0.
+.RE
+
+.IP
+JOB_NAME
+.BR
+.RS
+.IP
+The job name assigned by the user, or the command string assigned
+by default (see bsub(1)).
+.RE
+
+.IP
+MEM
+.BR
+.RS
+.IP
+Total resident memory usage of all processes in a job, in MB.
+.RE
+
+.IP
+PIDS
+.BR
+.RS
+.IP
+Currently active process IDs in a job (displayed as "-" if none).
+.RE
+
+.IP
+PROJ_NAME
+.BR
+.RS
+.IP
+The project the job was submitted from.
+.RE
+
+.IP
+QUEUE
+.BR
+.RS
+.IP
+The name of the job queue to which the job belongs.
+.RE
+
+.IP
+START_TIME
+.BR
+.RS
+.IP
+The start time of the job (displayed as "-" if the job has not started).
+.RE
+
+.IP
+STAT
+.BR
+.RS
+.IP
+The current status of the job (see JOB STATUS below).
+.RE
+
+.IP
+SUBMIT_TIME
+.BR
+.RS
+.IP
+The submission time of the job.
+.RE
+
+.IP
+SWAP
+.BR
+.RS
+.IP
+Total virtual memory usage of all processes in a job, in MB.
+.RE
+
+.IP
+USER
+.BR
+.RS
+.IP
+The user who submitted the job.
+.RE
 
 
 .TP
