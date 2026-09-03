@@ -2549,7 +2549,8 @@ getOtherParams (struct submit  *jobSubReq, struct submitReq *submitReq,
 	if (submitReq->cwd[i] == '\0')
 	    submitReq->cwd[0] = '\0';
 	else if (submitReq->cwd[i] == '/')
-	    strcpy(submitReq->cwd, submitReq->cwd+i+1);
+	    memmove(submitReq->cwd, submitReq->cwd+i+1,
+		    strlen(submitReq->cwd+i+1) + 1);
     }
 
     for (i = 0; pw->pw_dir[i] != '\0'
