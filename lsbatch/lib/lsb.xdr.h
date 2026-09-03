@@ -168,3 +168,13 @@ extern bool_t xdr_jobAttrReq(XDR *,
 			    struct LSFHeader *);
 
 extern int  xdrsize_QueueInfoReply(struct queueInfoReply *);
+
+extern bool_t xdr_rsrcLimitInfoReq(XDR *,
+                                  struct rsrcLimitInfoReq *,
+                                  struct LSFHeader *);
+
+extern bool_t xdr_rsrcLimitInfoReply(XDR *,
+                                    struct rsrcLimitInfoReply *,
+                                    struct LSFHeader *);
+
+extern int  xdrsize_RsrcLimitInfoReply(struct rsrcLimitInfoReply *);

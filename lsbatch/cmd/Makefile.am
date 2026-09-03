@@ -7,7 +7,7 @@ AM_CPPFLAGS = -I$(top_srcdir)/lsf  -I$(top_srcdir)/lsf/lib \
 
 bin_PROGRAMS = badmin bkill bparams brestart btop bbot bmgroup \
 bpeek brun busers bhosts bmig bqueues bsub bjobs bmod \
-brequeue bswitch
+brequeue bswitch blimits
 
 badmin_SOURCES = badmin.c cmd.bqc.c cmd.hist.c \
 	cmd.bhc.c cmd.misc.c cmd.job.c cmd.prt.c \
@@ -119,6 +119,12 @@ brequeue_LDADD =   \
 
 bswitch_SOURCES = bswitch.c cmd.jobid.c cmd.err.c cmd.h
 bswitch_LDADD =  \
+	../lib/liblsbatch.a \
+	../../lsf/lib/liblsf.a \
+	../../lsf/intlib/liblsfint.a  -lm
+
+blimits_SOURCES = blimits.c cmd.misc.c cmd.h
+blimits_LDADD =  \
 	../lib/liblsbatch.a \
 	../../lsf/lib/liblsf.a \
 	../../lsf/intlib/liblsfint.a  -lm

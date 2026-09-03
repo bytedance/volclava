@@ -825,14 +825,17 @@ displayJobs (struct jobInfoEnt *job, struct jobInfoHead *jInfoH,
 
     if ((options & PEND_JOB) &&  IS_PEND(job->status)) {
         printf(lsb_pendreason(job->numReasons, job->reasonTb, NULL,
-                              loadIndex));
+                              loadIndex,
+                              job->numLimitDetail,
+                              job->limitDetailTb));
     }
 
 
     if ((options & SUSP_JOB) &&  IS_SUSP(job->status)) {
         if (job->status & JOB_STAT_PSUSP && !(options & PEND_JOB))
             printf(lsb_pendreason(job->numReasons, job->reasonTb, NULL,
-                                  loadIndex));
+                                  loadIndex,job->numLimitDetail,
+                                  job->limitDetailTb));
         else if (!(job->status & JOB_STAT_PSUSP))
             printf(lsb_suspreason(job->reasons, job->subreasons, loadIndex));
     }

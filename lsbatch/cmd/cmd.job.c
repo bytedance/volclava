@@ -708,7 +708,9 @@ prtJobFinish(struct jobInfoEnt *job, struct jobInfoHead *jInfoH)
         sprintf(prline,  " PENDING REASONS:\n"); /* catgets  631  */
         printf(prline);
 	pendReasons = lsb_pendreason(job->numReasons, job->reasonTb,
-				     jInfoH, loadIndex);
+                                     jInfoH, loadIndex,
+                                     job->numLimitDetail,
+                                     job->limitDetailTb);
 	printf(pendReasons);
         break;			
     case JOB_STAT_SSUSP:
@@ -1832,7 +1834,9 @@ prtJobFinishUF(struct jobInfoEnt *job, struct jobInfoHead *jInfoH)
             sprintf(prline, (_i18n_msg_get(ls_catd,NL_SETN,631, " PENDING REASONS:\n"))); /* catgets  631  */
             printf("%s", prline);
             pendReasons = lsb_pendreason(job->numReasons, job->reasonTb,
-                                         jInfoH, loadIndex);
+                                         jInfoH, loadIndex,
+                                         job->numLimitDetail,
+                                         job->limitDetailTb);
             printf("%s", pendReasons);
             break;
         case JOB_STAT_SSUSP:

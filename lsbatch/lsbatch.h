@@ -181,6 +181,8 @@
 #define PEND_JOB_ARRAY_JLIMIT  38
 #define PEND_CHKPNT_DIR        39
 #define PEND_JOB_NO_RESREQ     40
+#define PEND_CLUSTER_RSRC_LIMIT     41
+#define PEND_PROJ_RSRC_LIMIT     42
 
 #define PEND_QUE_INACT             301
 #define PEND_QUE_WINDOW            302
@@ -194,7 +196,8 @@
 #define PEND_QUE_SPREAD_TASK       313
 #define PEND_QUE_PJOB_LIMIT        314
 #define PEND_QUE_WINDOW_WILL_CLOSE 315
-#define PEND_QUE_PROCLIMIT	   316
+#define PEND_QUE_PROCLIMIT	       316
+#define PEND_QUE_RSRC_LIMIT	       317
 
 #define PEND_USER_JOB_LIMIT    601
 #define PEND_UGRP_JOB_LIMIT    602
@@ -205,7 +208,7 @@
 #define PEND_NO_MAPPING        608
 #define PEND_RMT_PERMISSION    609
 #define PEND_ADMIN_STOP        610
-
+#define PEND_USER_RSRC_LIMIT   611
 
 #define PEND_HOST_RES_REQ      1001
 #define PEND_HOST_NONEXCLUSIVE 1002
@@ -242,6 +245,7 @@
 #define PEND_BAD_HOST          1325
 #define PEND_QUEUE_HOST        1326
 #define PEND_HOST_LOCKED_MASTER 1327
+#define PEND_HOST_RSRC_LIMIT   1328
 
 #define PEND_SBD_UNREACH       1601
 #define PEND_SBD_JOB_QUOTA     1602
@@ -469,7 +473,8 @@
 #define    LSBE_BLOCK_IN_PACK       142
 #define    LSBE_INTERACTIVE_IN_PACK 143
 #define    LSBE_PACK_IN_PACK        144
-#define    LSBE_NUM_ERR             144
+#define    LSBE_MOD_JLIMIT          145
+#define    LSBE_NUM_ERR             146
 
 #define  SUB_JOB_NAME       0x01
 #define  SUB_QUEUE          0x02
@@ -674,6 +679,21 @@ struct jobInfoHead {
     char  **hostNames;
 };
 
+/* Resource limit detail transmitted alongside reasonTb for PEND_*_RSRC_LIMIT
+ * reasons. limitName/resName are XDR var-strings (owned by the receiver);
+ * value is the configured limit value of the restricting resource; hostId
+ * mirrors the hostId packed in the parallel reasonTb entry (0 = all hosts).
+ * Index-aligned with reasonTb: limitDetailTb[i] describes reasonTb[i].
+ * When numReasons==0 and numLimitDetail==1, detail[0] pairs with reasons
+ * (the job-scope newReason). */
+struct limitDetailEnt {
+    char  *limitName;
+    char  *resName;
+    float  value;
+    int    isPercent;
+    int    hostId;
+};
+
 struct jobInfoEnt {
     LS_LONG_INT jobId;
     char    *user;
@@ -718,6 +738,8 @@ struct jobInfoEnt {
     char    *effeResReq;
     int     maxMem;
     int     avgMem;
+    struct  limitDetailEnt *limitDetailTb;
+    int     numLimitDetail;
 };
 
 struct userInfoEnt {
@@ -1488,6 +1510,70 @@ struct queueConf {
     struct queueInfoEnt *queues;
 };
 
+/* Resource limit consumer types (mirrors daemon-internal RL_CONSUMER_TYPE_*) */
+#define RLIMIT_CONSUMER_TYPE_HOST    0
+#define RLIMIT_CONSUMER_TYPE_QUEUE   1
+#define RLIMIT_CONSUMER_TYPE_USER    2
+#define RLIMIT_CONSUMER_TYPE_PROJECT 3
+#define RLIMIT_CONSUMER_POSITION_MAX 4
+
+#define RLIMIT_CONSUMER_MODE_SHARED  1
+#define RLIMIT_CONSUMER_MODE_PER     2
+
+/* Resource types (mirrors daemon-internal enum rl_resource_type) */
+#define RLIMIT_TYPE_JOBS                 0
+#define RLIMIT_TYPE_SLOTS                1
+#define RLIMIT_TYPE_MEM                  2
+#define RLIMIT_TYPE_SWP                  3
+#define RLIMIT_TYPE_TMP                  4
+#define RLIMIT_TYPE_SLOTS_PER_PROCESSOR  5
+#define RLIMIT_TYPE_RSRC                 6
+
+/* Request options for lsb_rsrclimitinfo */
+#define RLIMIT_OPT_CONFIG_ONLY  0x1   /* only return lsb.resources config */
+#define RLIMIT_OPT_ALL          0x2   /* return config + usage (show unused too) */
+
+/* Client-facing consumer view. value is pre-formatted server-side as the
+ * complete display form, e.g. "SHARED(host1 host2/)" or "PER(@(proj1 proj2))".
+ * NULL means consumer not configured. Client prints it as-is.
+ */
+struct rlimitConsumerEnt {
+    int  type;     /* RLIMIT_CONSUMER_TYPE_* (by array position) */
+    char *value;   /* pre-formatted display string, NULL if not configured */
+};
+
+struct rlimitResourceEnt {
+    char  *resName;
+    int   type;      /* RLIMIT_TYPE_* */
+    float value;     /* configured limit value (raw) */
+    int   isPercent;
+    float used;      /* consumed amount, -1 if no usage record */
+};
+
+struct rlimitEnt {
+    char  *name;
+    int   nConsumers;                       /* == RLIMIT_CONSUMER_POSITION_MAX */
+    struct rlimitConsumerEnt *consumers;
+    int   nResources;
+    struct rlimitResourceEnt *resources;
+    char  *desc;
+};
+
+struct rsrcLimitInfoReq {
+    int  options;                              /* RLIMIT_OPT_* */
+    int  numNames;                             /* limit name filter count */
+    char **names;                              /* limit name filter (may be NULL) */
+    char *queue;                               /* queue filter (may be NULL) */
+    char *user;                                /* user filter (may be NULL) */
+    char *project;                             /* project filter (may be NULL) */
+    char *hosts;                               /* hosts filter (may be NULL) */
+};
+
+struct rsrcLimitInfoReply {
+    int  numLimits;
+    struct rlimitEnt *limits;
+};
+
 struct controlReq {
     int         opCode;  
     char        *name;
@@ -1590,11 +1676,16 @@ extern LS_LONG_INT lsb_modify P_((struct submit *, struct submitReply *, LS_LONG
 extern float * getCpuFactor P_((char *, int));
 extern char *lsb_suspreason P_((int, int, struct loadIndexLog *));
 extern char *lsb_pendreason P_((int, int *, struct jobInfoHead *,
-                            struct loadIndexLog *));
+                            struct loadIndexLog *,
+                            int, struct limitDetailEnt *));
 
 extern int lsb_puteventrec P_((FILE *, struct eventRec *));
 extern struct eventRec *lsb_geteventrec P_((FILE *, int *));
 extern struct lsbSharedResourceInfo *lsb_sharedresourceinfo P_((char **, int *, char *, int));
+
+extern struct rlimitEnt *lsb_rsrclimitinfo P_((int options, int numNames, char **names,
+                                              char *queue, char *user, char *project,
+                                              char *hosts, int *numLimits));
 
 extern int lsb_runjob P_((struct runJobRequest*));
 

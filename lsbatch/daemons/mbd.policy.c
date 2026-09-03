@@ -20,6 +20,8 @@
 
 #include "mbd.h"
 #include "mbd.fairshare.h"
+#include "mbd.rsrclimit.h"
+#include <sched.h>
 
 #define NL_SETN         10
 #define SORT_HOST_NUM   30
@@ -123,12 +125,22 @@ struct leftTimeTable {
 #define REASON_TABLE_COPY(src, dest, fname)                             \
     {                                                                   \
         FREEUP (dest->reasonTb);                                        \
+        freePendLimitDetail(dest);                                      \
         dest->numReasons = src->numReasons;                             \
         if (dest->numReasons > 0) {                                     \
             dest->reasonTb = (int *) my_calloc (dest->numReasons,       \
                                                 sizeof(int), fname);    \
             memcpy((char *)dest->reasonTb, (char *)src->reasonTb,       \
                    sizeof(int) * dest->numReasons);                     \
+        }                                                               \
+        if (src->numPendLimitDetail > 0) {                              \
+            dest->pendLimitDetail = (struct limitDetail *)my_calloc(    \
+                src->numPendLimitDetail,                                \
+                sizeof(struct limitDetail), fname);                     \
+            memcpy((char *)dest->pendLimitDetail,                       \
+                   (char *)src->pendLimitDetail,                        \
+                   sizeof(struct limitDetail) * src->numPendLimitDetail);\
+            dest->numPendLimitDetail = src->numPendLimitDetail;         \
         }                                                               \
     }
 
@@ -187,6 +199,11 @@ static enum candRetCode getCandHosts(struct jData *);
 static int getLsbUsable(void);
 static struct candHost *getJUsable(struct jData *, int *, int *);
 static void addReason(struct jData *jp, int hostId, int aReason);
+static void addReasonWithDetail(struct jData *jp, int hostId, int aReason,
+                                struct limitDetail *detail);
+static void setPendLimitDetailSingle(struct jData *jp,
+                                     RL_ALLOC_RLIMIT_T *allocLimit,
+                                     RL_RESOURCE_AVAIL_T *failedRsrc);
 static int allInOne(struct jData *jp);
 static int ckResReserve(struct hData *hD, struct resVal *resValPtr,
                         int *resource, struct jData *jp);
@@ -207,7 +224,7 @@ static int cntUserJobs(struct jData *, struct gData *, struct hData *,
                        int *, int *, int *, int *);
 
 static int candHostOk(struct jData *jp, int indx, int *numAvailSlots,
-                      int *hReason);
+                      int *hReason, struct limitDetail *outDetail);
 static int allocHosts(struct jData *jp);
 static int deallocHosts(struct jData *jp);
 static void jobStarted(struct jData *, struct jobReply *);
@@ -421,6 +438,7 @@ readyToDisp (struct jData *jpbw, int *numAvailSlots)
     static char fname[] = "readyToDisp";
     int jReason = 0;
     time_t deadline;
+    RL_ALLOC_RLIMIT_T *allocRlimit = NULL;
 
     if (logclass & (LC_PEND))
         ls_syslog(LOG_DEBUG3, "%s: jobId=%s processed=%x oldReason=%d newReason=%d", fname, lsb_jobid2str(jpbw->jobId), jpbw->processed, jpbw->oldReason, jpbw->newReason);
@@ -435,6 +453,7 @@ readyToDisp (struct jData *jpbw, int *numAvailSlots)
     if (!(jpbw->jFlags & JFLAG_READY2)) {
         jpbw->numReasons = 0;
         FREEUP (jpbw->reasonTb);
+        freePendLimitDetail(jpbw);
         jpbw->numSlots = 0;
         *numAvailSlots = 0;
         if (logclass & (LC_PEND))
@@ -557,7 +576,43 @@ readyToDisp (struct jData *jpbw, int *numAvailSlots)
         jReason = PEND_JOB_ARRAY_JLIMIT;
     }
 
-
+    /*Check resource limit which are defined in lsb.resources*/
+    allocRlimit = checkRsrcLimit(jobRLimitsCache.rlBitmaps, jpbw, NULL,&jobRLimitsCache.mainRLimits);
+    if (allocRlimit) {
+        RL_RESOURCE_AVAIL_T *failedRsrc = NULL;
+        int r;
+        /* checkRsrcLimit() is called with hp=NULL here, so only non-host
+         * level limits (cluster/queue/user/project) can match. The
+         * restricting resource is the one whose avail was zeroed out. */
+        for (r = 0; r < allocRlimit->rsrcCnt; r++) {
+            if (allocRlimit->rsrcAvails[r].avail <= 0.0) {
+                failedRsrc = &allocRlimit->rsrcAvails[r];
+                break;
+            }
+        }
+        switch (generalRLConf.limits[allocRlimit->limitNo].level) {
+        case RL_PEND_LEVEL_CLUSTER:
+            jReason = PEND_CLUSTER_RSRC_LIMIT;
+            break;
+        case RL_PEND_LEVEL_QUEUE:
+            jReason = PEND_QUE_RSRC_LIMIT;
+            break;
+        case RL_PEND_LEVEL_USER:
+            jReason = PEND_USER_RSRC_LIMIT;
+            break;
+        case RL_PEND_LEVEL_PROJECT:
+            jReason = PEND_PROJ_RSRC_LIMIT;
+            break;
+        case RL_PEND_LEVEL_HOST:
+            jReason = PEND_HOST_RSRC_LIMIT;
+            break;
+        default:
+            break;
+        }
+        /* Record the single job-scope limitDetail (hostId=0). This pairs
+         * with jpbw->newReason (set below), not with a reasonTb entry. */
+        setPendLimitDetailSingle(jpbw, allocRlimit, failedRsrc);
+    }
 
     if (jReason) {
         jpbw->newReason = jReason;
@@ -566,7 +621,7 @@ readyToDisp (struct jData *jpbw, int *numAvailSlots)
         jpbw->numSlots = 0;
         *numAvailSlots = 0;
         if (logclass & (LC_PEND))
-            ls_syslog(LOG_DEBUG2, "%s: Job %s isn't ready for dispatch; newReason=%d", fname, lsb_jobid2str(jpbw->jobId), jpbw->newReason);
+            ls_syslog(LOG_DEBUG1, "%s: Job %s isn't ready for dispatch; newReason=%d", fname, lsb_jobid2str(jpbw->jobId), jpbw->newReason);
         return FALSE;
     }
 
@@ -1062,9 +1117,7 @@ getQUsable(struct qData *qp)
 {
     struct hData *hPtr;
     struct jData *jpbw;
-    int i;
-    int j;
-    int overRideFromType;
+    int i, j;
     int hReason;
 
     INC_CNT(PROF_CNT_getQUsable);
@@ -1175,6 +1228,7 @@ getJUsable(struct jData *jp, int *numJUsable, int *nProc)
     static struct candHost *candHosts;
     static struct hData **jUnusable;
     static int *jReasonTb;
+    static struct limitDetail *jDetailTb;  /* parallel to jReasonTb */
     static int nhosts;
     int numHosts;
     int numSlots;
@@ -1206,6 +1260,7 @@ getJUsable(struct jData *jp, int *numJUsable, int *nProc)
         FREEUP(candHosts);
         FREEUP(jUnusable);
         FREEUP(jReasonTb);
+        FREEUP(jDetailTb);
         return NULL;
     }
 
@@ -1218,6 +1273,7 @@ getJUsable(struct jData *jp, int *numJUsable, int *nProc)
         FREEUP(candHosts);
         FREEUP(jUnusable);
         FREEUP(jReasonTb);
+        FREEUP(jDetailTb);
         /* floating host this needs to get resized.
          */
         jUsable = my_calloc(nhosts,
@@ -1227,12 +1283,15 @@ getJUsable(struct jData *jp, int *numJUsable, int *nProc)
         jUnusable = my_calloc(nhosts,
                                sizeof (struct hData *), fname);
         jReasonTb = my_calloc(nhosts + 1, sizeof(int), fname);
+        jDetailTb = my_calloc(nhosts + 1, sizeof(struct limitDetail), fname);
     }
 
     FREEUP (jp->reasonTb);
     jp->numReasons = 0;
+    freePendLimitDetail(jp);
     numHosts = 0;
     numReasons = 0;
+    /* jDetailTb entries are zeroed per-index as jReasonTb is filled below */
 
     for (hPtr = (struct hData *)hostList->back;
          hPtr != (void *)hostList;
@@ -1279,10 +1338,12 @@ getJUsable(struct jData *jp, int *numJUsable, int *nProc)
                                             jUsable[i]->cpuFactor)) {
                 jUnusable[numReasons] = jUsable[i];
                 if (isWinDeadline) {
-                    jReasonTb[numReasons++] = PEND_HOST_WIN_WILL_CLOSE;
+                    jReasonTb[numReasons] = PEND_HOST_WIN_WILL_CLOSE;
                 } else {
-                    jReasonTb[numReasons++] = PEND_HOST_MISS_DEADLINE;
+                    jReasonTb[numReasons] = PEND_HOST_MISS_DEADLINE;
                 }
+                memset(&jDetailTb[numReasons], 0, sizeof(struct limitDetail));
+                numReasons++;
                 if (logclass & (LC_SCHED | LC_PEND)) {
                     char *timebuf;
                     timebuf = ctime(&deadline);
@@ -1338,7 +1399,9 @@ getJUsable(struct jData *jp, int *numJUsable, int *nProc)
         for (i = 0; i < j; i++) {
             INC_CNT(PROF_CNT_thirdLoopgetJUsable);
             jUnusable[numReasons] = thrown[i];
-            jReasonTb[numReasons++] = PEND_HOST_RES_REQ;
+            jReasonTb[numReasons] = PEND_HOST_RES_REQ;
+            memset(&jDetailTb[numReasons], 0, sizeof(struct limitDetail));
+            numReasons++;
             if (logclass & (LC_SCHED | LC_PEND))
                 ls_syslog(LOG_DEBUG2, "%s: Host %s isn't eligible; reason=%d", fname, thrown[i]->host, jReasonTb[numReasons-1]);
         }
@@ -1450,9 +1513,78 @@ getJUsable(struct jData *jp, int *numJUsable, int *nProc)
 
         }
 
+        if (!hReason && generalRLConf.nLimits > 0) {
+            RL_ALLOC_RLIMIT_T *failedLimit = NULL;
+            RL_RESOURCE_AVAIL_T *failedRsrc = NULL;
+            int num = ckHostSlots4RLimits(jUsable[i], jp, &failedLimit, &failedRsrc);
+
+            if (num < 1 && failedLimit) {
+                switch (generalRLConf.limits[failedLimit->limitNo].level) {
+                case RL_PEND_LEVEL_CLUSTER:
+                    hReason = PEND_CLUSTER_RSRC_LIMIT;
+                    break;
+                case RL_PEND_LEVEL_QUEUE:
+                    hReason = PEND_QUE_RSRC_LIMIT;
+                    break;
+                case RL_PEND_LEVEL_USER:
+                    hReason = PEND_USER_RSRC_LIMIT;
+                    break;
+                case RL_PEND_LEVEL_PROJECT:
+                    hReason = PEND_PROJ_RSRC_LIMIT;
+                    break;
+                case RL_PEND_LEVEL_HOST:
+                    hReason = PEND_HOST_RSRC_LIMIT;
+                    break;
+                default:
+                    break;
+                }
+
+                /* Build the limitDetail for this host (host-based reason).
+                 * Strings are references into generalRLConf (static). */
+                if (hReason && failedRsrc != NULL) {
+                    struct limitDetail *pd = &jDetailTb[numReasons];
+                    RL_LIMIT_T *fl = &generalRLConf.limits[failedLimit->limitNo];
+                    int rr;
+                    memset(pd, 0, sizeof(*pd));
+                    pd->limitName = fl->name;
+                    pd->resName = failedRsrc->name;
+                    for (rr = 0; rr < fl->nResources; rr++) {
+                        if (fl->resources[rr].resNo == failedRsrc->resNo) {
+                            pd->value = fl->resources[rr].value;
+                            pd->isPercent = fl->resources[rr].isPercent;
+                            break;
+                        }
+                    }
+                    pd->hostId = jUsable[i]->hostId;
+                }
+
+                if (logclass & LC_SCHED) {
+                    ls_syslog(LOG_DEBUG1,"\
+%s: job=%s the host=%s reach resource limit <%s> by resource <%s> avail <%f>",
+                          fname, lsb_jobid2str(jp->jobId),
+                          jUsable[i]->host,
+                          generalRLConf.limits[failedLimit->limitNo].name,
+                          failedRsrc->name, failedRsrc->avail);
+                }
+            }
+            num = MAX (0, num);
+            numSlots = MIN (numSlots, num);
+        }
+
         if (hReason) {
             jUnusable[numReasons] = jUsable[i];
-            jReasonTb[numReasons++] = hReason;
+            jReasonTb[numReasons] = hReason;
+            /* jDetailTb[numReasons] was filled by the RL block above when the
+             * reason is a resource limit; otherwise zero it out so the array
+             * stays index-aligned with jReasonTb. */
+            if (hReason != PEND_HOST_RSRC_LIMIT
+                && hReason != PEND_CLUSTER_RSRC_LIMIT
+                && hReason != PEND_QUE_RSRC_LIMIT
+                && hReason != PEND_USER_RSRC_LIMIT
+                && hReason != PEND_PROJ_RSRC_LIMIT) {
+                memset(&jDetailTb[numReasons], 0, sizeof(struct limitDetail));
+            }
+            numReasons++;
 
             if (logclass & (LC_SCHED | LC_PEND))
                 ls_syslog(LOG_DEBUG2, "%s: Host %s isn't eligible; reason = %d", fname, jUsable[i]->host, jReasonTb[numReasons-1]);
@@ -1483,21 +1615,30 @@ getJUsable(struct jData *jp, int *numJUsable, int *nProc)
 
 
     if (numReasons) {
-        int *reasonTb = my_calloc(numReasons + jp->numReasons,
-                                  sizeof(int), fname);
+        int total = numReasons + jp->numReasons;
+        int *reasonTb = my_calloc(total, sizeof(int), fname);
+        struct limitDetail *detailTb = my_calloc(total,
+                                                  sizeof(struct limitDetail),
+                                                  fname);
         jp->newReason = 0;
 
         for (i = 0; i < numReasons; i++) {
             reasonTb[i] = jReasonTb[i];
             PUT_HIGH(reasonTb[i], jUnusable[i]->hostId);
+            detailTb[i] = jDetailTb[i];
         }
 
         for (i = 0; i < jp->numReasons; i++) {
             reasonTb[i + numReasons] = jp->reasonTb[i];
+            if (i < jp->numPendLimitDetail)
+                detailTb[i + numReasons] = jp->pendLimitDetail[i];
         }
         jp->numReasons += numReasons;
         FREEUP(jp->reasonTb);
         jp->reasonTb = reasonTb;
+        freePendLimitDetail(jp);
+        jp->pendLimitDetail = detailTb;
+        jp->numPendLimitDetail = total;
     }
 
     if (*numJUsable == 0) {
@@ -1667,6 +1808,152 @@ addReason(struct jData *jp, int hostId, int aReason)
             jp->numReasons++;
         }
     }
+}
+
+/* Free jp->pendLimitDetail and reset count. The detail strings (limitName /
+ * resName) are references, so only the array itself is freed. */
+void
+freePendLimitDetail(struct jData *jp)
+{
+    FREEUP(jp->pendLimitDetail);
+    jp->numPendLimitDetail = 0;
+}
+
+/* Grow/shrink jp->pendLimitDetail so that it has exactly n entries, all
+ * zero-initialized (i.e. no detail). Used to keep the detail array index-
+ * aligned with jp->reasonTb. */
+void
+reallocPendLimitDetail(struct jData *jp, int n)
+{
+    if (n <= 0) {
+        freePendLimitDetail(jp);
+        return;
+    }
+    jp->pendLimitDetail = (struct limitDetail *)myrealloc(
+        (void *)jp->pendLimitDetail, n * sizeof(struct limitDetail));
+    if (jp->pendLimitDetail == NULL) {
+        jp->numPendLimitDetail = 0;
+        return;
+    }
+    memset((char *)jp->pendLimitDetail, 0, n * sizeof(struct limitDetail));
+    jp->numPendLimitDetail = n;
+}
+
+/* Like addReason(), but also stores limitDetail for the reason entry.
+ * detail may be NULL (treated as no detail for this reason). The detail
+ * strings are referenced, not copied; the caller must ensure they outlive
+ * the job's reasonTb (they point into generalRLConf which is static). */
+static void
+addReasonWithDetail(struct jData *jp, int hostId, int aReason,
+                    struct limitDetail *detail)
+{
+    int *newTb;
+    int i;
+    int oldhostId;
+    struct limitDetail *newDetail;
+
+    for (i = 0; i < jp->numReasons; i++) {
+        GET_HIGH(oldhostId, jp->reasonTb[i]);
+        if (oldhostId == hostId)
+            break;
+    }
+    if (i < jp->numReasons) {
+        jp->reasonTb[i] = aReason;
+        PUT_HIGH(jp->reasonTb[i], hostId);
+        if (jp->pendLimitDetail != NULL && i < jp->numPendLimitDetail) {
+            if (detail != NULL)
+                jp->pendLimitDetail[i] = *detail;
+            else
+                memset(&jp->pendLimitDetail[i], 0,
+                       sizeof(struct limitDetail));
+        }
+    } else {
+        newTb = myrealloc((void *)jp->reasonTb,
+                          (1 + jp->numReasons) * sizeof(int));
+        if (newTb == NULL)
+            return;
+        jp->reasonTb = newTb;
+        jp->reasonTb[jp->numReasons] = aReason;
+        PUT_HIGH(jp->reasonTb[jp->numReasons], hostId);
+
+        /* keep pendLimitDetail index-aligned with reasonTb */
+        newDetail = (struct limitDetail *)myrealloc(
+            (void *)jp->pendLimitDetail,
+            (1 + jp->numReasons) * sizeof(struct limitDetail));
+        if (newDetail != NULL) {
+            jp->pendLimitDetail = newDetail;
+            if (detail != NULL)
+                jp->pendLimitDetail[jp->numReasons] = *detail;
+            else
+                memset(&jp->pendLimitDetail[jp->numReasons], 0,
+                       sizeof(struct limitDetail));
+            jp->numPendLimitDetail = 1 + jp->numReasons;
+        }
+        jp->numReasons++;
+    }
+}
+
+/* Build a single limitDetail (cluster/queue/user/project level) and store it
+ * as the only detail on jData. This pairs with jp->newReason (the reason is
+ * stored as newReason by the caller, not in reasonTb). Any previous
+ * pendLimitDetail is freed first. Strings are referenced, not copied. */
+static void
+setPendLimitDetailSingle(struct jData *jp,
+                         RL_ALLOC_RLIMIT_T *allocLimit,
+                         RL_RESOURCE_AVAIL_T *failedRsrc)
+{
+    struct limitDetail detail;
+    int i;
+
+    freePendLimitDetail(jp);
+
+    if (allocLimit == NULL || failedRsrc == NULL)
+        return;
+
+    memset(&detail, 0, sizeof(detail));
+    detail.limitName = generalRLConf.limits[allocLimit->limitNo].name;
+    detail.resName = failedRsrc->name;
+    /* Find the configured limit value of the restricting resource. */
+    {
+        RL_LIMIT_T *limit = &generalRLConf.limits[allocLimit->limitNo];
+        for (i = 0; i < limit->nResources; i++) {
+            if (limit->resources[i].resNo == failedRsrc->resNo) {
+                detail.value = limit->resources[i].value;
+                detail.isPercent = limit->resources[i].isPercent;
+                break;
+            }
+        }
+    }
+    detail.hostId = 0;  /* non-host level: all hosts */
+
+    jp->pendLimitDetail = (struct limitDetail *)my_calloc(
+        1, sizeof(struct limitDetail), "setPendLimitDetailSingle");
+    jp->pendLimitDetail[0] = detail;
+    jp->numPendLimitDetail = 1;
+}
+
+/* Resolve limitDetail for a reason slot. See mbd.h. */
+struct limitDetail *
+getPendLimitDetail4Reason(struct jData *jp, int reasonIdx)
+{
+    if (jp->pendLimitDetail == NULL || jp->numPendLimitDetail <= 0)
+        return NULL;
+
+    if (reasonIdx < 0) {
+        /* single mode: detail[0] pairs with newReason */
+        if (jp->numReasons > 0)
+            return NULL;
+        if (jp->pendLimitDetail[0].limitName == NULL)
+            return NULL;
+        return &jp->pendLimitDetail[0];
+    }
+
+    /* multi mode: detail[i] pairs with reasonTb[i] */
+    if (reasonIdx >= jp->numReasons || reasonIdx >= jp->numPendLimitDetail)
+        return NULL;
+    if (jp->pendLimitDetail[reasonIdx].limitName == NULL)
+        return NULL;
+    return &jp->pendLimitDetail[reasonIdx];
 }
 
 static int
@@ -2685,7 +2972,7 @@ hostSlots (int numNeeded, struct jData *jp, struct hData *hp,
 
 static int
 candHostOk (struct jData *jp, int indx, int *numAvailSlots,
-            int *hReason)
+            int *hReason, struct limitDetail *outDetail)
 {
     static char fname[] = "candHostOk";
     struct candHost *hp = &(jp->candPtr[indx]);
@@ -2693,6 +2980,8 @@ candHostOk (struct jData *jp, int indx, int *numAvailSlots,
     int nSlots = INFINIT_INT;
     int numBackfillSlots;
     *numAvailSlots = INFINIT_INT;
+    if (outDetail)
+        memset(outDetail, 0, sizeof(struct limitDetail));
 
     if (logclass & (LC_SCHED | LC_PEND))
         ls_syslog(LOG_DEBUG3, "%s: numSlots1=%d numSlots2=%d indx=%d host1=%s host2=%s", fname, hp->numSlots, jp->candPtr[indx].numSlots, indx, hp->hData->host, jp->candPtr[indx].hData->host);
@@ -2778,6 +3067,61 @@ candHostOk (struct jData *jp, int indx, int *numAvailSlots,
 
     }
 
+    /*check resource limit*/
+    if (!rtReason && generalRLConf.nLimits > 0) {
+        RL_ALLOC_RLIMIT_T *failedLimit = NULL;
+        RL_RESOURCE_AVAIL_T *failedRsrc = NULL;
+        int num = ckHostSlots4RLimits(hp->hData, jp, &failedLimit, &failedRsrc);
+
+        if (num < 1 && failedLimit) {
+            switch (generalRLConf.limits[failedLimit->limitNo].level) { 
+            case RL_PEND_LEVEL_CLUSTER:
+                rtReason = PEND_CLUSTER_RSRC_LIMIT;
+                break;
+            case RL_PEND_LEVEL_QUEUE:
+                rtReason = PEND_QUE_RSRC_LIMIT;
+                break;
+            case RL_PEND_LEVEL_USER:
+                rtReason = PEND_USER_RSRC_LIMIT;
+                break;
+            case RL_PEND_LEVEL_PROJECT:
+                rtReason = PEND_PROJ_RSRC_LIMIT;
+                break;
+            case RL_PEND_LEVEL_HOST:
+                rtReason = PEND_HOST_RSRC_LIMIT;
+                break;
+            default:
+                break;
+            }
+            /* Build the limitDetail for this host (host-based reason).
+             * Strings are references into generalRLConf (static). */
+            if (rtReason && failedRsrc != NULL && outDetail != NULL) {
+                RL_LIMIT_T *fl = &generalRLConf.limits[failedLimit->limitNo];
+                int rr;
+                outDetail->limitName = fl->name;
+                outDetail->resName = failedRsrc->name;
+                for (rr = 0; rr < fl->nResources; rr++) {
+                    if (fl->resources[rr].resNo == failedRsrc->resNo) {
+                        outDetail->value = fl->resources[rr].value;
+                        outDetail->isPercent = fl->resources[rr].isPercent;
+                        break;
+                    }
+                }
+                outDetail->hostId = hp->hData->hostId;
+            }
+            if (logclass & LC_SCHED) {
+                ls_syslog(LOG_DEBUG1,"\
+%s: job=%s the host=%s reach resource limit <%s> by resource <%s> avail <%f>",
+                        fname, lsb_jobid2str(jp->jobId),
+                        hp->hData->host,
+                        generalRLConf.limits[failedLimit->limitNo].name,
+                        failedRsrc->name, failedRsrc->avail);
+            }
+        }
+        num = MAX (0, num);
+        nSlots = MIN (nSlots, num);
+    }
+
     if (!rtReason && !(*hReason)) {
         if (jp->qPtr->reasonTb[1][hp->hData->hostId] ==
             PEND_HOST_ACCPT_ONE)
@@ -2804,6 +3148,13 @@ candHostOk (struct jData *jp, int indx, int *numAvailSlots,
         if (!HAS_BACKFILL_POLICY) {
             jp->qPtr->numUsable -= hp->hData->numCPUs;
         }
+    }
+    else if (rtReason == PEND_CLUSTER_RSRC_LIMIT
+             || rtReason == PEND_HOST_RSRC_LIMIT
+             || rtReason == PEND_QUE_RSRC_LIMIT
+             || rtReason == PEND_USER_RSRC_LIMIT
+             || rtReason == PEND_PROJ_RSRC_LIMIT) {
+        *hReason = rtReason;
     }
     else {
         jp->newReason = rtReason;
@@ -3093,6 +3444,7 @@ jobStarted (struct jData *jp, struct jobReply *jobReply)
         jp->hPtr[i]->acceptTime = hostAcceptJobTime;
 
     FREEUP (jp->reasonTb);
+    freePendLimitDetail(jp);
 
     jp->dispCount ++;
     jp->jobPid = jobReply->jobPid;
@@ -4656,9 +5008,10 @@ scheduleAJob(struct jData *jp, bool_t checkReady, bool_t checkOtherGroup)
         }
     }
 
+    freeRLJobLimitsCache(&jobRLimitsCache);
+
     if (checkReady && (!jobIsReady(jp)))
         return 0;
-
 
     if (jp->processed & JOB_STAGE_CAND) {
 
@@ -4804,6 +5157,7 @@ dispatchAJob(struct jData *jp, int dontTryNextCandHost)
                 if (ret == DISP_OK) {
                     jp->processed |= JOB_STAGE_DISP;
 
+                    updRLAccountTabByCache(jp);
                     updHostLeftRusageMem(jp, -1);
                 }
                 return ret;
@@ -4826,6 +5180,7 @@ dispatchAJob(struct jData *jp, int dontTryNextCandHost)
                     return DISP_TIME_OUT;
                 }
 
+                resetJobRLimitsCache4Host();
                 continue;
             }
         } else {
@@ -4893,14 +5248,19 @@ checkIfCandHostIsOk(struct jData *jp)
     int i;
 
     for (i = 0; i < jp->numCandPtr; i++) {
+        struct limitDetail detail;
 
-        nSlots = candHostOk(jp, i, &nAvailSlots, &hReason);
+        nSlots = candHostOk(jp, i, &nAvailSlots, &hReason, &detail);
         if (nSlots <= 0) {
             jp->candPtr[i].numSlots = 0;
             jp->candPtr[i].numAvailSlots = 0;
             if (jp->newReason != 0) {
                 hReason = jp->newReason;
-                addReason(jp, jp->candPtr[i].hData->hostId, hReason);
+                if (detail.limitName != NULL)
+                    addReasonWithDetail(jp, jp->candPtr[i].hData->hostId,
+                                        hReason, &detail);
+                else
+                    addReason(jp, jp->candPtr[i].hData->hostId, hReason);
             }
 
             jp->newReason = svReason;
@@ -5058,6 +5418,12 @@ getNumProcs(struct jData *jp)
         execCandPtr[i].numSlots = 0;
         execCandPtr[i].numAvailSlots = 0;
         execCandPtr[i].backfilleeList = NULL;
+    }
+
+    /*Free up the old cache, we will gnererate new host cache for hosts allocation checking */
+    if (jobRLimitsCache.hostRLimits != NULL) {
+        listDestroy(jobRLimitsCache.hostRLimits, freeRLAllocLimitEntry);
+        jobRLimitsCache.hostRLimits = NULL;
     }
 
     if (JOB_CAN_BACKFILL(jp) &&
@@ -5257,13 +5623,16 @@ getNumProcs(struct jData *jp)
         listDestroy(sortedBackfilleeList, NULL);
     } else {
 
-
-
         for (i = 0;
              i < jp->numCandPtr &&
                  jp->numAvailEligProc < jp->numAvailSlots &&
                  jp->numAvailEligProc < jp->shared->jobBill.maxNumProcessors;
              i++) {
+            LIST_T *hostRLimits = NULL;
+            RL_ALLOC_RLIMIT_T *failedLimit = NULL;
+            RL_RESOURCE_AVAIL_T *failedRsrc = NULL;
+            int nAvailRLSlots = 0;
+
             nAvailSlots = MIN(jp->candPtr[i].numAvailSlots,
                               jp->shared->jobBill.maxNumProcessors -
                               jp->numAvailEligProc);
@@ -5272,10 +5641,29 @@ getNumProcs(struct jData *jp)
             nAvailSlots = MIN(nAvailSlots,
                               jp->numAvailSlots - jp->numAvailEligProc);
 
+            nAvailRLSlots = getHostSlots4RLimit(jp, jp->candPtr[i].hData, &hostRLimits, &failedLimit, &failedRsrc);
+            if (nAvailRLSlots > 0) {
+                nAvailSlots = MIN(nAvailSlots, nAvailRLSlots);
+            } else {
+
+                if (hostRLimits) {
+                    listDestroy(hostRLimits, freeRLAllocLimitEntry);
+                }
+
+                continue;
+            }
+
             execCandPtr[i].numAvailSlots = nAvailSlots;
             execCandPtr[i].numSlots = nAvailSlots;
             execCandPtr[i].hData = jp->candPtr[i].hData;
             jp->numAvailEligProc += nAvailSlots;
+            /*If the host is not blocked by any limit, update job's limits cache and merge hostRLimit for the host*/
+            if (!failedLimit) {
+                mergeAllocRLimit2Cache(hostRLimits, jp, nAvailSlots);
+            }
+            if (hostRLimits) {
+                listDestroy(hostRLimits, freeRLAllocLimitEntry);
+            }
         }
         jp->numExecCandPtr = i;
         jp->numEligProc = jp->numAvailEligProc;
@@ -5329,9 +5717,24 @@ getNumProcs(struct jData *jp)
         }
 
         FREEUP(jp->execCandPtr);
+        /* Remove execCandPtr entries with 0 avail slots, compacting the
+         * non-zero entries forward. */
+        {
+            int j = 0;
+            for (i = 0; i < jp->numExecCandPtr; i++) {
+                if (execCandPtr[i].numAvailSlots == 0) {
+                    continue;
+                }
+                if (j != i) {
+                    execCandPtr[j] = execCandPtr[i];
+                }
+                j++;
+            }
+            jp->numExecCandPtr = j;
+        }
         jp->execCandPtr = execCandPtr;
+        
         if (JOB_CAN_BACKFILL(jp) && jobHasBackfillee(jp)) {
-
             getBackfillSlotsOnExecCandHost(jp);
             doBackfill(jp);
         }
@@ -6873,9 +7276,9 @@ handleXor(struct jData *jpbw)
 {
     static char fname[] = "handleXor";
     int i, j, foundGroup, numXorExprs;
-    int *indicesOfCandPtr;
-    struct resVal* resValPtr;
-    struct candHost *candPtr;
+    int *indicesOfCandPtr = NULL;
+    struct resVal* resValPtr = NULL;
+    struct candHost *candPtr = NULL;
     int numCandPtr;
     struct tclHostData tclHostData;
 
@@ -6904,6 +7307,10 @@ handleXor(struct jData *jpbw)
         for (i=0; i<jpbw->numCandPtr; i++)
             ls_syslog(LOG_DEBUG3, "%s: candPtr[%d]=%s.",fname, i, jpbw->candPtr[
                           i].hData->host);
+    }
+
+    if (resValPtr == NULL) {
+        return (CAND_NO_HOST);
     }
 
     jpbw->groupCands = NULL;

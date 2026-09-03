@@ -899,6 +899,9 @@ processClient(struct clientNode *client, int *needFree)
         case BATCH_RESOURCE_INFO:
             TIMEIT(3, do_resourceInfoReq(&xdrs, s, &from, &reqHdr),"do_resourceInfoReq()");
             break;
+        case BATCH_RSRC_LIMIT_INFO:
+            TIMEIT(3, do_rsrcLimitInfoReq(&xdrs, s, &from, &reqHdr),"do_rsrcLimitInfoReq()");
+            break;
         case BATCH_JOB_FORCE:
             TIMEIT(0,
                    do_runJobReq(&xdrs, s, &from, &auth, &reqHdr),
