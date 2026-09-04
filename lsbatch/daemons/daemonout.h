@@ -99,6 +99,7 @@ struct submitReq {
     time_t  termTime;                 
     int     sigValue;                 
     char    *subHomeDir;              
+    char    *submitCwd;               
     char    *inFile;                  
     char    *outFile;                 
     char    *errFile;                 

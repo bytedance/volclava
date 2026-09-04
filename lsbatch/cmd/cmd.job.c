@@ -184,17 +184,26 @@ prtFileNames(struct jobInfoEnt *job, int prtCwd)
 
     
     if (prtCwd == TRUE) {
-        if (job->cwd[0] == '/' || job->cwd[0] == '\\' || 
+        if (job->cwd[0] == '/' || job->cwd[0] == '\\' ||
 	    (job->cwd[0] != '\0' && job->cwd[1] == ':'))
 	    sprintf(prline, ", CWD <%s>", job->cwd);
         else if (job->cwd[0] == '\0')
-	    sprintf(prline, ", CWD <$HOME>"); 
+	    sprintf(prline, ", CWD <$HOME>");
         else
-	    sprintf(prline, ", CWD <$HOME/%s>", job->cwd); 
+	    sprintf(prline, ", CWD <$HOME/%s>", job->cwd);
         printf(prline);
     }
 
-    
+    if (job->submit.options2 & SUB2_JOB_CWD && job->submit.cwd && job->submit.cwd[0] != '\0') {
+        if (job->submit.cwd[0] == '/' || job->submit.cwd[0] == '\\' ||
+            (job->submit.cwd[1] == ':'))
+            sprintf(prline, ", Specified CWD <%s>", job->submit.cwd);
+        else
+            sprintf(prline, ", Specified CWD <$HOME/%s>", job->submit.cwd);
+        printf(prline);
+    }
+
+
     if (job->submit.options & SUB_IN_FILE)  {
  	sprintf(prline, ", %s <%s>", 
 	 	I18N(577, "Input File"), job->submit.inFile);/* catgets 577 */
@@ -1875,6 +1884,15 @@ prtFileNamesUF(struct jobInfoEnt *job, int prtCwd)
             sprintf(prline, ", CWD <$HOME>");
         else
             sprintf(prline, ", CWD <$HOME/%s>", job->cwd);
+        printf("%s", prline);
+    }
+
+    if (job->submit.options2 & SUB2_JOB_CWD && job->submit.cwd && job->submit.cwd[0] != '\0') {
+        if (job->submit.cwd[0] == '/' || job->submit.cwd[0] == '\\' ||
+            (job->submit.cwd[1] == ':'))
+            sprintf(prline, ", Specified CWD <%s>", job->submit.cwd);
+        else
+            sprintf(prline, ", Specified CWD <$HOME/%s>", job->submit.cwd);
         printf("%s", prline);
     }
 

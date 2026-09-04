@@ -88,6 +88,7 @@ lsb_modify(struct submit *jobSubReq, struct submitReply *submitRep, LS_LONG_INT 
         jobSubReq->maxNumProcessors = DEFAULT_NUMPRO;
     cwd[0]='\0';
     modifyReq.submitReq.subHomeDir = homeDir;
+    modifyReq.submitReq.submitCwd = "";
     modifyReq.submitReq.cwd = cwd;
     modifyReq.submitReq.resReq = resReq;
     modifyReq.submitReq.command = cmd;
@@ -101,7 +102,31 @@ lsb_modify(struct submit *jobSubReq, struct submitReply *submitRep, LS_LONG_INT 
     modifyJobInformation(jobSubReq);
     
     if (getCommonParams (jobSubReq, &modifyReq.submitReq, submitRep) < 0) {
-        goto cleanup;                    
+        goto cleanup;
+    }
+
+    if (jobSubReq->options2 & SUB2_JOB_CWD) {
+        if (jobSubReq->cwd == NULL) {
+            lsberrno = LSBE_BAD_ARG;
+            goto cleanup;
+        }
+        if (jobSubReq->cwd[0] == '/') {
+            strncpy(cwd, jobSubReq->cwd, MAXFILENAMELEN - 1);
+            cwd[MAXFILENAMELEN - 1] = '\0';
+        } else {
+            char tmpCwd[MAXFILENAMELEN];
+            if (mygetwd_(tmpCwd) == NULL) {
+                lsberrno = LSBE_BAD_ARG;
+                goto cleanup;
+            }
+            if (strlen(tmpCwd) + 1 + strlen(jobSubReq->cwd)
+                >= MAXFILENAMELEN) {
+                lsberrno = LSBE_SYS_CALL;
+                errno = ENAMETOOLONG;
+                goto cleanup;
+            }
+            snprintf(cwd, MAXFILENAMELEN, "%s/%s", tmpCwd, jobSubReq->cwd);
+        }
     }
 
     if (authTicketTokens_(&auth, NULL) == -1) {

@@ -407,6 +407,13 @@ xdr_jobSpecs (XDR *xdrs, struct jobSpecs *jobSpecs, struct LSFHeader *hdr)
 			"xdr_string", "prepostUsername");
 	return (FALSE);
     }
+
+    sp[0] = jobSpecs->submitCwd;
+    if (!(xdr_string(xdrs, &sp[0], MAXFILENAMELEN))) {
+	ls_syslog(LOG_ERR, I18N_FUNC_S_FAIL, fname,
+			"xdr_string", "submitCwd");
+	return (FALSE);
+    }
     
     return(TRUE);
 
@@ -698,9 +705,15 @@ xdr_sbdPackage1 (XDR *xdrs, struct sbdPackage *sbdPackage, struct LSFHeader *hdr
 
     
     if (!xdr_int(xdrs, &sbdPackage->jobTerminateInterval)) {
-        ls_syslog(LOG_ERR, I18N_FUNC_S_FAIL, fname, 
+        ls_syslog(LOG_ERR, I18N_FUNC_S_FAIL, fname,
 		"xdr_int", "jobTerminateInterval");
-	return (FALSE); 
+	return (FALSE);
+    }
+
+    if (!xdr_int(xdrs, &sbdPackage->jobCwdTtl)) {
+        ls_syslog(LOG_ERR, I18N_FUNC_S_FAIL, fname,
+		"xdr_int", "jobCwdTtl");
+	return (FALSE);
     }
 
 	

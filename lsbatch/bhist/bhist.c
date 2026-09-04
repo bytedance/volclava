@@ -1652,6 +1652,15 @@ void prtModifiedJob(struct jobModLog *jobModLog, struct bhistReq *bhistReq,
         PRT_FMTSTR(prline);
     }
 
+    if (jobModLog->options2 & SUB2_JOB_CWD && jobModLog->cwd && jobModLog->cwd[0] != '\0') {
+        if (jobModLog->cwd[0] == '/' || jobModLog->cwd[0] == '\\' ||
+            (jobModLog->cwd[1] == ':'))
+            sprintf(prline, "Specified CWD changes to : %s", jobModLog->cwd);
+        else
+            sprintf(prline, "Specified CWD changes to : $HOME/%s", jobModLog->cwd);
+        PRT_FMTSTR(prline);
+    }
+
     if (jobModLog->delOptions & SUB_QUEUE) {
         sprintf(prline, I18N(3395, "Job queue changes back to default") /* catgets 3395 */ );
 	PRT_FMTSTR(prline);
@@ -1827,6 +1836,11 @@ void prtModifiedJob(struct jobModLog *jobModLog, struct bhistReq *bhistReq,
 
     if (jobModLog->delOptions2 & SUB2_JOB_DESC) {
         sprintf(prline, "Job Description is removed");
+        PRT_FMTSTR(prline);
+    }
+
+    if (jobModLog->delOptions2 & SUB2_JOB_CWD) {
+        sprintf(prline, "Specified CWD is removed");
         PRT_FMTSTR(prline);
     }
 }

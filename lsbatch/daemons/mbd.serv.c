@@ -2094,7 +2094,8 @@ do_paramInfoReq(XDR * xdrs, int chfd, struct sockaddr_in * from,
 
     count = sizeof(struct parameterInfo) + strlen(paramInfo.defaultQueues)
         + strlen(paramInfo.defaultHostSpec)
-        + strlen(paramInfo.defaultProject) + 100 + jobSpoolDirLen;
+        + strlen(paramInfo.defaultProject) + 100 + jobSpoolDirLen
+        + strlen(paramInfo.defaultJobCwd);
     xdr_lsffree(xdr_infoReq, (char *)&infoReq, reqHdr);
 
     reply_buf = (char *) my_malloc(count, "do_paramInfoReq");
@@ -2406,6 +2407,7 @@ initSubmit(int *first, struct submitReq *subReq,
         subReq->commandSpool = (char *) my_malloc(MAXFILENAMELEN, fname);
         subReq->cwd = (char *) my_malloc(MAXFILENAMELEN, fname);
         subReq->subHomeDir = (char *) my_malloc(MAXFILENAMELEN, fname);
+        subReq->submitCwd = (char *) my_malloc(MAXFILENAMELEN, fname);
         subReq->chkpntDir = (char *) my_malloc(MAXFILENAMELEN, fname);
         subReq->hostSpec = (char *) my_malloc(MAXHOSTNAMELEN, fname);
         submitReply->badJobName = (char *) my_malloc(MAX_CMD_DESC_LEN, fname);
