@@ -1,0 +1,72 @@
+.TH lsf.task 5 "Volclava"
+.SH NAME
+lsf.task \- task eligibility and resource requirements
+.SH DESCRIPTION
+The task configuration defines remote-task resource requirements and a local-task
+list used by the task eligibility library. It does not define batch queues.
+.PP
+On first use, the library reads the following readable files in order:
+.IP 1. 3
+LSF_CONFDIR/lsf.task
+.IP 2. 3
+LSF_CONFDIR/lsf.task.clustername, if the cluster name is available
+.IP 3. 3
+$HOME/.lsftask
+.PP
+Later entries can replace or remove earlier entries in the same task list.
+The local and remote lists are separate. At least one task file must be read
+successfully for task-list initialization to succeed.
+.SH FORMAT
+Entries appear in sections delimited by either
+.B Begin RemoteTasks
+and
+.BR "End RemoteTasks" ,
+or
+.B Begin LocalTasks
+and
+.BR "End LocalTasks" .
+Section keywords are case-insensitive. Task names are case-sensitive.
+.PP
+Each entry adds a task unless prefixed with a minus sign, which removes it
+from that section's list. A plus sign explicitly adds an entry. The sign may
+be attached to the entry or separated by whitespace. Remote-task entries
+may be enclosed in double quotes to include spaces in resource requirements.
+.PP
+A remote-task entry has the form
+.IR task/resource_requirement .
+The resource requirement is optional. Adding an existing task replaces its
+previous resource requirement; an entry without a requirement clears it.
+.PP
+By default, the first slash separates the task name from its resource
+requirement, and eligibility lookup uses the basename of the requested task.
+If LSF_TRS is set, its first character is the separator and lookup uses the
+task string as supplied. Use a nonempty separator value when setting LSF_TRS.
+.SH ELIGIBILITY
+In local mode, a task is eligible only if it appears in RemoteTasks.
+In remote mode, a task is eligible unless it appears in LocalTasks.
+When an eligible task also appears in RemoteTasks, its configured resource
+requirement is returned. A missing requirement is returned as an empty string.
+.SH EXAMPLE
+.nf
+Begin RemoteTasks
+gcc/cpu>=0
+"compress/order[cpu:mem]"
+\- obsolete_task
+End RemoteTasks
+
+Begin LocalTasks
+local_only_task
+End LocalTasks
+.fi
+.SH FILES
+.TP
+.B LSF_CONFDIR/lsf.task
+Global task configuration.
+.TP
+.B LSF_CONFDIR/lsf.task.clustername
+Cluster-specific task configuration.
+.TP
+.B $HOME/.lsftask
+Per-user task configuration.
+.SH SEE ALSO
+lsf.conf(5)
