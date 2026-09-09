@@ -3272,6 +3272,28 @@ minute update period.
 .PP
 .PP
 15
+.SH LSF_PIM_SLEEPTIME_UPDATE
+.SS Syntax
+.PP
+\fBLSF_PIM_SLEEPTIME_UPDATE=y\fR
+.SS Description
+.PP
+Controls refresh requests for process information. The value \fBy\fR is
+case-insensitive; an unset parameter or any other value disables this mode.
+.PP
+When enabled, the client library does not automatically request an immediate
+refresh for missing process-group information until \fBLSF_PIM_SLEEPTIME\fR
+seconds have elapsed since its last update. Explicit immediate-update
+requests are still honored. PIM also omits the additional short sleep that
+it normally applies before servicing an immediate-update request.
+.PP
+When disabled, the client library can retry missing process-group
+information with an immediate update before the interval expires, and PIM
+retains its short-sleep behavior for immediate-update requests.
+.SS Default
+.PP
+\fBy\fR in the supplied configuration template. If the parameter is absent,
+this mode is disabled.
 .SH LSF_RES_ACCT
 .BR
 .PP
