@@ -231,6 +231,7 @@ install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/lsf/man/man5/lsf.acct.5 ${RPM
 install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/lsf/man/man5/lsf.cluster.5 ${RPM_BUILD_ROOT}%{_mandir}/man5
 install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/lsf/man/man5/lsf.conf.5 ${RPM_BUILD_ROOT}%{_mandir}/man5
 install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/lsf/man/man5/lsf.shared.5 ${RPM_BUILD_ROOT}%{_mandir}/man5
+install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/lsf/man/man5/lsf.task.5 ${RPM_BUILD_ROOT}%{_mandir}/man5
 install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/lsf/man/man5/res.acct.5 ${RPM_BUILD_ROOT}%{_mandir}/man5
 install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/lsbatch/man8/badmin.8  ${RPM_BUILD_ROOT}%{_mandir}/man8
 install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/lsbatch/man8/brun.8  ${RPM_BUILD_ROOT}%{_mandir}/man8
@@ -417,6 +418,7 @@ fi
 %{_mandir}/man5/lsf.cluster.5
 %{_mandir}/man5/lsf.conf.5
 %{_mandir}/man5/lsf.shared.5
+%{_mandir}/man5/lsf.task.5
 %{_mandir}/man5/res.acct.5
 
 # libraries

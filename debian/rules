@@ -126,6 +126,7 @@ override_dh_auto_install:
 	install	-m	644	lsf/man/man5/lsf.cluster.5		debian/volclava/opt/volclava-2.2/share/man/man5
 	install	-m	644	lsf/man/man5/lsf.conf.5			debian/volclava/opt/volclava-2.2/share/man/man5
 	install	-m	644	lsf/man/man5/lsf.shared.5		debian/volclava/opt/volclava-2.2/share/man/man5
+	install	-m	644	lsf/man/man5/lsf.task.5		debian/volclava/opt/volclava-2.2/share/man/man5
 	install	-m	644	lsf/man/man5/res.acct.5			debian/volclava/opt/volclava-2.2/share/man/man5
 	install	-m	644	lsbatch/man8/badmin.8			debian/volclava/opt/volclava-2.2/share/man/man8
 	install	-m	644	lsbatch/man8/brun.8			debian/volclava/opt/volclava-2.2/share/man/man8
