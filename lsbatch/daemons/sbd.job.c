@@ -4913,6 +4913,14 @@ cwdTrackMarkFinished(LS_LONG_INT jobId)
     close(lockFd);
 }
 
+/* How long a removal that keeps failing is retried before the record is
+ * dropped.  ENOTEMPTY (a job left output in its CWD) is the common case, but
+ * the grace applies to any non-fatal error: once it expires the record is
+ * discarded so cwdlist cannot grow without bound.  cwdCleanupExpired() runs
+ * every 300s; dropping a record never deletes anything, only stops retrying
+ * the removal and leaves the directory on disk. */
+#define CWD_RETRY_GRACE 86400
+
 /*
  * cwdCleanupExpired - remove expired job CWDs recorded by cwdTrackAdd().
  *
@@ -4941,6 +4949,7 @@ cwdTrackMarkFinished(LS_LONG_INT jobId)
  * it as its working directory (that job's cwd then dangles).  Closing that
  * residual case would require reference counting.
  */
+
 void
 cwdCleanupExpired(void)
 {
@@ -5007,9 +5016,18 @@ cwdCleanupExpired(void)
                     ls_syslog(LOG_WARNING,
                               "cwdCleanupExpired: dropping cwdlist record with malformed path %s: %m",
                               path);
+                } else if (currentTime - storedFinish >=
+                               (time_t)storedTtl * 3600 + CWD_RETRY_GRACE) {
+                    /* Any other failure (ENOTEMPTY from leftover output is the
+                     * common case; ELOOP/ENOTDIR/... too) that outlives the
+                     * retry window: drop the record so cwdlist cannot grow
+                     * without bound.  Dropping never deletes anything -- the
+                     * directory is simply left on disk. */
+                    ls_syslog(LOG_WARNING,
+                              "cwdCleanupExpired: giving up on %s after retry window: %m",
+                              path);
                 } else {
-                    /* Transient (ELOOP from a symlinked component, ENOTEMPTY,
-                     * ...): keep the record and let the next sweep retry. */
+                    /* Within the retry window: keep the record and retry. */
                     ls_syslog(LOG_DEBUG,
                               "cwdCleanupExpired: rmdirNoFollow(%s) failed: %m",
                               path);
