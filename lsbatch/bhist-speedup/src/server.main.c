@@ -912,7 +912,7 @@ formatQueryCommand(const struct queryRequest *query)
 }
 
 /*
- * Append one completed request to the schema-3 history table.
+ * Append one completed request to the schema-1 history table.
  * @param[in] pending: Request identity and original bhist arguments.
  * @param[in] completedAtMs: Completion wall-clock time in Unix milliseconds.
  * @param[in] queueMs: Time spent waiting before query execution.

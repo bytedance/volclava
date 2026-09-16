@@ -1599,7 +1599,7 @@ sqliteHasReadySchema(sqlite3 *db)
             "       WHERE type='table' AND name='job_' || 'generation_map') = 0 "
             "AND (SELECT count(*) FROM loader_meta "
             "       WHERE meta_key='schema_version' "
-            "         AND meta_value='4') = 1 "
+            "         AND meta_value='1') = 1 "
             "THEN 1 ELSE 0 END;",
             &ready) != 0)
         return false;

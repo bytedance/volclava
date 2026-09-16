@@ -39,7 +39,7 @@ struct loaderEventFields {
 int loaderExtractEventFromLine(const char *line, long long *jobId,
                                struct loaderEventFields *times);
 
-#define LOADER_SCHEMA_VERSION 4
+#define LOADER_SCHEMA_VERSION 1
 #define LOADER_SQLITE_BUSY_TIMEOUT_MS 60000
 #define LOADER_SQLITE_PAGE_SIZE_BYTES 65536
 #define LOADER_SQLITE_LIVE_CACHE_SIZE_KIB (-32768)

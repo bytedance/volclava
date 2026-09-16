@@ -742,7 +742,7 @@ int
 loaderStoreInitMeta(sqlite3 *db)
 {
     static const struct loaderMetaDefault defaults[] = {
-        {"schema_version", "4"},
+        {"schema_version", "1"},
         {"retained_head_source_id", "0"},
         {"db_status", LOADER_DB_STATUS_READY},
     };
