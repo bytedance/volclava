@@ -1,0 +1,96 @@
+#!/bin/bash
+# Copyright (C) 2021-2026 Bytedance Ltd. and/or its affiliates
+
+# chkconfig: 2345 99 01
+# description: bhist-speedup loader and server
+### BEGIN INIT INFO
+# Provides: bhist-speedup
+# Required-Start: $local_fs $remote_fs $network
+# Required-Stop: $local_fs $remote_fs $network
+# Default-Start: 2 3 4 5
+# Default-Stop: 0 1 6
+# Short-Description: bhist-speedup loader and server
+### END INIT INFO
+
+if [ -z "${BASH_VERSION:-}" ]; then
+    exec bash "$0" "$@"
+fi
+
+usage() {
+    echo "Usage: $0 {start|stop|status|restart|rebuild}"
+}
+
+if [ "$#" -ne 1 ]; then
+    usage >&2
+    exit 2
+fi
+case "$1" in
+    -h|--help)
+        usage
+        exit 0
+        ;;
+    start|stop|status|restart|rebuild)
+        ;;
+    *)
+        usage >&2
+        exit 2
+        ;;
+esac
+
+unset LSF_ENVDIR LSF_BINDIR
+if [ -r /etc/profile.d/volclava.sh ]; then
+    profile=/etc/profile.d/volclava.sh
+elif [ -r /etc/profile.d/lsf.sh ]; then
+    profile=/etc/profile.d/lsf.sh
+else
+    echo "bhist-speedup: cannot read volclava.sh or lsf.sh in /etc/profile.d" >&2
+    exit 1
+fi
+if ! source "$profile"; then
+    echo "bhist-speedup: failed to load $profile" >&2
+    exit 1
+fi
+if [[ "$LSF_ENVDIR" != /* || "$LSF_BINDIR" != /* ]] ||
+    [ ! -d "$LSF_ENVDIR" ] || [ ! -d "$LSF_BINDIR" ]; then
+    echo "bhist-speedup: LSF_ENVDIR and LSF_BINDIR must name absolute directories" >&2
+    exit 1
+fi
+export LSF_ENVDIR LSF_BINDIR
+
+loader="$LSF_BINDIR/bhist-speedup-loader"
+server="$LSF_BINDIR/bhist-speedup-server"
+if [ ! -x "$loader" ] || [ ! -x "$server" ]; then
+    echo "bhist-speedup: loader and server must be executable in $LSF_BINDIR" >&2
+    exit 1
+fi
+
+start() {
+    "$loader" "${1:-start}" || return 1
+    "$server" start || return 1
+}
+
+stop() {
+    local result=0
+
+    "$server" stop || result=1
+    "$loader" stop || result=1
+    return "$result"
+}
+
+status() {
+    local result=0
+
+    echo "[loader]"
+    "$loader" status || result=1
+    echo "[server]"
+    "$server" status || result=1
+    return "$result"
+}
+
+case "$1" in
+    start)   start ;;
+    stop)    stop ;;
+    status)  status ;;
+    restart) stop && start ;;
+    rebuild) stop && start rebuild ;;
+esac

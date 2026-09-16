@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+# Copyright (C) 2021-2026 Bytedance Ltd. and/or its affiliates
+
+find_volclava_top()
+{
+    package=${DPKG_MAINTSCRIPT_PACKAGE:-volclava}
+    env_file=$(dpkg-query -L "$package" 2>/dev/null \
+        | sed -n '\#/etc/volclava\.sh$#p' \
+        | head -n 1)
+    if [ -z "$env_file" ]; then
+        return 1
+    fi
+
+    dirname "$(dirname "$env_file")"
+}
+
+VOLC_TOP=$(find_volclava_top || true)
+
+case "$1" in
+    remove|deconfigure|upgrade|failed-upgrade)
+        if [ -n "$VOLC_TOP" ] && [ -x "${VOLC_TOP}/bin/bhist-speedup-server" ]; then
+            LSF_ENVDIR="${VOLC_TOP}/etc" \
+                "${VOLC_TOP}/bin/bhist-speedup-server" stop \
+                > /dev/null 2>&1 || true
+        fi
+        if [ -n "$VOLC_TOP" ] && [ -x "${VOLC_TOP}/bin/bhist-speedup-loader" ]; then
+            LSF_ENVDIR="${VOLC_TOP}/etc" \
+                "${VOLC_TOP}/bin/bhist-speedup-loader" stop \
+                > /dev/null 2>&1 || true
+        fi
+        ;;
+esac
+
+exit 0

@@ -4,5 +4,8 @@
 
 include_HEADERS = lsbatch.h
 
-SUBDIRS = lib daemons cmd bhist man1 man5 man8
-
+SUBDIRS = lib
+if BUILD_BHIST_SPEEDUP
+SUBDIRS += bhist-speedup
+endif
+SUBDIRS += daemons cmd bhist man1 man5 man8

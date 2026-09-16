@@ -1,0 +1,66 @@
+# bhist speed up configuration.
+#
+# This file is installed as $LSF_ENVDIR/lsb.hist. Set the endpoint, database
+# path, and event directory explicitly before starting the related daemon.
+# LSB_BHIST_ENDPOINT=hostname:port
+
+# Keep the SQLite database on local storage of the service host. A local SSD
+# is recommended; do not place the database on a shared NFS installation.
+# There is no cluster-independent default. Set this before starting the server
+# or loader.
+# LSB_BHIST_DB_PATH=/var/lib/bhist-speedup/bhist-speedup.sqlite
+
+# Absolute directory containing lsb.events and its rotated archives. LSF and
+# Volclava installations can place this directory differently, so there is no
+# default. Set it explicitly before starting or rebuilding bhist-speedup-loader.
+# LSB_BHIST_EVENT_DIR=/path/to/logdir
+
+# Milliseconds between normal event-log checks and stale snapshot retries.
+LSB_BHIST_EVENT_POLL_INTERVAL=5000
+
+# Maximum event lines committed in one loader transaction.
+LSB_BHIST_MAX_EVENTS_PER_TRANSACTION=100000
+
+# Maximum raw event MiB committed in one loader transaction.
+LSB_BHIST_MAX_RAW_SIZE_PER_TRANSACTION=64
+
+# Target history window in seconds (2592000 is 30 days). Expired day tables
+# are cleaned after an lsb.events rotation; active jobs may retain older history.
+LSB_BHIST_HISTORY_RETENTION=2592000
+
+# SQLite page-cache size used by both the initial import and live follow,
+# in MiB.
+LSB_BHIST_IMPORT_CACHE_SIZE=1024
+
+# Time to wait for a busy SQLite database before failing, in milliseconds.
+LSB_BHIST_DB_BUSY_TIMEOUT=60000
+
+# Per-query SQLite page-cache size, in MiB.
+LSB_BHIST_QUERY_DB_CACHE_SIZE=256
+
+# Per-query SQLite mmap window, in MiB. Set to 0 to disable mmap.
+LSB_BHIST_QUERY_DB_MMAP_SIZE=256
+
+# Maximum bhist formatter processes used by one query.
+LSB_BHIST_MAX_FORMATTERS_PER_QUERY=4
+
+# Base job IDs prepared for each SQLite/bhist pipeline batch.
+LSB_BHIST_JOBS_PER_BATCH=10000
+
+# Maximum query handlers executing at the same time, including point and scan
+# queries.
+LSB_BHIST_MAX_CONCURRENT_QUERIES=16
+
+# Maximum scan-query handlers within LSB_BHIST_MAX_CONCURRENT_QUERIES.
+# Time-range and full-history queries are scans; job-ID point queries do not
+# consume this limit.
+LSB_BHIST_MAX_CONCURRENT_SCAN_QUERIES=4
+
+# Maximum requests waiting in the in-memory queue.
+LSB_BHIST_MAX_QUEUED_QUERIES=128
+
+# Client TCP connection timeout, in seconds.
+LSB_BHIST_CONNECT_TIMEOUT=5
+
+# Time allowed for the server to receive a complete request, in seconds.
+LSB_BHIST_RECEIVE_TIMEOUT=5

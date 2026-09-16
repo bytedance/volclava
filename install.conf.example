@@ -24,3 +24,7 @@ VOLC_CLUSTER_NAME=volclava
 #level volclava installation directory for storing platform-specific
 #executables. Default value is exec
 #VOLC_MIX_OS_FOLDER=exec
+
+#Optional. Build and install bhist speed up support. Default is N.
+#Valid values are Y, y, N and n.
+VOLC_BHIST_SPEEDUP=N

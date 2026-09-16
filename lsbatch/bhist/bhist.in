@@ -1,0 +1,189 @@
+#!/bin/sh
+
+# Route the bhist subset supported by bhist speed up to the accelerated client.
+# Unsupported syntax always remains the responsibility of bhist_original.
+
+FALLBACK_SAFE_STATUS=125
+
+resolve_bindir()
+{
+    case $0 in
+        */*) command_path=$0 ;;
+        *) command_path=$(command -v "$0" 2>/dev/null) || return 1 ;;
+    esac
+    command_dir=$(dirname "$command_path") || return 1
+    CDPATH= cd -P "$command_dir" 2>/dev/null && pwd
+}
+
+# Decide environment routing before loading the accelerated ELF, which may
+# need shared libraries unavailable on native LSF client hosts.
+environment_requires_native()
+{
+    os_id=
+    if [ -r /etc/os-release ]; then
+        os_id=$(LC_ALL=C awk '
+        /^[[:space:]]*ID[[:space:]]*=/ {
+            sub(/^[^=]*=/, "")
+            gsub(/^[[:space:]]+|[[:space:]]+$/, "")
+            if ($0 ~ /^".*"$/ || $0 ~ /^\047.*\047$/)
+                $0 = substr($0, 2, length($0) - 2)
+            if ($0 ~ /^[a-z0-9._-]+$/ && length($0) < 64)
+                print
+            else
+                print "unknown"
+            exit
+        }
+        /^[[:space:]]*ID([[:space:]]|$)/ && index($0, "=") == 0 {
+            print "unknown"; exit
+        }
+        ' /etc/os-release 2>/dev/null) || return 1
+    fi
+    case $os_id in
+        centos) ;;
+        '') [ -r /etc/centos-release ] || return 1 ;;
+        *) return 1 ;;
+    esac
+    case ${LSF_ENVDIR-} in
+        /*) ;;
+        *) return 0 ;;
+    esac
+    # On CentOS, accelerate only when both markers are confirmed absent.
+    # An unusable environment directory leaves the cluster type unknown.
+    if [ ! -d "$LSF_ENVDIR" ] || [ ! -r "$LSF_ENVDIR" ] ||
+       [ ! -x "$LSF_ENVDIR" ]; then
+        return 0
+    fi
+    for marker in lsf.entitlement profile.lsf; do
+        # A dangling marker also leaves the cluster type unknown.
+        if [ -e "$LSF_ENVDIR/$marker" ] || [ -L "$LSF_ENVDIR/$marker" ]; then
+            return 0
+        fi
+    done
+    return 1
+}
+
+is_job_selector()
+{
+    selector=$1
+    base=${selector%%[*}
+    case $base in
+        ''|*[!0-9]*) return 1 ;;
+    esac
+    if [ "$selector" != "$base" ]; then
+        suffix=${selector#"$base"}
+        case $suffix in
+            \[*\]) [ "$suffix" != "[]" ] || return 1 ;;
+            *) return 1 ;;
+        esac
+    fi
+    return 0
+}
+
+arguments_are_supported()
+{
+    selector_count=0
+    long_format=0
+    wide_format=0
+    options_done=0
+    seen_user=0
+    seen_queue=0
+    seen_host=0
+
+    while [ "$#" -gt 0 ]; do
+        argument=$1
+        shift
+
+        if [ "$options_done" -eq 1 ]; then
+            is_job_selector "$argument" || return 1
+            selector_count=$((selector_count + 1))
+            [ "$selector_count" -le 1 ] || return 1
+            continue
+        fi
+        if [ "$argument" = "--" ]; then
+            options_done=1
+            continue
+        fi
+        case $argument in
+            -?*) ;;
+            *)
+                is_job_selector "$argument" || return 1
+                selector_count=$((selector_count + 1))
+                [ "$selector_count" -le 1 ] || return 1
+                continue
+                ;;
+        esac
+
+        option_text=${argument#-}
+        while [ -n "$option_text" ]; do
+            option=${option_text%"${option_text#?}"}
+            option_text=${option_text#?}
+            case $option in
+                l)
+                    long_format=1
+                    [ "$wide_format" -eq 0 ] || return 1
+                    ;;
+                w)
+                    wide_format=1
+                    [ "$long_format" -eq 0 ] || return 1
+                    ;;
+                a|d|e|p|s|r) ;;
+                u|q|m|S|D|C)
+                    case $option in
+                        u) [ "$seen_user" -eq 0 ] || return 1; seen_user=1 ;;
+                        q) [ "$seen_queue" -eq 0 ] || return 1; seen_queue=1 ;;
+                        m) [ "$seen_host" -eq 0 ] || return 1; seen_host=1 ;;
+                    esac
+                    if [ -n "$option_text" ]; then
+                        option_value=$option_text
+                        option_text=
+                    else
+                        [ "$#" -gt 0 ] || return 1
+                        option_value=$1
+                        shift
+                    fi
+                    [ -n "$option_value" ] || return 1
+                    ;;
+                *) return 1 ;;
+            esac
+        done
+    done
+    return 0
+}
+
+bindir=$(resolve_bindir) || {
+    echo "bhist speed up: cannot resolve the bhist installation directory" >&2
+    exit 127
+}
+speedup_path=$bindir/bhist-speedup
+original_path=$bindir/bhist_original
+PATH=$bindir${PATH:+:$PATH}
+export PATH
+
+if ! arguments_are_supported "$@"; then
+    if [ ! -x "$original_path" ]; then
+        echo "bhist speed up: original bhist is not executable: $original_path" >&2
+        exit 127
+    fi
+    exec bhist_original "$@"
+fi
+
+if environment_requires_native; then
+    speedup_status=$FALLBACK_SAFE_STATUS
+elif [ ! -x "$speedup_path" ]; then
+    echo "bhist speed up: accelerated client is not executable: $speedup_path" >&2
+    speedup_status=$FALLBACK_SAFE_STATUS
+else
+    bhist-speedup "$@"
+    speedup_status=$?
+fi
+
+if [ "$speedup_status" -ne "$FALLBACK_SAFE_STATUS" ]; then
+    exit "$speedup_status"
+fi
+
+echo "bhist speed up: falling back to original bhist" >&2
+if [ ! -x "$original_path" ]; then
+    echo "bhist speed up: original bhist is not executable: $original_path" >&2
+    exit 127
+fi
+exec bhist_original "$@"
