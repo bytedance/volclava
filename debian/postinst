@@ -1,16 +1,34 @@
 #!/usr/bin/env bash
 # Copyright (C) 2021-2026 Bytedance Ltd. and/or its affiliates
 
-VOLCVERSION="2.2"
-ln -sf /opt/volclava-${VOLCVERSION}/etc/volclava.sh  /etc/profile.d/volclava.sh || true
-ln -sf /opt/volclava-${VOLCVERSION}/etc/volclava.csh /etc/profile.d/volclava.csh || true
-chmod 755 /opt/volclava-${VOLCVERSION}/etc/volclava.sh || true
-chmod 755 /opt/volclava-${VOLCVERSION}/etc/volclava.csh || true
+find_volclava_top()
+{
+    package=${DPKG_MAINTSCRIPT_PACKAGE:-volclava}
+    env_file=$(dpkg-query -L "$package" 2>/dev/null \
+        | sed -n '\#/etc/volclava\.sh$#p' \
+        | head -n 1)
+    if [ -z "$env_file" ]; then
+        return 1
+    fi
+
+    dirname "$(dirname "$env_file")"
+}
+
+VOLC_TOP=$(find_volclava_top)
+if [ -z "$VOLC_TOP" ] || [ ! -f "$VOLC_TOP/etc/volclava.sh" ]; then
+    echo "Cannot determine the Volclava installation prefix." >&2
+    exit 1
+fi
+
+ln -sf "$VOLC_TOP/etc/volclava.sh" /etc/profile.d/volclava.sh || true
+ln -sf "$VOLC_TOP/etc/volclava.csh" /etc/profile.d/volclava.csh || true
+chmod 755 "$VOLC_TOP/etc/volclava.sh" || true
+chmod 755 "$VOLC_TOP/etc/volclava.csh" || true
 
 source /etc/profile.d/volclava.sh || true
 
 chmod 755 /etc/init.d/volclava || true
-chmod 755 /opt/volclava-${VOLCVERSION}/etc/volclava || true
+chmod 755 "$VOLC_TOP/etc/volclava" || true
 
 if [ -n "$volclavaadmin" ]; then
     VOLCADMIN="$volclavaadmin"
@@ -21,5 +39,5 @@ fi
 groupadd -f ${VOLCADMIN} > /dev/null 2>&1 || true
 useradd -c "volclava Administrator" -g ${VOLCADMIN} -m -d /home/${VOLCADMIN} ${VOLCADMIN} > /dev/null 2>&1 || true
 
-chown -R ${VOLCADMIN}:${VOLCADMIN} /opt/volclava-${VOLCVERSION}/*
-chgrp -R ${VOLCADMIN} /opt/volclava-${VOLCVERSION}/*
+chown -R ${VOLCADMIN}:${VOLCADMIN} "$VOLC_TOP"/*
+chgrp -R ${VOLCADMIN} "$VOLC_TOP"/*

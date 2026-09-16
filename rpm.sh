@@ -8,6 +8,26 @@ set -x
 
 major="2"
 minor="2"
+RPM_BHIST_SPEEDUP_OPTION=""
+
+case "${1:-}" in
+    "")
+        ;;
+    --enable-bhist-speedup=Y|--enable-bhist-speedup=y)
+        RPM_BHIST_SPEEDUP_OPTION="--with=bhist_speedup"
+        ;;
+    --enable-bhist-speedup=N|--enable-bhist-speedup=n)
+        ;;
+    *)
+        echo "Usage: $0 [--enable-bhist-speedup=Y|N]" >&2
+        exit 1
+        ;;
+esac
+
+if [ "$#" -gt 1 ]; then
+    echo "Usage: $0 [--enable-bhist-speedup=Y|N]" >&2
+    exit 1
+fi
 
 GIT_LAST_COMMIT=$(git log -1  --pretty=format:%H)
 GIT_LAST_DATE=$(git log -1 --pretty=format:"%ad" --date=short)
@@ -32,7 +52,7 @@ if [ "$?" == "0" ]; then
 
   git reset --hard ${GIT_LAST_COMMIT}
   echo "RPM building..."
-  rpmbuild -ba --target x86_64 /usr/src/redhat/SPECS/volclava.spec
+  rpmbuild $RPM_BHIST_SPEEDUP_OPTION -ba --target x86_64 /usr/src/redhat/SPECS/volclava.spec
   if [ "$?" != 0 ]; then
     echo "Failed buidling rpm"
     exit 1
@@ -53,7 +73,7 @@ cp spec/volclava.spec ~/rpmbuild/SPECS/volclava.spec
 git reset --hard ${GIT_LAST_COMMIT}
 
 echo "RPM building..."
-rpmbuild -ba --target x86_64 ~/rpmbuild/SPECS/volclava.spec
+rpmbuild $RPM_BHIST_SPEEDUP_OPTION -ba --target x86_64 ~/rpmbuild/SPECS/volclava.spec
 if [ "$?" != 0 ]; then
   echo "Failed buidling rpm"
   exit 1

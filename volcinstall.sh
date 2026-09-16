@@ -40,6 +40,7 @@ fi
 #          VOLC_HOSTS
 #          VOLC_MIX_OS_MODE
 #          VOLC_MIX_OS_FOLDER
+#          VOLC_BHIST_SPEEDUP
 
 #######################################
 # 1. initialize variables
@@ -65,6 +66,7 @@ CONF_FILE_EXIST=0
 CLS_FILE_EXIST=0
 VOLC_SH_EXIT=0
 VOLC_CSH_EXIT=0
+ENABLE_BHIST_SPEEDUP="" # Resolve the default after loading configuration.
 
 SCRIPT_PATH="$(realpath "$0")"
 
@@ -73,10 +75,64 @@ SCRIPT_PATH="$(realpath "$0")"
 #######################################
 function usage() {
     echo "Usage: volcinstall.sh [--help]"
-    echo "                      [--setup=pre [--uid=number]]"
-    echo "                      [--setup=install [--type=code|rpm|deb] [--prefix=/opt/volclava] [--hosts=\"master server1 ...\"|/path/file] [--file=/path/install.conf]]"
+    echo "                      [--setup=pre [--uid=number] [--file=/path/install.conf] [--enable-bhist-speedup=Y|N]]"
+    echo "                      [--setup=install [--type=code|rpm|deb] [--prefix=/opt/volclava] [--hosts=\"master server1 ...\"|/path/file] [--file=/path/install.conf] [--enable-bhist-speedup=Y|N]]"
     echo "                      [--setup=post [--env=/volclava_top] [--startup=Y|y|N|n]]"
-    echo "                      [--type=code|rpm|deb|server] [--prefix=/opt/volclava] [--hosts=\"master server1 ...\"|/path/file] [--uid=number] [--startup=Y|y|N|n] [--file=/path/install.conf]"
+    echo "                      [--type=code|rpm|deb|server] [--prefix=/opt/volclava] [--hosts=\"master server1 ...\"|/path/file] [--uid=number] [--startup=Y|y|N|n] [--file=/path/install.conf] [--enable-bhist-speedup=Y|N]"
+}
+
+function set_bhist_speedup_cli() {
+    local requested=$1
+
+    case "$requested" in
+        Y|y)
+            requested=Y
+            ;;
+        N|n)
+            requested=N
+            ;;
+        *)
+            echo "Error: --enable-bhist-speedup should be Y or N."
+            usage
+            exit 1
+            ;;
+    esac
+
+    if [[ -n "$ENABLE_BHIST_SPEEDUP" && "$ENABLE_BHIST_SPEEDUP" != "$requested" ]]; then
+        echo "Error: conflicting --enable-bhist-speedup values."
+        usage
+        exit 1
+    fi
+
+    ENABLE_BHIST_SPEEDUP=$requested
+}
+
+function configure_bhist_speedup_mode() {
+    case "${ENABLE_BHIST_SPEEDUP:-${VOLC_BHIST_SPEEDUP:-N}}" in
+        Y|y)
+            ENABLE_BHIST_SPEEDUP=Y
+            ;;
+        N|n)
+            ENABLE_BHIST_SPEEDUP=N
+            ;;
+        *)
+            echo "Error: VOLC_BHIST_SPEEDUP should be Y, y, N or n."
+            exit 1
+            ;;
+    esac
+}
+
+function get_installed_deb_prefix() {
+    local env_file
+
+    env_file=$(dpkg-query -L volclava 2>/dev/null \
+        | sed -n '\#/etc/volclava\.sh$#p' \
+        | head -n 1)
+    if [ -z "$env_file" ]; then
+        return 1
+    fi
+
+    dirname "$(dirname "$env_file")"
 }
 
 function pre_setup() {
@@ -90,13 +146,22 @@ function pre_setup() {
 
     #install compile library
     if [ "$OS_NAME" = "rocky" ]; then
-        yum install -y ncurses-devel tcl tcl-devel libtirpc libtirpc-devel libnsl2-devel    
+        yum install -y ncurses-devel tcl tcl-devel libtirpc libtirpc-devel libnsl2-devel
+        if [[ $ENABLE_BHIST_SPEEDUP == Y ]]; then
+            yum install -y sqlite-devel
+        fi
         yum groupinstall -y "Development Tools"
     elif [ "$OS_NAME" = "ubuntu" ]; then
         apt update
         apt install -y build-essential automake tcl-dev libncurses-dev debhelper
+        if [[ $ENABLE_BHIST_SPEEDUP == Y ]]; then
+            apt install -y libsqlite3-dev
+        fi
     else #CentOS
         yum install -y tcl-devel ncurses-devel
+        if [[ $ENABLE_BHIST_SPEEDUP == Y ]]; then
+            yum install -y sqlite-devel
+        fi
         yum groupinstall -y "Development Tools"
     fi
 
@@ -106,6 +171,72 @@ function pre_setup() {
         systemctl disable firewalld
     fi
 }
+
+function register_bhist_speedup_service() (
+    # post/server installs reuse existing artifacts instead of a build flag.
+    if [[ "$PHASE" != "post" && "$PHASE" != "pre-post" &&
+          "$ENABLE_BHIST_SPEEDUP" != Y ]]; then
+        return 0
+    fi
+
+    unset LSF_ENVDIR LSF_BINDIR
+    source /etc/profile.d/volclava.sh || return 1
+    if [[ "$LSF_ENVDIR" != /* || "$LSF_BINDIR" != /* ]] ||
+        [ ! -d "$LSF_ENVDIR" ] || [ ! -d "$LSF_BINDIR" ]; then
+        echo "Cannot register bhist-speedup: invalid LSF_ENVDIR or LSF_BINDIR." >&2
+        return 1
+    fi
+    if [ ! -x "$LSF_ENVDIR/bhist-speedup" ] ||
+        [ ! -x "$LSF_BINDIR/bhist-speedup-loader" ] ||
+        [ ! -x "$LSF_BINDIR/bhist-speedup-server" ]; then
+        if [[ "$PHASE" == "post" || "$PHASE" == "pre-post" ]]; then
+            echo "Skipping bhist-speedup service registration: management script or binaries are not installed."
+            return 0
+        fi
+        echo "Cannot register bhist-speedup: management script or binaries are missing." >&2
+        return 1
+    fi
+    if ! command -v systemctl > /dev/null 2>&1 || [ ! -d /run/systemd/system ]; then
+        echo "Skipping bhist-speedup service registration: systemd is not running."
+        return 0
+    fi
+
+    # Stage both complete files in their destination directories before replacing.
+    local timestamp script_tmp="" unit_tmp=""
+    timestamp=$(date +%Y%m%d-%H%M%S) || return 1
+    trap 'rm -f -- "$script_tmp" "$unit_tmp"' EXIT
+    mkdir -p /etc/init.d /etc/systemd/system || return 1
+    script_tmp=$(mktemp --suffix=".$timestamp" /etc/init.d/.bhist-speedup.script.XXXXXX) || return 1
+    unit_tmp=$(mktemp --suffix=".$timestamp" /etc/systemd/system/.bhist-speedup.service.XXXXXX) || return 1
+    command install -o root -g root -m 0755 "$LSF_ENVDIR/bhist-speedup" "$script_tmp" || return 1
+    cat > "$unit_tmp" <<'EOF'
+[Unit]
+Description=bhist-speedup loader and server
+After=network.target remote-fs.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/etc/init.d/bhist-speedup start
+ExecStop=/etc/init.d/bhist-speedup stop
+TimeoutStartSec=5min
+TimeoutStopSec=1min
+KillMode=control-group
+Restart=no
+
+[Install]
+WantedBy=multi-user.target
+EOF
+    if [ "$?" -ne 0 ]; then
+        return 1
+    fi
+    chown root:root "$unit_tmp" && chmod 0644 "$unit_tmp" || return 1
+    mv -f "$script_tmp" /etc/init.d/bhist-speedup || return 1
+    mv -f "$unit_tmp" /etc/systemd/system/bhist-speedup.service || return 1
+    systemctl daemon-reload || return 1
+    echo "bhist-speedup service registered. Start it with: systemctl start bhist-speedup"
+    echo "To start it at boot: systemctl enable bhist-speedup"
+)
 
 function post_setup() {
     #rpm/deb way don't need post setup on master, they already setup service and shell environment
@@ -128,6 +259,10 @@ function post_setup() {
     # startup cluster if need
     if [[ "$STARTUP" == "Y" ]] || [[ "$STARTUP" == "y" ]]; then
         service volclava start
+    fi
+
+    if ! register_bhist_speedup_service; then
+        echo "Warning: bhist-speedup service registration is incomplete; software installation will continue." >&2
     fi
 
     source /etc/profile.d/volclava.sh
@@ -191,10 +326,11 @@ function install() {
         if [[ $MIX_OS_MODE == 1  ]]; then
             #install in multi-platform mode
             platform=${OS_NAME}-${OS_VERSION}-${CPU_ARCH}
-            ./bootstrap.sh --prefix=$PREFIX --exec-prefix=${PREFIX}/${MIX_OS_FOLDER}/${platform}
+            ./bootstrap.sh --prefix=$PREFIX --exec-prefix=${PREFIX}/${MIX_OS_FOLDER}/${platform} \
+                "--enable-bhist-speedup=$ENABLE_BHIST_SPEEDUP"
         else
             #install in single platform mode
-            ./bootstrap.sh --prefix=$PREFIX
+            ./bootstrap.sh --prefix=$PREFIX "--enable-bhist-speedup=$ENABLE_BHIST_SPEEDUP"
         fi
 
         #make and install
@@ -236,35 +372,51 @@ function install() {
         #deb way to install volclava
         chmod 755 bootstrap.sh
 
+        installed_deb_status=$(dpkg-query -W -f='${db:Status-Abbrev}' \
+            volclava 2>/dev/null || true)
+        if [[ "$installed_deb_status" == ii* ]]; then
+            installed_deb_prefix=$(get_installed_deb_prefix || true)
+            if [ -z "$installed_deb_prefix" ]; then
+                echo "Failed to determine the prefix of the installed volclava package."
+                exit 1
+            fi
+            if [ "$installed_deb_prefix" != "$PREFIX" ]; then
+                echo "The installed volclava package uses prefix $installed_deb_prefix."
+                echo "Changing the prefix during a DEB upgrade is not supported."
+                exit 1
+            fi
+        fi
+
         #create deb under ../
-        dpkg-buildpackage -b -rfakeroot -us -uc
+        deb_build_profiles=""
+        for profile in ${DEB_BUILD_PROFILES:-}; do
+            if [[ "$profile" != "pkg.volclava.bhist-speedup" ]]; then
+                deb_build_profiles="${deb_build_profiles:+${deb_build_profiles} }${profile}"
+            fi
+        done
+        if [[ $ENABLE_BHIST_SPEEDUP == Y ]]; then
+            deb_build_profiles="${deb_build_profiles:+${deb_build_profiles} }pkg.volclava.bhist-speedup"
+        fi
+        DEB_BUILD_PROFILES="$deb_build_profiles" \
+            VOLC_BHIST_SPEEDUP="$ENABLE_BHIST_SPEEDUP" \
+            VOLC_PREFIX="$PREFIX" \
+            dpkg-buildpackage -b -rfakeroot -us -uc
         if [ $? -ne 0 ]; then
             echo "Failed to create volclava deb package. Please check."
             exit 1
         fi
 
-        #Remove old volclava from deb package
-        if dpkg -l | grep volclava > /dev/null 2>&1; then
-            dpkg -P volclava
+        # Install through dpkg so dependencies, maintainer scripts, upgrades,
+        # conffiles and uninstall remain under Debian package management.
+        dpkg -i ../volclava_2.2*.deb
+        if [ $? -ne 0 ]; then
+            echo "Failed to install volclava deb package. Please check."
+            exit 1
         fi
 
-        if [ $SET_PREFIX -ne 0 ]; then
-            #install deb with prefix
-            dpkg -x ../volclava_2.2*.deb $PREFIX
-            #append hosts into lsf.cluster file
-            if [ ! -z "$HOSTS" ]; then
-                 addHosts2Cluster  "$HOSTS" ${PREFIX}/opt/${PACKAGE_NAME}/etc/lsf.cluster.${CLUSTERNAME}
-            fi
-            sed -i "s|/opt/${PACKAGE_NAME}|${PREFIX}/opt/${PACKAGE_NAME}|g" $(grep -rl /opt/${PACKAGE_NAME} ${PREFIX}/)
-
-            chown ${VOLCADMIN}:${VOLCADMIN}  -R $PREFIX
-            chmod 755 -R $PREFIX
-        else
-            dpkg -i ../volclava_2.2*.deb
-            #append hosts into lsf.cluster file
-            if [[  $CLS_FILE_EXIST == 0 && -n "$HOSTS" ]]; then
-                 addHosts2Cluster  "$HOSTS" /opt/${PACKAGE_NAME}/etc/lsf.cluster.${CLUSTERNAME}
-            fi
+        #append hosts into lsf.cluster file
+        if [[ $CLS_FILE_EXIST == 0 && -n "$HOSTS" ]]; then
+             addHosts2Cluster "$HOSTS" ${PREFIX}/etc/lsf.cluster.${CLUSTERNAME}
         fi
     else
         #rpm way to install volclava
@@ -284,7 +436,7 @@ function install() {
         chmod 755 bootstrap.sh
 
         #create rpm under ~/rpmbuild/RPMS/x86-64
-        ./rpm.sh
+        ./rpm.sh "--enable-bhist-speedup=$ENABLE_BHIST_SPEEDUP"
         if [ $? -ne 0 ]; then
             echo "Failed to create volclava rpm package. Please check."
             exit 1
@@ -315,9 +467,6 @@ while [ $# -gt 0 ]; do
                 exit 1
             fi
             if [ "$TYPE" == "rpm" -a $SET_PREFIX -eq 0 ]; then
-                PREFIX="/opt"
-            fi
-            if [ "$TYPE" == "deb" -a $SET_PREFIX -eq 0 ]; then
                 PREFIX="/opt"
             fi
             if [ "$TYPE" == "server" -a $PHASE != "all" ]; then
@@ -396,6 +545,9 @@ while [ $# -gt 0 ]; do
                 exit 1
             fi
             ;;
+        --enable-bhist-speedup=*)
+            set_bhist_speedup_cli "${1#*=}"
+            ;;
         --help)
             usage
             exit 0
@@ -457,6 +609,11 @@ if [ -n "$INSTALL_CONF_FILE" ];then
     . $INSTALL_CONF_FILE
 fi
 
+# The post-only phase does not build software or install build dependencies.
+if [[ "$PHASE" != "post" ]]; then
+    configure_bhist_speedup_mode
+fi
+
 #PREFIX
 if [[ "$SET_PREFIX" == 0 && -n "$VOLC_PREFIX" ]]; then
     PREFIX=$VOLC_PREFIX
@@ -490,9 +647,22 @@ if [[ "$VOLC_MIX_OS_MODE" == "Y" && ("$TYPE" == "rpm" || "$TYPE" == "deb") ]]; t
     exit 1    
 fi
 
-if [[ "$TYPE" == "deb" && $SET_PREFIX == 1 ]]; then
-    echo "Currently, installing Volclava via deb package does not support specifying a custom prefix. Please check the prefix settings in the command-line arguments or installation config file."
-    exit 1
+if [[ "$TYPE" == "deb" ]]; then
+    if [[ "$PREFIX" != /* ]]; then
+        echo "A DEB installation prefix must be an absolute path: $PREFIX"
+        exit 1
+    fi
+    if [[ "$PREFIX" == "/" ]]; then
+        echo "The filesystem root cannot be used as a DEB installation prefix."
+        exit 1
+    fi
+    if [[ "$PREFIX" =~ [[:space:]] ]]; then
+        echo "A DEB installation prefix must not contain whitespace: $PREFIX"
+        exit 1
+    fi
+    while [[ "$PREFIX" != "/" && "$PREFIX" == */ ]]; do
+        PREFIX=${PREFIX%/}
+    done
 fi
 
 #MIX_OS_FOLDER
@@ -520,7 +690,7 @@ if [ "$PHASE" == "pre" ]; then
     echo "Preparation is done. You can use \"volcinstall.sh --setup=install ...\" to install the package"
 elif [ "$PHASE" == "install" ]; then
     install
-    if [ "$TYPE" == "code" ]; then
+    if [[ "$TYPE" == "code" || "$TYPE" == "deb" ]]; then
         echo -e "The volclava is installed under ${PREFIX}\nYou can use the following command to enable services to startup and add environment variables automatically on master and computing nodes: \n$0 --setup=post --env=${PREFIX}"
     else
         echo -e "The volclava is installed under ${PREFIX}/${PACKAGE_NAME}\nYou can use the following command to enable services to startup and add environment variables automatically on other computing nodes:\n$0 --setup=post --env=${PREFIX}/${PACKAGE_NAME}"
