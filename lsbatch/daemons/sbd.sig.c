@@ -2143,11 +2143,8 @@ sbdlog_newstatus (struct jobCard *jp)
 
 
     sprintf(logFile, "%s/.%s.sbd", LSTMPDIR, clusterName);
-    if (mkdir(logFile, 0700) == -1 && errno != EEXIST) {
-        ls_syslog(LOG_ERR, I18N_JOB_FAIL_S_S_M, fname,
-	    lsb_jobid2str(jp->jobSpecs.jobId), "mkdir", logFile);
+    if (ensureSbdDir(logFile) != 0)
         return (-1);
-    }
     sprintf(logFile, "%s/.%s.sbd/jobstatus.%s",LSTMPDIR, clusterName, lsb_jobidinstr(jp->jobSpecs.jobId));
 
     lsberrno = LSBE_SYS_CALL;

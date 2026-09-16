@@ -339,3 +339,4 @@ extern void cwdTrackCreate(struct jobCard *jp);
 extern void cwdTrackAdd(const char *path, LS_LONG_INT jobId);
 extern void cwdTrackMarkFinished(LS_LONG_INT jobId);
 extern void cwdCleanupExpired(void);
+extern int ensureSbdDir(const char *dir);

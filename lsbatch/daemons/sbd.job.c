@@ -4466,12 +4466,8 @@ void saveJobRusage2File(struct jobCard *jp) {
     }
 
     snprintf(dir, MAXPATHLEN, "%s/.%s.sbd", LSTMPDIR, clusterName);
-    if (access(dir, F_OK) != 0) {
-        if (mkdir(dir, 0700) != 0 && errno != EEXIST) {
-            ls_syslog(LOG_ERR, "saveJobRusage2File: failed to create directory %s: %m", dir);
-            return;
-        }
-    }
+    if (ensureSbdDir(dir) != 0)
+        return;
 
     idx = LSB_ARRAY_IDX(jp->jobSpecs.jobId);
     if (idx == 0) {
@@ -4577,6 +4573,8 @@ void cleanOldJobRusageFiles() {
     if (clusterName == NULL) return;
 
     snprintf(dirPath, MAXPATHLEN, "%s/.%s.sbd", LSTMPDIR, clusterName);
+    if (ensureSbdDir(dirPath) != 0)
+        return;
     dir = opendir(dirPath);
     if (dir == NULL) {
         return;
@@ -4621,6 +4619,64 @@ void cleanOldJobRusageFiles() {
     closedir(dir);
 }
 
+/*
+ * ensureSbdDir - make sure "dir" (LSTMPDIR/.<cluster>.sbd) exists and is safe
+ * for root to create fixed-name state files (cwdlist, jobstatus.*,
+ * jobrusage.*) in.  dir sits in world-writable LSTMPDIR (normally /tmp), so
+ * an attacker can pre-plant a symlink there and redirect root's open()/fopen()
+ * into a directory of their choosing.
+ *
+ * lstat() -- not stat(), which would follow the link -- plus S_ISDIR and
+ * st_uid==0 reject both a symlink and a directory the submitter owns.
+ * Creation uses mkdir() under umask(0) rather than a follow-up chmod(),
+ * because chmod() would follow a planted symlink.
+ *
+ * Returns 0 if dir is (or becomes) a root-owned directory, -1 after logging
+ * otherwise.
+ */
+int
+ensureSbdDir(const char *dir)
+{
+    struct stat st;
+    mode_t oldMask;
+
+    if (lstat(dir, &st) == 0) {
+        if (!S_ISDIR(st.st_mode) || st.st_uid != 0) {
+            ls_syslog(LOG_ERR, "ensureSbdDir: refusing unsafe %s "
+                      "(mode 0%o, uid %d)", dir, st.st_mode & 07777,
+                      (int)st.st_uid);
+            return -1;
+        }
+        return 0;
+    }
+
+    if (errno != ENOENT) {
+        ls_syslog(LOG_ERR, "ensureSbdDir: lstat(%s) failed: %m", dir);
+        return -1;
+    }
+
+    oldMask = umask(0);
+    if (mkdir(dir, 0700) != 0 && errno != EEXIST) {
+        ls_syslog(LOG_ERR, "ensureSbdDir: mkdir(%s) failed: %m", dir);
+        (void) umask(oldMask);
+        return -1;
+    }
+    (void) umask(oldMask);
+
+    /* Re-check after a fresh creation or a concurrent EEXIST. */
+    if (lstat(dir, &st) != 0) {
+        ls_syslog(LOG_ERR, "ensureSbdDir: lstat(%s) failed: %m", dir);
+        return -1;
+    }
+    if (!S_ISDIR(st.st_mode) || st.st_uid != 0) {
+        ls_syslog(LOG_ERR, "ensureSbdDir: refusing unsafe %s "
+                  "(mode 0%o, uid %d)", dir, st.st_mode & 07777,
+                  (int)st.st_uid);
+        return -1;
+    }
+    return 0;
+}
+
 static void
 getCwdListPath(char *buf, int bufLen)
 {
@@ -4639,23 +4695,19 @@ cwdListLock(void)
     char dir[MAXPATHLEN];
     char lockPath[MAXPATHLEN];
     int fd;
-    mode_t oldMask;
 
-    /* The cwdlist directory is created elsewhere (rusage/jobstatus) but not
-     * guaranteed to exist before the first tracked job after a clean /tmp.
-     * Ensure it now: this only ever runs as root.  Clear the umask around
-     * mkdir() rather than chmod()ing afterwards -- chmod() follows symlinks
-     * and dir sits in world-writable /tmp, so a planted link could retarget
-     * it; mkdir() never follows the final component. */
+    /* cwdListLock() only ever runs as root; the directory is created
+     * elsewhere (rusage/jobstatus) but not guaranteed to exist before the
+     * first tracked job after a clean /tmp.  ensureSbdDir() creates it and
+     * rejects a symlink planted at its path. */
     snprintf(dir, sizeof(dir), "%s/.%s.sbd", LSTMPDIR, clusterName);
-    oldMask = umask(0);
-    (void) mkdir(dir, 0700);
-    (void) umask(oldMask);
+    if (ensureSbdDir(dir) != 0)
+        return -1;
 
     snprintf(lockPath, sizeof(lockPath), "%s/.%s.sbd/cwdlist.lock",
              LSTMPDIR, clusterName);
 
-    fd = open(lockPath, O_CREAT | O_RDWR, 0666);
+    fd = open(lockPath, O_CREAT | O_RDWR, 0600);
     if (fd < 0) {
         ls_syslog(LOG_ERR, "cwdListLock: cannot open %s: %m", lockPath);
         return -1;
