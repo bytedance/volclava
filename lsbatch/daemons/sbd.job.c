@@ -4758,6 +4758,68 @@ cwdTrackAdd(const char *path, LS_LONG_INT jobId)
     close(lockFd);
 }
 
+/*
+ * rmdirNoFollow - rmdir(path) with every component resolved through
+ * O_NOFOLLOW file descriptors.
+ *
+ * cwdCleanupExpired()/cwdTrackMarkFinished() run as root on a path recorded
+ * hours earlier whose every component sits in user-writable space, so a plain
+ * rmdir() lets the submitter swap an ancestor for a symlink and redirect the
+ * removal.  Opening each level with O_NOFOLLOW refuses symlinks at every
+ * depth, and unlinkat() acts on the directory fd instead of re-resolving the
+ * path, leaving nothing to race.  AT_REMOVEDIR keeps the one-level,
+ * must-be-empty constraint from the SAFETY note on cwdCleanupExpired().
+ */
+static int
+rmdirNoFollow(const char *path)
+{
+    char buf[MAXPATHLEN];
+    char *comp, *save, *leaf;
+    int  dirFd, nextFd;
+
+    if (path[0] != '/' || strlen(path) >= sizeof(buf)) {
+        errno = EINVAL;
+        return -1;
+    }
+    strcpy(buf, path);
+
+    if ((leaf = strrchr(buf, '/')) == NULL || leaf[1] == '\0') {
+        errno = EINVAL;                 /* trailing slash, or bare "/" */
+        return -1;
+    }
+    *leaf++ = '\0';
+
+    if ((dirFd = open("/", O_RDONLY | O_DIRECTORY)) < 0)
+        return -1;
+
+    for (comp = strtok_r(buf, "/", &save); comp != NULL;
+         comp = strtok_r(NULL, "/", &save)) {
+        if (strcmp(comp, "..") == 0) {  /* never walk upward */
+            close(dirFd);
+            errno = EINVAL;
+            return -1;
+        }
+        nextFd = openat(dirFd, comp, O_RDONLY | O_DIRECTORY | O_NOFOLLOW);
+        if (nextFd < 0) {
+            int sv = errno;
+            close(dirFd);
+            errno = sv;
+            return -1;
+        }
+        close(dirFd);
+        dirFd = nextFd;
+    }
+
+    if (unlinkat(dirFd, leaf, AT_REMOVEDIR) < 0) {
+        int sv = errno;
+        close(dirFd);
+        errno = sv;
+        return -1;
+    }
+    close(dirFd);
+    return 0;
+}
+
 void
 cwdTrackMarkFinished(LS_LONG_INT jobId)
 {
@@ -4807,14 +4869,30 @@ cwdTrackMarkFinished(LS_LONG_INT jobId)
                     /* TTL=0: drop the directory as soon as the job finishes.
                      * Same rmdir-only constraint as cwdCleanupExpired() -- see
                      * the SAFETY note there.  On failure keep the record (with
-                     * a finish time) so the periodic sweep retries it. */
-                    if (rmdir(path) < 0 && errno != ENOENT) {
-                        ls_syslog(LOG_WARNING,
-                                  "cwdTrackMarkFinished: rmdir(%s) failed: %m",
-                                  path);
-                        fprintf(tmpFp, "%d %s %s %ld %d\n",
-                                (int)strlen(path), path, storedJobId,
-                                (long)finishTime, storedTtl);
+                     * a finish time) so the periodic sweep retries it, except
+                     * for EINVAL which is permanent and must not be retried. */
+                    {
+                        int rc = rmdirNoFollow(path);
+                        if (rc < 0 && errno != ENOENT) {
+                            int err = errno;
+                            /* EINVAL is permanent (malformed path shape):
+                             * drop the record and warn. */
+                            if (err == EINVAL) {
+                                ls_syslog(LOG_WARNING,
+                                          "cwdTrackMarkFinished: dropping cwdlist record with malformed path %s: %m",
+                                          path);
+                            } else {
+                                /* Transient (ENOTEMPTY from a leftover
+                                 * stdout/stderr, ELOOP, ...): keep the record
+                                 * so the sweep retries. */
+                                ls_syslog(LOG_DEBUG,
+                                          "cwdTrackMarkFinished: rmdirNoFollow(%s) failed: %m",
+                                          path);
+                                fprintf(tmpFp, "%d %s %s %ld %d\n",
+                                        (int)strlen(path), path, storedJobId,
+                                        (long)finishTime, storedTtl);
+                            }
+                        }
                     }
                 } else {
                     fprintf(tmpFp, "%d %s %s %ld %d\n",
@@ -4846,7 +4924,9 @@ cwdTrackMarkFinished(LS_LONG_INT jobId)
  *   1. Only directories mkdirRecursive() actually created are registered --
  *      it returns non-zero when the path already existed -- so a pre-existing
  *      directory is never subject to TTL removal.
- *   2. Removal uses rmdir() only: exactly one level, and only when empty.
+ *   2. Removal uses rmdirNoFollow() only (unlinkat with AT_REMOVEDIR):
+ *      exactly one level, only when empty, and never through a symlinked
+ *      component -- so a submitter cannot redirect the removal.
  *
  * As a result a dynamic CWD shared by several jobs (e.g. DEFAULT_JOB_CWD
  * without %J/%I) is never removed while another job still has files in it,
@@ -4916,9 +4996,25 @@ cwdCleanupExpired(void)
         }
 
         if (currentTime - storedFinish >= (time_t)storedTtl * 3600) {
-            if (rmdir(path) < 0 && errno != ENOENT) {
-                ls_syslog(LOG_DEBUG, "cwdCleanupExpired: rmdir(%s) failed: %m", path);
-                fputs(line, tmpFp);
+            int rc = rmdirNoFollow(path);
+            if (rc < 0 && errno != ENOENT) {
+                int err = errno;
+                /* EINVAL is permanent and comes only from the path shape
+                 * (non-absolute, overlong, trailing slash, or ".."), so drop
+                 * the record and log at WARNING -- the directory is leaked
+                 * for good. */
+                if (err == EINVAL) {
+                    ls_syslog(LOG_WARNING,
+                              "cwdCleanupExpired: dropping cwdlist record with malformed path %s: %m",
+                              path);
+                } else {
+                    /* Transient (ELOOP from a symlinked component, ENOTEMPTY,
+                     * ...): keep the record and let the next sweep retry. */
+                    ls_syslog(LOG_DEBUG,
+                              "cwdCleanupExpired: rmdirNoFollow(%s) failed: %m",
+                              path);
+                    fputs(line, tmpFp);
+                }
             }
         } else {
             fputs(line, tmpFp);
