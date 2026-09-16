@@ -371,6 +371,10 @@ execJob(struct jobCard *jobCardPtr, int chfd)
         || jobSpecsPtr->lsfLimits[LSF_RLIMIT_FSIZE].rlim_curh != 0x7fffffff)
         ls_closelog_ext();
 
+    /* Create and register the dynamic CWD for TTL cleanup while we are still
+     * root; setIds() below permanently drops to the job user. */
+    cwdTrackCreate(jobCardPtr);
+
     if (setIds(jobCardPtr) < 0) {
         jobSetupStatus(JOB_STAT_PEND, PEND_JOB_EXEC_INIT, jobCardPtr);
     }
@@ -4632,8 +4636,21 @@ getCwdListPath(char *buf, int bufLen)
 static int
 cwdListLock(void)
 {
+    char dir[MAXPATHLEN];
     char lockPath[MAXPATHLEN];
     int fd;
+    mode_t oldMask;
+
+    /* The cwdlist directory is created elsewhere (rusage/jobstatus) but not
+     * guaranteed to exist before the first tracked job after a clean /tmp.
+     * Ensure it now: this only ever runs as root.  Clear the umask around
+     * mkdir() rather than chmod()ing afterwards -- chmod() follows symlinks
+     * and dir sits in world-writable /tmp, so a planted link could retarget
+     * it; mkdir() never follows the final component. */
+    snprintf(dir, sizeof(dir), "%s/.%s.sbd", LSTMPDIR, clusterName);
+    oldMask = umask(0);
+    (void) mkdir(dir, 0700);
+    (void) umask(oldMask);
 
     snprintf(lockPath, sizeof(lockPath), "%s/.%s.sbd/cwdlist.lock",
              LSTMPDIR, clusterName);

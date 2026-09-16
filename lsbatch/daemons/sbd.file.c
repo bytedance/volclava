@@ -24,6 +24,7 @@
 #include <sys/types.h>
 #include <dirent.h>
 #include <unistd.h>
+#include <grp.h>
 
 #include "../../lsf/lib/mls.h"
 
@@ -651,13 +652,6 @@ cwdJob(struct jobCard *jp, char *cwd, struct hostent *fromHp)
     if (isAbsolutePathSub(jp, jp->jobSpecs.cwd)) {
 
         strcpy(cwd, jp->jobSpecs.cwd);
-        if (jp->jobSpecs.options2 & SUB2_JOB_CWD_PATTERN) {
-            /* Register for TTL cleanup only when we created the directory
-             * ourselves; mkdirRecursive() returns non-zero if the path
-             * already existed.  See the SAFETY note on cwdCleanupExpired(). */
-            if (mkdirRecursive(cwd, 0755) == 0)
-                cwdTrackAdd(cwd, jp->jobSpecs.jobId);
-        }
         if (mychdir_(cwd, fromHp) == 0) {
             strcpy(cwd, chosenPath);
             return (0);
@@ -728,13 +722,6 @@ cwdJob(struct jobCard *jp, char *cwd, struct hostent *fromHp)
     else
         sprintf(cwd, "%s/%s", jp->jobSpecs.subHomeDir, jp->jobSpecs.cwd);
 
-    if (jp->jobSpecs.options2 & SUB2_JOB_CWD_PATTERN) {
-        /* Register for TTL cleanup only when we created the directory
-         * ourselves; mkdirRecursive() returns non-zero if the path already
-         * existed.  See the SAFETY note on cwdCleanupExpired(). */
-        if (mkdirRecursive(cwd, 0755) == 0)
-            cwdTrackAdd(cwd, jp->jobSpecs.jobId);
-    }
     if (mychdir_(cwd, fromHp) == 0) {
         strcpy(cwd, chosenPath);
         return (0);
@@ -782,6 +769,63 @@ cwdJob(struct jobCard *jp, char *cwd, struct hostent *fromHp)
 }
 
 
+
+/*
+ * cwdTrackCreate - create the job's dynamic CWD and register it for TTL
+ * cleanup.  Runs before setIds() in a context where the real uid is still 0:
+ * the tracking directory (LSTMPDIR/.<cluster>.sbd) is root-only, so
+ * cwdTrackAdd() cannot be called from the job child after the permanent
+ * setuid.  Unlike cwdJob(), it does not chdir().
+ *
+ * The directory is created as the submitter: root drops privileges
+ * reversibly (seteuid) so the kernel still enforces the user's own
+ * permissions on the "bsub -cwd" / DEFAULT_JOB_CWD path, and the directory is
+ * naturally owned by the job user.  Registration is then done back as root.
+ */
+void
+cwdTrackCreate(struct jobCard *jp)
+{
+    char cwd[MAXFILENAMELEN];
+    int  created;
+
+    if (!(jp->jobSpecs.options2 & SUB2_JOB_CWD_PATTERN))
+        return;
+
+    if (isAbsolutePathSub(jp, jp->jobSpecs.cwd))
+        strcpy(cwd, jp->jobSpecs.cwd);
+    else if (jp->jobSpecs.cwd[0] == '\0')
+        strcpy(cwd, jp->jobSpecs.subHomeDir);
+    else
+        snprintf(cwd, sizeof(cwd), "%s/%s", jp->jobSpecs.subHomeDir,
+                 jp->jobSpecs.cwd);
+
+    /* NB: even after this drop the directory's group is the passwd gid, not
+     * the LSB_UNIXGROUP-overridden gid -- that override happens later inside
+     * setIds().  Acceptable: the job still owns the directory via its uid. */
+    if (!debug) {
+        if (initgroups(jp->execUsername, jp->execGid) < 0 ||
+            setegid(jp->execGid) < 0) {
+            /* Do not drop euid unless the job credentials are fully set up;
+             * otherwise the mkdir would run with root's supplementary groups,
+             * the exact thing the drop is meant to prevent. */
+            ls_syslog(LOG_ERR, "cwdTrackCreate: cannot assume job user's "
+                      "credentials for job <%s>: %m",
+                      lsb_jobid2str(jp->jobSpecs.jobId));
+            return;
+        }
+        chuser(jp->jobSpecs.execUid);
+    }
+
+    created = (mkdirRecursive(cwd, 0755) == 0);
+
+    if (!debug) {
+        chuser(batchId);
+        setegid(getgid());
+    }
+
+    if (created)
+        cwdTrackAdd(cwd, jp->jobSpecs.jobId);
+}
 
 static int
 lsbatchDir(char *lsbDir, struct jobCard *jp, struct hostent *fromHp,
