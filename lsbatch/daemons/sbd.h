@@ -338,5 +338,5 @@ extern void exeChkpnt(struct jobCard *jp, int chkFlags, char *exitFile);
 extern void cwdTrackCreate(struct jobCard *jp);
 extern void cwdTrackAdd(const char *path, LS_LONG_INT jobId);
 extern void cwdTrackMarkFinished(LS_LONG_INT jobId);
-extern void cwdCleanupExpired(void);
+extern void cwdCleanupExpired(int checkOrphans);
 extern int ensureSbdDir(const char *dir);

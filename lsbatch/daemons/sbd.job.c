@@ -4977,6 +4977,24 @@ cwdTrackMarkFinished(LS_LONG_INT jobId)
 #define CWD_RETRY_GRACE 86400
 
 /*
+ * cwdJobQueued - return non-zero if jobIdStr names a job still present in the
+ * sbatchd job queue.  Used to detect a not-yet-finished cwdlist record whose
+ * job vanished (SIGKILL/reboot), i.e. an orphan.  Only consult this once the
+ * queue is fully rebuilt (periodic sweep, never at startup).
+ */
+static int
+cwdJobQueued(const char *jobIdStr)
+{
+    struct jobCard *jp;
+
+    for (jp = jobQueHead->forw; jp != jobQueHead; jp = jp->forw) {
+        if (strcmp(lsb_jobidinstr(jp->jobSpecs.jobId), jobIdStr) == 0)
+            return 1;
+    }
+    return 0;
+}
+
+/*
  * cwdCleanupExpired - remove expired job CWDs recorded by cwdTrackAdd().
  *
  * SAFETY: this runs inside sbatchd, i.e. as root, over paths derived from
@@ -5006,7 +5024,7 @@ cwdTrackMarkFinished(LS_LONG_INT jobId)
  */
 
 void
-cwdCleanupExpired(void)
+cwdCleanupExpired(int checkOrphans)
 {
     char listPath[MAXPATHLEN];
     char tmpPath[MAXPATHLEN];
@@ -5014,6 +5032,13 @@ cwdCleanupExpired(void)
     FILE *fp, *tmpFp;
     int lockFd;
     time_t currentTime = time(NULL);
+
+    /* An empty job queue is no basis for the orphan check: at normal startup
+     * the queue is rebuilt synchronously (getJobsState) before the periodic
+     * sweep, but a pathological mbatchd reply -- 0 jobs while mbatchd is still
+     * recovering -- would otherwise mark every unfinished record orphaned. */
+    if (checkOrphans && jobQueHead->forw == jobQueHead)
+        checkOrphans = 0;
 
     if (clusterName == NULL)
         return;
@@ -5050,7 +5075,16 @@ cwdCleanupExpired(void)
         }
 
         if (storedFinish == 0) {
-            fputs(line, tmpFp);
+            /* A not-yet-finished record whose job is no longer in the queue is
+             * an orphan (sbatchd killed / node crashed): stamp a finish time
+             * so the normal TTL path retires it on a later sweep.  Only run
+             * during the periodic sweep, once the queue is rebuilt. */
+            if (checkOrphans && !cwdJobQueued(storedJobId))
+                fprintf(tmpFp, "%d %s %s %ld %d\n",
+                        (int)strlen(path), path, storedJobId,
+                        (long)currentTime, storedTtl);
+            else
+                fputs(line, tmpFp);
             continue;
         }
 

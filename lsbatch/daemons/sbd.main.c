@@ -984,7 +984,7 @@ init_sstate (void)
     jobTerminateInterval = sbdPackage.jobTerminateInterval;
     jobCwdTtl = sbdPackage.jobCwdTtl;
 
-    cwdCleanupExpired();
+    cwdCleanupExpired(0);
 
     for (i = 0; i < sbdPackage.nAdmins; i++)
 	FREEUP(sbdPackage.admins[i]);
@@ -1060,7 +1060,7 @@ houseKeeping(void)
         static time_t lastCwdCheck = 0;
         if (now - lastCwdCheck >= 300) {
             lastCwdCheck = now;
-            cwdCleanupExpired();
+            cwdCleanupExpired(1);
         }
     }
 
