@@ -823,7 +823,10 @@ cwdTrackCreate(struct jobCard *jp)
         setegid(getgid());
     }
 
-    if (created)
+    /* JOB_CWD_TTL unset (INFINIT_INT) means the CWD is never recycled, so
+     * there is nothing to track for TTL cleanup: skip registration rather
+     * than strand a permanent cwdlist entry. */
+    if (created && jobCwdTtl != INFINIT_INT)
         cwdTrackAdd(cwd, jp->jobSpecs.jobId);
 }
 

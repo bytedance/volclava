@@ -4946,6 +4946,9 @@ cwdTrackMarkFinished(LS_LONG_INT jobId)
                             }
                         }
                     }
+                } else if (storedTtl == INFINIT_INT) {
+                    /* JOB_CWD_TTL unset (never recycle): drop the finished
+                     * job's record (defensive for legacy entries). */
                 } else {
                     fprintf(tmpFp, "%d %s %s %ld %d\n",
                             (int)strlen(path), path, storedJobId,
@@ -5052,7 +5055,10 @@ cwdCleanupExpired(void)
         }
 
         if (storedTtl == INFINIT_INT) {
-            fputs(line, tmpFp);
+            /* JOB_CWD_TTL unset (never recycle): a finished job's record is
+             * useless, so drop it -- this also clears legacy records within
+             * one sweep after upgrading.  Running jobs (storedFinish == 0)
+             * were carried over above. */
             continue;
         }
 
