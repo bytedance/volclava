@@ -4769,6 +4769,15 @@ cwdParseLine(char *line, char *path, int pathSize,
 }
 
 /*
+ * Retry budget for cwdTrackAdd's cwdlist flock acquisition.  Unlike the
+ * sweep paths, giving up here is permanent: the CWD is never registered
+ * and thus never reclaimed.  Retries are cheap (open+flock) and bounded:
+ * this runs in the job-start path after mkdirRecursive(), and on
+ * exhaustion the job proceeds without tracking (fail-open).
+ */
+#define CWD_LOCK_RETRIES 3
+
+/*
  * cwdTrackAdd - record a dynamic CWD so it can be removed once the job has
  * finished and JOB_CWD_TTL has elapsed.
  *
@@ -4787,16 +4796,34 @@ cwdTrackAdd(const char *path, LS_LONG_INT jobId)
 {
     char listPath[MAXPATHLEN];
     FILE *fp;
+    struct timespec delay;
     int lockFd;
+    int attempt;
 
     if (clusterName == NULL || path == NULL || path[0] == '\0')
         return;
 
     getCwdListPath(listPath, sizeof(listPath));
 
-    lockFd = cwdListLock();
-    if (lockFd < 0)
+    lockFd = -1;
+    for (attempt = 0; attempt < CWD_LOCK_RETRIES; attempt++) {
+        lockFd = cwdListLock();
+        if (lockFd >= 0)
+            break;
+        /* Retry after a short backoff: 100ms, then 200ms. */
+        if (attempt + 1 < CWD_LOCK_RETRIES) {
+            delay.tv_sec = 0;
+            delay.tv_nsec = 100000000L * (attempt + 1);
+            nanosleep(&delay, NULL);
+        }
+    }
+    if (lockFd < 0) {
+        ls_syslog(LOG_WARNING,
+                  "cwdTrackAdd: cwdlist lock unavailable after %d attempts; "
+                  "CWD <%s> of job <%s> will not be TTL-tracked",
+                  CWD_LOCK_RETRIES, path, lsb_jobidinstr(jobId));
         return;
+    }
 
     fp = fopen(listPath, "a");
     if (fp == NULL) {

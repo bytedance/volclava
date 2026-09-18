@@ -816,7 +816,7 @@ cwdTrackCreate(struct jobCard *jp)
         chuser(jp->jobSpecs.execUid);
     }
 
-    created = (mkdirRecursive(cwd, 0755) == 0);
+    created = (mkdirRecursive(cwd, 0700) == 0);
 
     if (!debug) {
         chuser(batchId);
