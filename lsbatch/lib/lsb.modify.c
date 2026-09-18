@@ -100,7 +100,9 @@ lsb_modify(struct submit *jobSubReq, struct submitReply *submitRep, LS_LONG_INT 
     }
 
     modifyJobInformation(jobSubReq);
-    
+    modifyReq.delOptions = jobSubReq->delOptions;
+    modifyReq.delOptions2 = jobSubReq->delOptions2;
+
     if (getCommonParams (jobSubReq, &modifyReq.submitReq, submitRep) < 0) {
         goto cleanup;
     }

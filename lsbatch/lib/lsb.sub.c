@@ -192,6 +192,47 @@ extern char *extractStringValue(char *line);
 char *niosArgv[5];
 char niosPath[MAXFILENAMELEN];
 
+static int
+resolveSubmitCwd(struct submit *jobSubReq, char *cwd, const char *base)
+{
+    if (jobSubReq->options2 & SUB2_JOB_CWD) {
+        if (jobSubReq->cwd == NULL) {
+            lsberrno = LSBE_BAD_ARG;
+            return (-1);
+        }
+        if (jobSubReq->cwd[0] == '/') {
+            strncpy(cwd, jobSubReq->cwd, MAXFILENAMELEN - 1);
+            cwd[MAXFILENAMELEN - 1] = '\0';
+        } else {
+            if (strlen(base) + 1 + strlen(jobSubReq->cwd)
+                >= MAXFILENAMELEN) {
+                lsberrno = LSBE_SYS_CALL;
+                errno = ENAMETOOLONG;
+                return (-1);
+            }
+            snprintf(cwd, MAXFILENAMELEN, "%s/%s", base, jobSubReq->cwd);
+        }
+    } else {
+        char *envCwd = getenv("LSB_JOB_CWD");
+        if (envCwd != NULL && envCwd[0] != '\0') {
+            if (envCwd[0] == '/') {
+                strncpy(cwd, envCwd, MAXFILENAMELEN - 1);
+                cwd[MAXFILENAMELEN - 1] = '\0';
+            } else {
+                if (strlen(base) + 1 + strlen(envCwd)
+                    >= MAXFILENAMELEN) {
+                    lsberrno = LSBE_SYS_CALL;
+                    errno = ENAMETOOLONG;
+                    return (-1);
+                }
+                snprintf(cwd, MAXFILENAMELEN, "%s/%s", base, envCwd);
+            }
+            jobSubReq->options2 |= SUB2_JOB_CWD;
+        }
+    }
+    return (0);
+}
+
 
 LS_LONG_INT
 lsb_submit(struct submit  *jobSubReq, struct submitReply *submitRep)
@@ -267,48 +308,6 @@ lsb_submit(struct submit  *jobSubReq, struct submitReply *submitRep)
     strcpy(submitCwd, cwd);
     submitReq.submitCwd = submitCwd;
 
-    if (jobSubReq->options2 & SUB2_JOB_CWD) {
-        if (jobSubReq->cwd == NULL) {
-            lsberrno = LSBE_BAD_ARG;
-            return (-1);
-        }
-        if (jobSubReq->cwd[0] == '/') {
-            strncpy(cwd, jobSubReq->cwd, MAXFILENAMELEN - 1);
-            cwd[MAXFILENAMELEN - 1] = '\0';
-        } else {
-            char tmpCwd[MAXFILENAMELEN];
-            strncpy(tmpCwd, cwd, MAXFILENAMELEN - 1);
-            tmpCwd[MAXFILENAMELEN - 1] = '\0';
-            if (strlen(tmpCwd) + 1 + strlen(jobSubReq->cwd)
-                >= MAXFILENAMELEN) {
-                lsberrno = LSBE_SYS_CALL;
-                errno = ENAMETOOLONG;
-                return (-1);
-            }
-            snprintf(cwd, MAXFILENAMELEN, "%s/%s", tmpCwd, jobSubReq->cwd);
-        }
-    } else {
-        char *envCwd = getenv("LSB_JOB_CWD");
-        if (envCwd != NULL && envCwd[0] != '\0') {
-            if (envCwd[0] == '/') {
-                strncpy(cwd, envCwd, MAXFILENAMELEN - 1);
-                cwd[MAXFILENAMELEN - 1] = '\0';
-            } else {
-                char tmpCwd[MAXFILENAMELEN];
-                strncpy(tmpCwd, cwd, MAXFILENAMELEN - 1);
-                tmpCwd[MAXFILENAMELEN - 1] = '\0';
-                if (strlen(tmpCwd) + 1 + strlen(envCwd)
-                    >= MAXFILENAMELEN) {
-                    lsberrno = LSBE_SYS_CALL;
-                    errno = ENAMETOOLONG;
-                    return (-1);
-                }
-                snprintf(cwd, MAXFILENAMELEN, "%s/%s", tmpCwd, envCwd);
-            }
-            jobSubReq->options2 |= SUB2_JOB_CWD;
-        }
-    }
-
     if (!(jobSubReq->options & SUB_QUEUE)) {
         if (queue != NULL && queue[0] != '\0') {
             jobSubReq->queue = queue;
@@ -317,6 +316,8 @@ lsb_submit(struct submit  *jobSubReq, struct submitReply *submitRep)
     }
 
     modifyJobInformation(jobSubReq);
+    if (resolveSubmitCwd(jobSubReq, cwd, submitCwd) < 0)
+        return (-1);
     if (getCommonParams (jobSubReq, &submitReq, submitRep) < 0)
         return (-1);
 
@@ -5229,6 +5230,7 @@ char ch, next, *tmp_str=NULL; \
                  inFile);
     SET_PARM_BOOL_2(SUB2_JOB_CMD_SPOOL, "LSB_SUB2_JOB_CMD_SPOOL", jobSubReq);
     SET_PARM_STR_2(SUB2_JOB_DESC, "LSB_SUB_JOB_DESCRIPTION", jobSubReq, jobDesc);
+    SET_PARM_STR_2(SUB2_JOB_CWD, "LSB_SUB3_CWD", jobSubReq, cwd);
 
     ls_readconfenv(myParams, NULL);
 
@@ -5799,6 +5801,8 @@ void modifyJobInformation(struct submit *jobSubReq)
 	     FIELD_OFFSET(submit,askedHosts),0},
 	    {"LSB_SUB_JOB_DESCRIPTION",STR2PARM,
 	     FIELD_OFFSET(submit,jobDesc),SUB2_JOB_DESC},
+	    {"LSB_SUB3_CWD",STR2PARM,
+	     FIELD_OFFSET(submit,cwd),SUB2_JOB_CWD},
 	    {"LSB_SUB_HOLD",BOOL2PARM,-1,SUB2_HOLD},
 	    {"LSB_SUB2_JOB_PRIORITY",INT2PARM,
 	     FIELD_OFFSET(submit,userPriority),SUB2_JOB_PRIORITY},
