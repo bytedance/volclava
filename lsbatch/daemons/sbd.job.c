@@ -2631,7 +2631,8 @@ deallocJobCard(struct jobCard *jobCard)
     static char fname[] = "deallocJobCard()";
     char fileBuf[MAXFILENAMELEN];
 
-    if (jobCard->jobSpecs.options2 & SUB2_JOB_CWD_PATTERN)
+    if ((jobCard->jobSpecs.options2 & SUB2_JOB_CWD_PATTERN) &&
+        jobCwdTtl != INFINIT_INT)
         cwdTrackMarkFinished(jobCard->jobSpecs.jobId);
 
     sprintf(fileBuf, "%s/.%s.%s.fail", LSTMPDIR, jobCard->jobSpecs.jobFile,
@@ -4922,12 +4923,21 @@ cwdTrackMarkFinished(LS_LONG_INT jobId)
 
     fp = fopen(listPath, "r");
     if (fp == NULL) {
+        /* No cwdlist means no records to mark: with JOB_CWD_TTL disabled
+         * nothing is ever registered, so ENOENT is the normal case, not an
+         * error. */
+        if (errno != ENOENT) {
+            ls_syslog(LOG_ERR, "cwdTrackMarkFinished: cannot open %s: %m",
+                      listPath);
+        }
         close(lockFd);
         return;
     }
 
     tmpFp = fopen(tmpPath, "w");
     if (tmpFp == NULL) {
+        ls_syslog(LOG_ERR, "cwdTrackMarkFinished: cannot open %s: %m",
+                  tmpPath);
         fclose(fp);
         close(lockFd);
         return;
@@ -4991,7 +5001,10 @@ cwdTrackMarkFinished(LS_LONG_INT jobId)
 
     fclose(fp);
     fclose(tmpFp);
-    rename(tmpPath, listPath);
+    if (rename(tmpPath, listPath) != 0) {
+        ls_syslog(LOG_ERR, "cwdTrackMarkFinished: rename(%s, %s) failed: %m",
+                  tmpPath, listPath);
+    }
     close(lockFd);
 }
 
@@ -5078,6 +5091,13 @@ cwdCleanupExpired(int checkOrphans)
 
     fp = fopen(listPath, "r");
     if (fp == NULL) {
+        /* No cwdlist means nothing to sweep: with JOB_CWD_TTL disabled
+         * nothing is ever registered, so ENOENT is the normal case, not
+         * an error. */
+        if (errno != ENOENT) {
+            ls_syslog(LOG_ERR, "cwdCleanupExpired: cannot open %s: %m",
+                      listPath);
+        }
         close(lockFd);
         return;
     }
@@ -5085,6 +5105,8 @@ cwdCleanupExpired(int checkOrphans)
     snprintf(tmpPath, sizeof(tmpPath), "%s.tmp", listPath);
     tmpFp = fopen(tmpPath, "w");
     if (tmpFp == NULL) {
+        ls_syslog(LOG_ERR, "cwdCleanupExpired: cannot open %s: %m",
+                  tmpPath);
         fclose(fp);
         close(lockFd);
         return;
@@ -5160,6 +5182,9 @@ cwdCleanupExpired(int checkOrphans)
 
     fclose(fp);
     fclose(tmpFp);
-    rename(tmpPath, listPath);
+    if (rename(tmpPath, listPath) != 0) {
+        ls_syslog(LOG_ERR, "cwdCleanupExpired: rename(%s, %s) failed: %m",
+                  tmpPath, listPath);
+    }
     close(lockFd);
 }

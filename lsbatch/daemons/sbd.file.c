@@ -623,18 +623,40 @@ mkdirRecursive(const char *path, mode_t mode)
     if (stat(path, &st) == 0)
         return 1;   /* already exists: not created by us, skip TTL tracking */
 
+    if (errno != ENOENT) {
+        ls_syslog(LOG_ERR, "mkdirRecursive: stat(%s) failed: %m", path);
+        return -1;
+    }
+
     strncpy(tmp, path, sizeof(tmp) - 1);
     tmp[sizeof(tmp) - 1] = '\0';
 
     for (p = tmp + 1; *p; p++) {
         if (*p == '/') {
             *p = '\0';
-            if (stat(tmp, &st) != 0)
-                mkdir(tmp, mode);
+            if (stat(tmp, &st) != 0) {
+                if (errno != ENOENT) {
+                    ls_syslog(LOG_ERR,
+                              "mkdirRecursive: stat(%s) failed: %m", tmp);
+                    return -1;
+                }
+                if (mkdir(tmp, mode) != 0 && errno != EEXIST) {
+                    ls_syslog(LOG_ERR,
+                              "mkdirRecursive: mkdir(%s) failed: %m", tmp);
+                    return -1;
+                }
+            }
             *p = '/';
         }
     }
-    return mkdir(tmp, mode);
+
+    if (mkdir(tmp, mode) != 0) {
+        if (errno == EEXIST)
+            return 1;   /* raced with a concurrent creator */
+        ls_syslog(LOG_ERR, "mkdirRecursive: mkdir(%s) failed: %m", tmp);
+        return -1;
+    }
+    return 0;
 }
 
 static int
@@ -657,12 +679,14 @@ cwdJob(struct jobCard *jp, char *cwd, struct hostent *fromHp)
             return (0);
         }
 
-        if (logclass & LC_EXEC) {
+        {
+            int svErrno = errno;
+
             sprintf(errMsg,
                     "cwdJob: mychdir_(%s) failed for job <%s>: %s",
                     chosenPath, lsb_jobidinstr(jp->jobSpecs.jobId),
-                    strerror(errno));
-            sbdSyslog(LOG_DEBUG, errMsg);
+                    strerror(svErrno));
+            sbdSyslog(LOG_WARNING, errMsg);
         }
 
         {
@@ -699,17 +723,33 @@ cwdJob(struct jobCard *jp, char *cwd, struct hostent *fromHp)
                         }
                         if (chdir(cwd) == 0)
                             return (0);
+                        else {
+                            int svErrno = errno;
+                            sprintf(errMsg,
+                                    "cwdJob: chdir(%s) failed for job <%s>: "
+                                    "%s", cwd,
+                                    lsb_jobidinstr(jp->jobSpecs.jobId),
+                                    strerror(svErrno));
+                            sbdSyslog(LOG_WARNING, errMsg);
+                        }
                     }
                 }
             }
         }
 
+        sprintf(errMsg,
+                "cwdJob: cannot use CWD <%s> for job <%s>; "
+                "falling back to %s",
+                chosenPath, lsb_jobidinstr(jp->jobSpecs.jobId), LSTMPDIR);
+        sbdSyslog(LOG_WARNING, errMsg);
         strcpy(cwd, LSTMPDIR);
         if (chdir(cwd) == -1) {
-            if (logclass & LC_EXEC) {
-                sprintf(errMsg, "cwdJob: chdir(%s) failed after mychdir_(%s) failed for job <%s>: %s", cwd, chosenPath, lsb_jobidinstr(jp->jobSpecs.jobId), strerror(errno));
-                sbdSyslog(LOG_DEBUG, errMsg);
-            }
+            sprintf(errMsg,
+                    "cwdJob: chdir(%s) failed after mychdir_(%s) failed "
+                    "for job <%s>: %s",
+                    cwd, chosenPath, lsb_jobidinstr(jp->jobSpecs.jobId),
+                    strerror(errno));
+            sbdSyslog(LOG_ERR, errMsg);
             return (-1);
         }
 
@@ -725,6 +765,16 @@ cwdJob(struct jobCard *jp, char *cwd, struct hostent *fromHp)
     if (mychdir_(cwd, fromHp) == 0) {
         strcpy(cwd, chosenPath);
         return (0);
+    }
+
+    {
+        int svErrno = errno;
+
+        sprintf(errMsg,
+                "cwdJob: mychdir_(%s) failed for job <%s>: %s",
+                chosenPath, lsb_jobidinstr(jp->jobSpecs.jobId),
+                strerror(svErrno));
+        sbdSyslog(LOG_WARNING, errMsg);
     }
 
     {
@@ -749,19 +799,26 @@ cwdJob(struct jobCard *jp, char *cwd, struct hostent *fromHp)
         if (chdir(cwd) == 0)
             return (0);
 
-        if (logclass & LC_EXEC) {
+        {
+            int svErrno = errno;
+
             sprintf(errMsg, "cwdJob: chdir(%s) failed for job <%s>: %s",
-                    cwd, lsb_jobidinstr(jp->jobSpecs.jobId), strerror(errno));
-            sbdSyslog(LOG_DEBUG, errMsg);
+                    cwd, lsb_jobidinstr(jp->jobSpecs.jobId),
+                    strerror(svErrno));
+            sbdSyslog(LOG_WARNING, errMsg);
         }
     }
 
-
+    sprintf(errMsg,
+            "cwdJob: cannot use CWD <%s> for job <%s>; "
+            "falling back to %s",
+            chosenPath, lsb_jobidinstr(jp->jobSpecs.jobId), LSTMPDIR);
+    sbdSyslog(LOG_WARNING, errMsg);
     strcpy(cwd, LSTMPDIR);
     if (chdir(cwd) == -1) {
         sprintf(errMsg, "cwdJob: chdir tmp (%s) failed for job <%s>: %s",
                 cwd, lsb_jobidinstr(jp->jobSpecs.jobId), strerror(errno));
-        sbdSyslog(LOG_DEBUG, errMsg);
+        sbdSyslog(LOG_ERR, errMsg);
         return (-1);
     }
 
@@ -816,7 +873,17 @@ cwdTrackCreate(struct jobCard *jp)
         chuser(jp->jobSpecs.execUid);
     }
 
-    created = (mkdirRecursive(cwd, 0700) == 0);
+    {
+        int rc = mkdirRecursive(cwd, 0700);
+
+        if (rc == -1) {
+            /* mkdirRecursive() logs the errno; add the job context here. */
+            ls_syslog(LOG_WARNING,
+                      "cwdTrackCreate: cannot create CWD <%s> for job <%s>",
+                      cwd, lsb_jobid2str(jp->jobSpecs.jobId));
+        }
+        created = (rc == 0);
+    }
 
     if (!debug) {
         chuser(batchId);
