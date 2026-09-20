@@ -844,6 +844,7 @@ cwdTrackCreate(struct jobCard *jp)
 {
     char cwd[MAXFILENAMELEN];
     int  created;
+    size_t cwdlen;
 
     if (!(jp->jobSpecs.options2 & SUB2_JOB_CWD_PATTERN))
         return;
@@ -855,6 +856,17 @@ cwdTrackCreate(struct jobCard *jp)
     else
         snprintf(cwd, sizeof(cwd), "%s/%s", jp->jobSpecs.subHomeDir,
                  jp->jobSpecs.cwd);
+
+    /* Strip trailing slashes from the local tracking path only.  The job's
+     * own cwd (used by cwdJob()/chdir and shown as the bjobs "Specified CWD")
+     * keeps the slash, matching LSF behaviour.  With a trailing slash,
+     * mkdirRecursive() creates the leaf during its intermediate-component
+     * scan and then hits EEXIST on the final mkdir(), reporting "already
+     * existed" (return 1), which wrongly skips TTL registration.  Keep "/"
+     * itself intact. */
+    cwdlen = strlen(cwd);
+    while (cwdlen > 1 && cwd[cwdlen - 1] == '/')
+        cwd[--cwdlen] = '\0';
 
     /* NB: even after this drop the directory's group is the passwd gid, not
      * the LSB_UNIXGROUP-overridden gid -- that override happens later inside
