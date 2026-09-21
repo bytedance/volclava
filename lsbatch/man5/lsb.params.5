@@ -489,6 +489,15 @@ the last directory of the path to avoid conflicts when multiple jobs
 share parent directories. TTL is calculated after the post-exec script
 finishes. When sbatchd starts, it checks the directory list file and
 deletes expired CWDs.
+.PP
+Note: Avoid multiple jobs sharing the same CWD path when
+\fBJOB_CWD_TTL\fR is in effect. For example, if the same user submits
+several jobs with \fBbsub -cwd '/tmp/%U'\fR, the first job to finish can
+cause the system to delete \fB/tmp/<user name>\fR while another job is
+still running in that directory, leaving the remaining jobs with a
+deleted CWD. Use distinct paths (for example \fB%J\fR) for jobs that run
+concurrently, or make sure no other job still depends on the directory
+before it is deleted.
 .SS Default
 .BR
 .PP
@@ -526,6 +535,16 @@ The path supports the same dynamic patterns as \fBbsub -cwd\fR:
 The directory is automatically created on the execution host if it
 does not exist. The \fBJOB_CWD_TTL\fR parameter controls the
 lifecycle of created directories.
+.PP
+Note: When \fBDEFAULT_JOB_CWD\fR specifies an absolute path, verify
+beforehand that the static part of the path already exists and is
+accessible to all volclava users. Otherwise the first job creates the whole
+path with the permissions and ownership of the submitting user, and other
+users' jobs may not be able to access their CWD. For example, if
+\fBDEFAULT_JOB_CWD=/not/created/path/%J\fR, the first job creates
+and owns \fB/not/created/path/<job id>\fR with mode 0700, so jobs from
+other users can fail to enter their CWD. Pre-create the static
+directories with permissions sufficient for all volclava users to use.
 .SS Priority
 .BR
 .PP
