@@ -2139,7 +2139,7 @@ sigStartedJob (struct jData *jData, int sigValue, time_t chkPeriod,
 
                     } else if (returnCode == RESUME_JOB) {
 
-                        adjLsbLoad (jData, TRUE, TRUE);
+                        adjLsbLoad (jData, ADJ_FOR_RESUME, TRUE);
                     }
                 }
             }
@@ -3473,8 +3473,6 @@ handleJobJCCA:
 
 
     if (IS_FINISH(statusReq->newStatus) || IS_PEND(statusReq->newStatus)) {
-
-        updHostLeftRusageMem(jpbw, 1);
         cleanSbdNode(jpbw);
     }
 
@@ -3558,7 +3556,6 @@ rusageJob (struct statusReq *statusReq, struct hostent *hp)
     int               diffSTime;
     int               diffUTime;
     int               diffTime;
-    bool_t            significantChange = FALSE;
 
     if (logclass & (LC_TRACE | LC_SIGNAL))
         ls_syslog(LOG_DEBUG, "%s: Entering ... jobId %s", fname,
@@ -3604,7 +3601,7 @@ rusageJob (struct statusReq *statusReq, struct hostent *hp)
 
     jpbw->jRusageUpdateTime = now;
 
-    significantChange = isSignificantChange(&(jpbw->runRusage), &(statusReq->runRusage),
+    isSignificantChange(&(jpbw->runRusage), &(statusReq->runRusage),
                                             0.1);
 
     copyJUsage(&(jpbw->runRusage), &(statusReq->runRusage));
@@ -6243,9 +6240,15 @@ static void modifyJobEffeRusage(struct jData *jp) {
 
     if (ent) {
         if (ent != jp->effeResReqEnt) {
+            if (mSchedStage != M_STAGE_REPLAY) {
+                updHostLeftRusageMem(jp, 1);
+            }
             detachJobEffeResReqEntry(jp);
             jp->effeResReqEnt = ent;
             ((struct resReqEntry *)ent->hData)->numRef++;
+            if (mSchedStage != M_STAGE_REPLAY) {
+                updHostLeftRusageMem(jp, -1);
+            }
         }
         lsbFreeResVal(&eResVal);
         FREEUP(resReqStr);
@@ -6257,9 +6260,15 @@ static void modifyJobEffeRusage(struct jData *jp) {
         ent = h_addEnt_(&jobEffeResReqTab, resReqStr, NULL);
         if (ent) {
             ent->hData = (int *) resReqEnt;
+            if (mSchedStage != M_STAGE_REPLAY) {
+                updHostLeftRusageMem(jp, 1);
+            }
             detachJobEffeResReqEntry(jp);
             jp->effeResReqEnt = ent;
             resReqEnt->numRef = 1;
+            if (mSchedStage != M_STAGE_REPLAY) {
+                updHostLeftRusageMem(jp, -1);
+            }
         } else {
             freeResReqEntry(&resReqEnt);
         }
@@ -8016,7 +8025,6 @@ breakCallback(struct jData *jData, bool_t termWhiPendStatus)
     int pid, s;
     struct hostent *hp;
     struct sockaddr_in from;
-    int len;
     static char fname[] = "breakCallback";
 
     if (logclass & LC_TRACE)
@@ -8028,9 +8036,6 @@ breakCallback(struct jData *jData, bool_t termWhiPendStatus)
                       lsb_jobid2str(jData->jobId));
         return;
     }
-
-
-    len = sizeof(from);
 
     if ((hp = Gethostbyname_(jData->shared->jobBill.fromHost)) == NULL) {
         ls_syslog(LOG_ERR, "\
@@ -8376,7 +8381,7 @@ tryResume(void)
                 jp->jFlags |= JFLAG_SEND_SIG;
                 jp->hPtr[0]->flags |= HOST_JOB_RESUME;
 
-                adjLsbLoad (jp, TRUE, TRUE);
+                adjLsbLoad (jp, ADJ_FOR_RESUME, TRUE);
                 if (logclass & (LC_EXEC))
                     ls_syslog (LOG_DEBUG2, "%s: Resume job <%s> with signal value <%d>", fname, lsb_jobid2str(jp->jobId), resumeSig);
             } else {
@@ -8594,7 +8599,6 @@ shouldResumeByRes (struct jData *jp)
     struct  resVal *resValPtr = NULL;
     float **loads;
     int *hBitMaps = NULL;
-    hEnt  *ent = NULL;
 
     if (logclass & (LC_SCHED | LC_EXEC))
         ls_syslog(LOG_DEBUG3, "%s: job=%s; jStatus=%x; reasons=%x, subreasons=%d, numHosts=%d", fname, lsb_jobid2str(jp->jobId), jp->jStatus, jp->newReason, jp->subreasons, jp->numHostPtr);
@@ -8637,7 +8641,7 @@ shouldResumeByRes (struct jData *jp)
     }
 
     /*temporary consume the resource from the host*/
-    adjLsbLoad (jp, TRUE, TRUE);
+    adjLsbLoad (jp, ADJ_FOR_RESUME, TRUE);
 
     FORALL_PRMPT_RSRCS(j) {
         float val;
@@ -8813,15 +8817,11 @@ runJob(struct runJobRequest*  request, struct lsfAuth *auth)
     struct jData*     job;
     int               cc;
     struct candHost   candHost;
-    struct candHost*  candidateHostPtr;
 
     ls_syslog(LOG_DEBUG, "%s: Received request to run a job <%s>",
               fname, lsb_jobid2str(request->jobId));
 
-
     memset((struct candHost *)&candHost, 0, sizeof(struct candHost));
-    candidateHostPtr = &candHost;
-
 
     job = getJobData(request->jobId);
     if (job == NULL ) {

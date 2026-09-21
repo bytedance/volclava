@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2021-2025 Bytedance Ltd. and/or its affiliates
+ * Copyright (C) 2021-2026 Bytedance Ltd. and/or its affiliates
  * Copyright (C) 2011 David Bigagli
  * Copyright (C) 2007 Platform Computing Inc
  *
@@ -1095,7 +1095,12 @@ extern int                  getHostsByResReq(struct resVal *, int *,
 
 extern struct resVal *      checkResReq(char *, int);
 extern void                 freeResReqEntry(struct resReqEntry **);
+
+#define ADJ_FOR_RUN        0x0001  /* adjust host load when job get dispatched*/
+#define ADJ_FOR_RESUME     0x0002  /* adjust host load when job get resumed*/
+#define ADJ_FOR_HEALING    0x0004  /* adjust host load when get latest load by getLsbHostLoad()*/
 extern void                 adjLsbLoad(struct jData *, int, bool_t);
+
 extern int                  countHostJobs(struct hData *);
 extern void                 getLsbResourceInfo(void);
 extern void                 getLsfHostInfo(int);

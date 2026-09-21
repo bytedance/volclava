@@ -3463,7 +3463,7 @@ jobStarted (struct jData *jp, struct jobReply *jobReply)
 
     mkJobEffeResReqEntry(jp);
     jStatusChange (jp, JOB_STAT_RUN, LOG_IT, "jobStarted");
-    adjLsbLoad (jp, FALSE, TRUE);
+    adjLsbLoad (jp, ADJ_FOR_RUN, TRUE);
 
     INC_CNT(PROF_CNT_numStartedJobsPerSession);
 

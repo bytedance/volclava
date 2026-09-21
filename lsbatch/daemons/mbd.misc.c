@@ -156,6 +156,7 @@ updCounters (struct jData *jData, int oldStatus, time_t eventTime)
 
             if (IS_START(oldStatus)) {
                 cleanRLAccount4Job(jData, "updCounters()/job ended");
+                updHostLeftRusageMem(jData, 1);
             }
 
             if (oldStatus & JOB_STAT_WAIT) {
@@ -194,6 +195,7 @@ updCounters (struct jData *jData, int oldStatus, time_t eventTime)
         case JOB_STAT_PEND:
             if (IS_START(oldStatus)) {
                 cleanRLAccount4Job(jData, "updCounters()/started job get pending");
+                updHostLeftRusageMem(jData, 1);
             }
 
             if (oldStatus & JOB_STAT_RUN) {

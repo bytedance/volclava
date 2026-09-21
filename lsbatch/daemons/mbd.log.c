@@ -306,6 +306,7 @@ init_log(void)
                     proxyUSJLAddEntry(jp);
                     proxyHSJLAddEntry(jp);
                     updRLAccount4Job(jp, NULL);
+                    updHostLeftRusageMem(jp, -1);
                 }
             }
         }
@@ -667,9 +668,6 @@ replay_startjob(char *filename, int lineNum, int preExecStart)
         }
     }
     jStatusChange(jp, job.jStatus, logPtr->eventTime, "replay_startjob");
-    if  (!preExecStart){
-        updHostLeftRusageMem(jp, -1);
-    }
 
     if (preExecStart)
         jp->jStatus |= JOB_STAT_PRE_EXEC;
@@ -778,12 +776,6 @@ replay_newstat(char *filename, int lineNum)
         return TRUE;
     } else
         jp->jStatus &= ~JOB_STAT_UNKWN;
-
-    if ((IS_START(jp->jStatus) && IS_PEND(newStat->jStatus))
-        || IS_FINISH(newStat->jStatus)) {
-
-        updHostLeftRusageMem(jp, 1);
-    }
 
     if (IS_PEND(jp->jStatus) && IS_START(newStat->jStatus)) {
         ls_syslog(LOG_ERR, _i18n_msg_get(ls_catd , NL_SETN, 6720,
@@ -2213,11 +2205,10 @@ putEventRec1(char *fname)
 {
     int    ret;
     int    cc;
-    long   pos1;
 
     ret = 0;
 
-    pos1 =  ftell(log_fp);
+    ftell(log_fp);
 
     if (lsb_puteventrec(log_fp, logPtr) < 0) {
         ls_syslog(LOG_ERR, I18N_FUNC_FAIL_EMSG_S,
@@ -2517,7 +2508,6 @@ switch_log(void)
     LS_LONG_INT             jobId = 0;
     FILE                   *efp, *tmpfp;
     struct jData           *jp, *jarray;
-    char                   *calName = NULL;
     long                   pos;
     int                    preserved = FALSE;
     int                    totalEventFile;
@@ -2721,7 +2711,6 @@ switch_log(void)
             }
         }
         jobId = 0;
-        calName = NULL;
         preserved = FALSE;
     }
     FCLOSEUP(&efp);
@@ -3924,8 +3913,6 @@ log_logSwitch(int lastJobId)
     logPtr->type = EVENT_LOG_SWITCH;
     logPtr->eventLog.logSwitchLog.lastJobId = lastJobId;
     if (putEventRec("log_logSwitch") < 0) {
-        LS_LONG_INT tmpJobId;
-        tmpJobId = lastJobId;
         ls_syslog(LOG_ERR, I18N_JOB_FAIL_S, fname,
                   lastJobId, "putEventRec");
         return;
@@ -4088,7 +4075,6 @@ replay_signaljob(char *filename, int lineNum)
     static char             fname[] = "replay_signaljob";
     struct jData           *jp;
     LS_LONG_INT             jobId;
-    int                     sigValue;
     int                    cc;
 
     jobId = LSB_JOBID(logPtr->eventLog.signalLog.jobId,
@@ -4108,18 +4094,16 @@ replay_signaljob(char *filename, int lineNum)
     }
 
     if (strcmp(logPtr->eventLog.signalLog.signalSymbol, "DELETEJOB") == 0){
-        sigValue = SIG_DELETE_JOB;
         jp->pendEvent.sigDel = TRUE;
 
     }
 
     else if (strcmp(logPtr->eventLog.signalLog.signalSymbol, "KILLREQUEUE")
              == 0) {
-        sigValue = SIG_TERM_USER;
         jp->pendEvent.sigDel |= DEL_ACTION_REQUEUE;
     }
     else
-        sigValue = getSigVal(logPtr->eventLog.signalLog.signalSymbol);
+        getSigVal(logPtr->eventLog.signalLog.signalSymbol);
 
     if (jp->nodeType == JGRP_NODE_ARRAY) {
         return (TRUE);

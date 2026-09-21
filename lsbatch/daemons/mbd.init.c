@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2021-2025 Bytedance Ltd. and/or its affiliates
+ * Copyright (C) 2021-2026 Bytedance Ltd. and/or its affiliates
  * Copyright (C) 2007 Platform Computing Inc
  *
  * This program is free software; you can redistribute it and/or modify
@@ -730,7 +730,7 @@ addHost(struct hostInfo *lsf,
     hEnt *ent;
     struct hData *hPtr;
     int new;
-    int i, j;
+    int i;
     char *word;
 
     if (first) {
@@ -2259,7 +2259,7 @@ addQData(struct queueConf *queueConf, int mbdInitFlags )
 {
     int i;
     int badqueue;
-    int j, k;
+    int j;
     int m;
     struct qData *qPtr;
     struct qData *oldQPtr;
