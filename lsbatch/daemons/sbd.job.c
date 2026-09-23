@@ -5070,6 +5070,7 @@ cwdCleanupExpired(int checkOrphans)
     char tmpPath[MAXPATHLEN];
     char line[MAXPATHLEN + 128];
     FILE *fp, *tmpFp;
+    struct stat cwdListSt;
     int lockFd;
     time_t currentTime = time(NULL);
 
@@ -5084,6 +5085,13 @@ cwdCleanupExpired(int checkOrphans)
         return;
 
     getCwdListPath(listPath, sizeof(listPath));
+
+    /* Skip the sweep when no cwdlist exists yet: nothing is being tracked
+     * (JOB_CWD_TTL disabled, or enabled but no dynamic CWD recorded yet),
+     * so do not create the cwdlist.lock artifact.  A record appended right
+     * after this probe is handled by the next periodic sweep. */
+    if (lstat(listPath, &cwdListSt) != 0 && errno == ENOENT)
+        return;
 
     lockFd = cwdListLock();
     if (lockFd < 0)

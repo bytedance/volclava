@@ -664,6 +664,10 @@ cwdJob(struct jobCard *jp, char *cwd, struct hostent *fromHp)
 {
     struct passwd *pw;
     char errMsg[MAXLINELEN];
+    /* mychdir_() leaves its last mapping attempt in chosenPath on failure.
+     * Preserve the requested path for diagnostics, including after cwd is
+     * overwritten by the home-directory or temporary-directory fallback. */
+    char requestedCwd[MAXPATHLEN];
 
     if (logclass & LC_EXEC) {
         sprintf(errMsg, "cwdJob: cwd=%s", jp->jobSpecs.cwd);
@@ -674,6 +678,7 @@ cwdJob(struct jobCard *jp, char *cwd, struct hostent *fromHp)
     if (isAbsolutePathSub(jp, jp->jobSpecs.cwd)) {
 
         strcpy(cwd, jp->jobSpecs.cwd);
+        strcpy(requestedCwd, cwd);
         if (mychdir_(cwd, fromHp) == 0) {
             strcpy(cwd, chosenPath);
             return (0);
@@ -684,7 +689,7 @@ cwdJob(struct jobCard *jp, char *cwd, struct hostent *fromHp)
 
             sprintf(errMsg,
                     "cwdJob: mychdir_(%s) failed for job <%s>: %s",
-                    chosenPath, lsb_jobidinstr(jp->jobSpecs.jobId),
+                    requestedCwd, lsb_jobidinstr(jp->jobSpecs.jobId),
                     strerror(svErrno));
             sbdSyslog(LOG_WARNING, errMsg);
         }
@@ -740,14 +745,14 @@ cwdJob(struct jobCard *jp, char *cwd, struct hostent *fromHp)
         sprintf(errMsg,
                 "cwdJob: cannot use CWD <%s> for job <%s>; "
                 "falling back to %s",
-                chosenPath, lsb_jobidinstr(jp->jobSpecs.jobId), LSTMPDIR);
+                requestedCwd, lsb_jobidinstr(jp->jobSpecs.jobId), LSTMPDIR);
         sbdSyslog(LOG_WARNING, errMsg);
         strcpy(cwd, LSTMPDIR);
         if (chdir(cwd) == -1) {
             sprintf(errMsg,
                     "cwdJob: chdir(%s) failed after mychdir_(%s) failed "
                     "for job <%s>: %s",
-                    cwd, chosenPath, lsb_jobidinstr(jp->jobSpecs.jobId),
+                    cwd, requestedCwd, lsb_jobidinstr(jp->jobSpecs.jobId),
                     strerror(errno));
             sbdSyslog(LOG_ERR, errMsg);
             return (-1);
@@ -762,6 +767,8 @@ cwdJob(struct jobCard *jp, char *cwd, struct hostent *fromHp)
     else
         sprintf(cwd, "%s/%s", jp->jobSpecs.subHomeDir, jp->jobSpecs.cwd);
 
+    strcpy(requestedCwd, cwd);
+
     if (mychdir_(cwd, fromHp) == 0) {
         strcpy(cwd, chosenPath);
         return (0);
@@ -772,7 +779,7 @@ cwdJob(struct jobCard *jp, char *cwd, struct hostent *fromHp)
 
         sprintf(errMsg,
                 "cwdJob: mychdir_(%s) failed for job <%s>: %s",
-                chosenPath, lsb_jobidinstr(jp->jobSpecs.jobId),
+                requestedCwd, lsb_jobidinstr(jp->jobSpecs.jobId),
                 strerror(svErrno));
         sbdSyslog(LOG_WARNING, errMsg);
     }
@@ -812,7 +819,7 @@ cwdJob(struct jobCard *jp, char *cwd, struct hostent *fromHp)
     sprintf(errMsg,
             "cwdJob: cannot use CWD <%s> for job <%s>; "
             "falling back to %s",
-            chosenPath, lsb_jobidinstr(jp->jobSpecs.jobId), LSTMPDIR);
+            requestedCwd, lsb_jobidinstr(jp->jobSpecs.jobId), LSTMPDIR);
     sbdSyslog(LOG_WARNING, errMsg);
     strcpy(cwd, LSTMPDIR);
     if (chdir(cwd) == -1) {
