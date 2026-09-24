@@ -268,6 +268,16 @@ printLong (struct parameterInfo *reply)
 
     printf("%s:\n", I18N(2459, "The number of hours of resource consumption history:")); /* catgets 2459 */
     printf("    %s = %f\n\n", "HIST_HOURS", reply->runJobFactor);
+
+    if (reply->defaultJobCwd != NULL && reply->defaultJobCwd[0] != '\0') {
+        printf("%s\n", "The default CWD directory:");
+        printf("    DEFAULT_JOB_CWD = %s\n\n", reply->defaultJobCwd);
+    }
+
+    if (reply->jobCwdTtl != INFINIT_INT) {
+        printf("%s\n", "The time-to-live of the job CWD directory:");
+        printf("    JOB_CWD_TTL = %d (hours)\n\n", reply->jobCwdTtl);
+    }
 } 
 
 

@@ -631,8 +631,9 @@ do_probe(XDR * xdrs, int chfd, struct LSFHeader * reqHdr)
     rusageUpdateRate = sbdPackage.rusageUpdateRate;
     rusageUpdatePercent = sbdPackage.rusageUpdatePercent;
     jobTerminateInterval = sbdPackage.jobTerminateInterval;
+    jobCwdTtl = sbdPackage.jobCwdTtl;
 
-    
+
     for (i = 0; i < sbdPackage.nAdmins; i++)
 	FREEUP(sbdPackage.admins[i]);
     FREEUP(sbdPackage.admins);

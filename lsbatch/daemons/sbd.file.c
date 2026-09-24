@@ -24,6 +24,7 @@
 #include <sys/types.h>
 #include <dirent.h>
 #include <unistd.h>
+#include <grp.h>
 
 #include "../../lsf/lib/mls.h"
 
@@ -409,7 +410,10 @@ initPaths(struct jobCard *jp, struct hostent *fromHp, struct lenData *jf)
 
 
     if (jp->jobSpecs.execCwd[0] == '\0') {
-        if (cwdJob(jp, cwd, fromHp) == -1) {
+        int cwdRc = cwdJob(jp, cwd, fromHp);
+        if (cwdRc == -2)
+            return (-2);
+        if (cwdRc == -1) {
             if (logclass & LC_EXEC) {
                 sprintf(errMsg, "cwdJob() failed");
                 sbdSyslog(LOG_DEBUG, errMsg);
@@ -422,6 +426,15 @@ initPaths(struct jobCard *jp, struct hostent *fromHp, struct lenData *jf)
     } else {
 
         if (chdir(jp->jobSpecs.execCwd) < 0) {
+            char *exitEnv = getenv("LSB_EXIT_IF_CWD_NOTEXIST");
+            if (exitEnv != NULL && (exitEnv[0] == 'Y' || exitEnv[0] == 'y')) {
+                sprintf(errMsg,
+                        "%s: Job <%s> chdir(%s) failed, LSB_EXIT_IF_CWD_NOTEXIST is set, job will exit",
+                        fname, lsb_jobidinstr(jp->jobSpecs.jobId),
+                        jp->jobSpecs.execCwd);
+                sbdSyslog(LOG_ERR, errMsg);
+                return (-2);
+            }
 
             sprintf(errMsg, _i18n_msg_get(ls_catd , NL_SETN, 314,
                                           "%s: Job <%s> chdir(%s) failed, errno=<%s>. Use <%s> as execCwd"), /* catgets 314 */
@@ -583,6 +596,69 @@ initPaths(struct jobCard *jp, struct hostent *fromHp, struct lenData *jf)
 }
 
 
+/*
+ * mkdirRecursive - create path and any missing parent directories.
+ *
+ * Return value is three-valued and callers rely on the distinction; do not
+ * collapse it to a plain success/failure:
+ *
+ *    0  we created the leaf directory
+ *    1  the path already existed, nothing was created
+ *   -1  creation failed (errno set by mkdir())
+ *
+ * Only a return of 0 makes the path eligible for JOB_CWD_TTL removal, which
+ * is what keeps root from deleting a directory the job did not create.  See
+ * the SAFETY note on cwdCleanupExpired() in sbd.job.c.
+ *
+ * Note this creates every missing level but cleanup only rmdir()s the leaf,
+ * so intermediate levels are intentionally left behind.
+ */
+static int
+mkdirRecursive(const char *path, mode_t mode)
+{
+    char tmp[MAXFILENAMELEN];
+    char *p = NULL;
+    struct stat st;
+
+    if (stat(path, &st) == 0)
+        return 1;   /* already exists: not created by us, skip TTL tracking */
+
+    if (errno != ENOENT) {
+        ls_syslog(LOG_ERR, "mkdirRecursive: stat(%s) failed: %m", path);
+        return -1;
+    }
+
+    strncpy(tmp, path, sizeof(tmp) - 1);
+    tmp[sizeof(tmp) - 1] = '\0';
+
+    for (p = tmp + 1; *p; p++) {
+        if (*p == '/') {
+            *p = '\0';
+            if (stat(tmp, &st) != 0) {
+                if (errno != ENOENT) {
+                    ls_syslog(LOG_ERR,
+                              "mkdirRecursive: stat(%s) failed: %m", tmp);
+                    return -1;
+                }
+                if (mkdir(tmp, mode) != 0 && errno != EEXIST) {
+                    ls_syslog(LOG_ERR,
+                              "mkdirRecursive: mkdir(%s) failed: %m", tmp);
+                    return -1;
+                }
+            }
+            *p = '/';
+        }
+    }
+
+    if (mkdir(tmp, mode) != 0) {
+        if (errno == EEXIST)
+            return 1;   /* raced with a concurrent creator */
+        ls_syslog(LOG_ERR, "mkdirRecursive: mkdir(%s) failed: %m", tmp);
+        return -1;
+    }
+    return 0;
+}
+
 static int
 cwdJob(struct jobCard *jp, char *cwd, struct hostent *fromHp)
 {
@@ -603,12 +679,25 @@ cwdJob(struct jobCard *jp, char *cwd, struct hostent *fromHp)
             return (0);
         }
 
-        if (logclass & LC_EXEC) {
+        {
+            int svErrno = errno;
+
             sprintf(errMsg,
                     "cwdJob: mychdir_(%s) failed for job <%s>: %s",
                     chosenPath, lsb_jobidinstr(jp->jobSpecs.jobId),
-                    strerror(errno));
-            sbdSyslog(LOG_DEBUG, errMsg);
+                    strerror(svErrno));
+            sbdSyslog(LOG_WARNING, errMsg);
+        }
+
+        {
+            char *exitEnv = getenv("LSB_EXIT_IF_CWD_NOTEXIST");
+            if (exitEnv != NULL && (exitEnv[0] == 'Y' || exitEnv[0] == 'y')) {
+                sprintf(errMsg,
+                        "cwdJob: CWD <%s> not accessible for job <%s>, LSB_EXIT_IF_CWD_NOTEXIST is set, job will exit",
+                        cwd, lsb_jobidinstr(jp->jobSpecs.jobId));
+                sbdSyslog(LOG_ERR, errMsg);
+                return (-2);
+            }
         }
 
 
@@ -634,17 +723,33 @@ cwdJob(struct jobCard *jp, char *cwd, struct hostent *fromHp)
                         }
                         if (chdir(cwd) == 0)
                             return (0);
+                        else {
+                            int svErrno = errno;
+                            sprintf(errMsg,
+                                    "cwdJob: chdir(%s) failed for job <%s>: "
+                                    "%s", cwd,
+                                    lsb_jobidinstr(jp->jobSpecs.jobId),
+                                    strerror(svErrno));
+                            sbdSyslog(LOG_WARNING, errMsg);
+                        }
                     }
                 }
             }
         }
 
+        sprintf(errMsg,
+                "cwdJob: cannot use CWD <%s> for job <%s>; "
+                "falling back to %s",
+                chosenPath, lsb_jobidinstr(jp->jobSpecs.jobId), LSTMPDIR);
+        sbdSyslog(LOG_WARNING, errMsg);
         strcpy(cwd, LSTMPDIR);
         if (chdir(cwd) == -1) {
-            if (logclass & LC_EXEC) {
-                sprintf(errMsg, "cwdJob: chdir(%s) failed after mychdir_(%s) failed for job <%s>: %s", cwd, chosenPath, lsb_jobidinstr(jp->jobSpecs.jobId), strerror(errno));
-                sbdSyslog(LOG_DEBUG, errMsg);
-            }
+            sprintf(errMsg,
+                    "cwdJob: chdir(%s) failed after mychdir_(%s) failed "
+                    "for job <%s>: %s",
+                    cwd, chosenPath, lsb_jobidinstr(jp->jobSpecs.jobId),
+                    strerror(errno));
+            sbdSyslog(LOG_ERR, errMsg);
             return (-1);
         }
 
@@ -662,6 +767,26 @@ cwdJob(struct jobCard *jp, char *cwd, struct hostent *fromHp)
         return (0);
     }
 
+    {
+        int svErrno = errno;
+
+        sprintf(errMsg,
+                "cwdJob: mychdir_(%s) failed for job <%s>: %s",
+                chosenPath, lsb_jobidinstr(jp->jobSpecs.jobId),
+                strerror(svErrno));
+        sbdSyslog(LOG_WARNING, errMsg);
+    }
+
+    {
+        char *exitEnv = getenv("LSB_EXIT_IF_CWD_NOTEXIST");
+        if (exitEnv != NULL && (exitEnv[0] == 'Y' || exitEnv[0] == 'y')) {
+            sprintf(errMsg,
+                    "cwdJob: CWD <%s> not accessible for job <%s>, LSB_EXIT_IF_CWD_NOTEXIST is set, job will exit",
+                    cwd, lsb_jobidinstr(jp->jobSpecs.jobId));
+            sbdSyslog(LOG_ERR, errMsg);
+            return (-2);
+        }
+    }
 
     if ((pw = getpwdirlsfuser_(jp->execUsername)) &&
         pw->pw_dir && isAbsolutePathExec(pw->pw_dir)) {
@@ -674,19 +799,26 @@ cwdJob(struct jobCard *jp, char *cwd, struct hostent *fromHp)
         if (chdir(cwd) == 0)
             return (0);
 
-        if (logclass & LC_EXEC) {
+        {
+            int svErrno = errno;
+
             sprintf(errMsg, "cwdJob: chdir(%s) failed for job <%s>: %s",
-                    cwd, lsb_jobidinstr(jp->jobSpecs.jobId), strerror(errno));
-            sbdSyslog(LOG_DEBUG, errMsg);
+                    cwd, lsb_jobidinstr(jp->jobSpecs.jobId),
+                    strerror(svErrno));
+            sbdSyslog(LOG_WARNING, errMsg);
         }
     }
 
-
+    sprintf(errMsg,
+            "cwdJob: cannot use CWD <%s> for job <%s>; "
+            "falling back to %s",
+            chosenPath, lsb_jobidinstr(jp->jobSpecs.jobId), LSTMPDIR);
+    sbdSyslog(LOG_WARNING, errMsg);
     strcpy(cwd, LSTMPDIR);
     if (chdir(cwd) == -1) {
         sprintf(errMsg, "cwdJob: chdir tmp (%s) failed for job <%s>: %s",
                 cwd, lsb_jobidinstr(jp->jobSpecs.jobId), strerror(errno));
-        sbdSyslog(LOG_DEBUG, errMsg);
+        sbdSyslog(LOG_ERR, errMsg);
         return (-1);
     }
 
@@ -694,6 +826,88 @@ cwdJob(struct jobCard *jp, char *cwd, struct hostent *fromHp)
 }
 
 
+
+/*
+ * cwdTrackCreate - create the job's dynamic CWD and register it for TTL
+ * cleanup.  Runs before setIds() in a context where the real uid is still 0:
+ * the tracking directory (LSTMPDIR/.<cluster>.sbd) is root-only, so
+ * cwdTrackAdd() cannot be called from the job child after the permanent
+ * setuid.  Unlike cwdJob(), it does not chdir().
+ *
+ * The directory is created as the submitter: root drops privileges
+ * reversibly (seteuid) so the kernel still enforces the user's own
+ * permissions on the "bsub -cwd" / DEFAULT_JOB_CWD path, and the directory is
+ * naturally owned by the job user.  Registration is then done back as root.
+ */
+void
+cwdTrackCreate(struct jobCard *jp)
+{
+    char cwd[MAXFILENAMELEN];
+    int  created;
+    size_t cwdlen;
+
+    if (!(jp->jobSpecs.options2 & SUB2_JOB_CWD_PATTERN))
+        return;
+
+    if (isAbsolutePathSub(jp, jp->jobSpecs.cwd))
+        strcpy(cwd, jp->jobSpecs.cwd);
+    else if (jp->jobSpecs.cwd[0] == '\0')
+        strcpy(cwd, jp->jobSpecs.subHomeDir);
+    else
+        snprintf(cwd, sizeof(cwd), "%s/%s", jp->jobSpecs.subHomeDir,
+                 jp->jobSpecs.cwd);
+
+    /* Strip trailing slashes from the local tracking path only.  The job's
+     * own cwd (used by cwdJob()/chdir and shown as the bjobs "Specified CWD")
+     * keeps the slash, matching LSF behaviour.  With a trailing slash,
+     * mkdirRecursive() creates the leaf during its intermediate-component
+     * scan and then hits EEXIST on the final mkdir(), reporting "already
+     * existed" (return 1), which wrongly skips TTL registration.  Keep "/"
+     * itself intact. */
+    cwdlen = strlen(cwd);
+    while (cwdlen > 1 && cwd[cwdlen - 1] == '/')
+        cwd[--cwdlen] = '\0';
+
+    /* NB: even after this drop the directory's group is the passwd gid, not
+     * the LSB_UNIXGROUP-overridden gid -- that override happens later inside
+     * setIds().  Acceptable: the job still owns the directory via its uid. */
+    if (!debug) {
+        if (initgroups(jp->execUsername, jp->execGid) < 0 ||
+            setegid(jp->execGid) < 0) {
+            /* Do not drop euid unless the job credentials are fully set up;
+             * otherwise the mkdir would run with root's supplementary groups,
+             * the exact thing the drop is meant to prevent. */
+            ls_syslog(LOG_ERR, "cwdTrackCreate: cannot assume job user's "
+                      "credentials for job <%s>: %m",
+                      lsb_jobid2str(jp->jobSpecs.jobId));
+            return;
+        }
+        chuser(jp->jobSpecs.execUid);
+    }
+
+    {
+        int rc = mkdirRecursive(cwd, 0700);
+
+        if (rc == -1) {
+            /* mkdirRecursive() logs the errno; add the job context here. */
+            ls_syslog(LOG_WARNING,
+                      "cwdTrackCreate: cannot create CWD <%s> for job <%s>",
+                      cwd, lsb_jobid2str(jp->jobSpecs.jobId));
+        }
+        created = (rc == 0);
+    }
+
+    if (!debug) {
+        chuser(batchId);
+        setegid(getgid());
+    }
+
+    /* JOB_CWD_TTL unset (INFINIT_INT) means the CWD is never recycled, so
+     * there is nothing to track for TTL cleanup: skip registration rather
+     * than strand a permanent cwdlist entry. */
+    if (created && jobCwdTtl != INFINIT_INT)
+        cwdTrackAdd(cwd, jp->jobSpecs.jobId);
+}
 
 static int
 lsbatchDir(char *lsbDir, struct jobCard *jp, struct hostent *fromHp,

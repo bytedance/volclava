@@ -28,9 +28,11 @@
 .br
 \fB-b \fR[[\fImonth\fR\fB:\fR]\fIday\fR\fB:\fR]\fIhour\fR\fB:\fRminute 
 .br
-\fB-C\fR \fIcore_limit\fR 
+\fB-C\fR \fIcore_limit\fR
 .br
-\fB-c\fR [\fIhours\fR\fB:\fR]\fIminutes\fR[\fB/\fRhost_name | \fB/\fRhost_model] 
+\fB-c\fR [\fIhours\fR\fB:\fR]\fIminutes\fR[\fB/\fRhost_name | \fB/\fRhost_model]
+.br
+\fB-cwd\fR \fIcurrent_working_directory\fR
 .br
 \fB-D\fR data_limit
 .br
@@ -409,8 +411,57 @@ normalization host then divided by the CPU factor of the execution
 host.
 
 
-.TP 
-\fB-D \fRdata_limit 
+.TP
+\fB-cwd\fR \fIcurrent_working_directory\fR
+
+.IP
+Specifies the current working directory for job execution. The path can
+be absolute or relative to the submission directory. If the path includes
+dynamic patterns and the specified directory does not exist on the
+execution host, it will be created automatically.
+
+.IP
+The path can include the following dynamic patterns, which are case
+sensitive:
+.RS
+.IP \fB%J\fR
+Job ID
+.IP \fB%I\fR
+Job array index (default value is 0)
+.IP \fB%U\fR
+User name
+.IP \fB%P\fR
+Project name
+.IP \fB%H\fR
+First execution host name
+.RE
+
+.IP
+If the current working directory is not accessible on the execution host
+after the directory creation attempt, the job runs in /tmp.
+.IP
+If the environment variable \fBLSB_EXIT_IF_CWD_NOTEXIST\fR is set to
+\fBY\fR and the current working directory is not accessible on the
+execution host, the job exits with exit code 2 instead of falling
+back to /tmp.
+
+.IP
+\fBExamples:\fR
+.br
+The following command creates /scratch/jobcwd/user1/<jobid>_0/ for the
+job CWD:
+.br
+\fBbsub -cwd "/scratch/jobcwd/%U/%J_%I" myjob\fR
+.br
+
+The system creates submission_dir/user1/<jobid>_0/ for the job's CWD
+with the following command:
+.br
+\fBbsub -cwd "%U/%J_%I" myprog\fR
+
+
+.TP
+\fB-D \fRdata_limit
 
 .IP
 Sets a per-process (soft) data segment size limit for each of the 
