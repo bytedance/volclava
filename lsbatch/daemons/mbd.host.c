@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2021-2025 Bytedance Ltd. and/or its affiliates
+ * Copyright (C) 2021-2026 Bytedance Ltd. and/or its affiliates
  * Copyright (C) 2011 David Bigagli
  * Copyright (C) 2007 Platform Computing Inc
  *
@@ -368,7 +368,6 @@ getAllHostInfoEnt(struct hostDataReply *hostsReplyPtr,
     sTab hashSearchPtr;
     hEnt *hashEntryPtr;
     struct hData *hData;
-    struct hostInfoEnt *hInfo;
     int numHosts = 0;
 
     hostsReplyPtr->numHosts = 0;
@@ -376,7 +375,6 @@ getAllHostInfoEnt(struct hostDataReply *hostsReplyPtr,
     hashEntryPtr = h_firstEnt_(&hostTab, &hashSearchPtr);
     while (hashEntryPtr) {
         hData = (struct hData *) hashEntryPtr->hData;
-        hInfo = &(hostsReplyPtr->hosts[hostsReplyPtr->numHosts]);
         hashEntryPtr = h_nextEnt_(&hashSearchPtr);
 
         if ((hData->flags & HOST_LOST_FOUND)
@@ -545,14 +543,12 @@ pollSbatchds(int mbdRunFlag)
     }
 
     for (num = 0; num < maxprobes && num < numofhosts(); num++) {
-        int oldStatus;
 
         ent = h_nextEnt_(&stab);
         if (ent == NULL) {
             ent = h_firstEnt_(&hostTab, &stab);
         }
         hPtr = ent->hData;
-        oldStatus = hPtr->hStatus;
 
         if (hPtr->hStatus & HOST_STAT_REMOTE)
             continue;
@@ -884,10 +880,8 @@ checkHWindow(void)
 
     hashEntryPtr = h_firstEnt_(&hostTab, &hashSearchPtr);
     while (hashEntryPtr) {
-        int oldStatus;
 
         hp = (struct hData *) hashEntryPtr->hData;
-        oldStatus = hp->hStatus;
 
         hashEntryPtr = h_nextEnt_(&hashSearchPtr);
         if (hp->hStatus & HOST_STAT_REMOTE)
@@ -1332,12 +1326,14 @@ getLsbHostLoad(void)
 
         hPtr->flags |= HOST_UPDATE_LOAD;
         hPtr->flags |= HOST_UPDATE;
-
+        if (!(hPtr->hStatus & HOST_STAT_UNAVAIL) && hPtr->maxMem > 0) {
+            hPtr->leftRusageMem = hPtr->maxMem;
+        }
     } /* for ( i = 0; i < num; i++) */
 
     for (jpbw = jDataList[SJL]->back;
          (jpbw != jDataList[SJL]); jpbw = jpbw->back) {
-        adjLsbLoad(jpbw, FALSE, TRUE);
+        adjLsbLoad(jpbw, ADJ_FOR_HEALING, TRUE);
     }
 
     /* Detect which hosts has left the
@@ -1503,7 +1499,7 @@ struct jobExecHosts {
 };
 
 void
-adjLsbLoad(struct jData *jpbw, int forResume, bool_t doAdj) {
+adjLsbLoad(struct jData *jpbw, int options, bool_t doAdj) {
     static char fname[] = "adjLsbLoad";
     int i, ldx, resAssign = 0;
     float jackValue, orgnalLoad, duration, decay;
@@ -1532,7 +1528,7 @@ adjLsbLoad(struct jData *jpbw, int forResume, bool_t doAdj) {
     }
 
     if (!resValPtr) {
-        return NULL;
+        return;
     }
 
     for (i = 0; i < GET_INTNUM(allLsInfo->nRes); i++) {
@@ -1546,7 +1542,7 @@ adjLsbLoad(struct jData *jpbw, int forResume, bool_t doAdj) {
     decay = resValPtr->decay;
     if (resValPtr->duration != INFINIT_INT && (duration - jpbw->runTime <= 0)){
 
-        if ((forResume != TRUE && (duration - runTimeSinceResume(jpbw) <= 0))
+        if ((!(options & ADJ_FOR_RESUME) && (duration - runTimeSinceResume(jpbw) <= 0))
             || !isReservePreemptResource(resValPtr)) {
             return;
         }
@@ -1639,7 +1635,7 @@ adjLsbLoad(struct jData *jpbw, int forResume, bool_t doAdj) {
                     &&
                     ! (allLsInfo->resTable[ldx].flags & RESF_RELEASE)
                     &&
-                    forResume == FALSE) {
+                    !(options & ADJ_FOR_RESUME)) {
 
                 goto adjustLoadValue;
 
@@ -1647,7 +1643,7 @@ adjLsbLoad(struct jData *jpbw, int forResume, bool_t doAdj) {
                     &&
                     ! (allLsInfo->resTable[ldx].flags & RESF_RELEASE)
                     &&
-                    forResume == TRUE
+                    (options & ADJ_FOR_RESUME)
                     &&
                     (jpbw->jStatus & JOB_STAT_RESERVE)) {
                 continue;
@@ -1660,7 +1656,7 @@ adjLsbLoad(struct jData *jpbw, int forResume, bool_t doAdj) {
 
             } else if (IS_SUSP(jpbw->jStatus)
                     &&
-                    forResume == TRUE
+                    (options & ADJ_FOR_RESUME)
                     &&
                     (allLsInfo->resTable[ldx].flags & RESF_RELEASE)) {
 
@@ -1729,13 +1725,20 @@ adjLsbLoad(struct jData *jpbw, int forResume, bool_t doAdj) {
                 }
             }
 
+            /*For MEM resource, we adjust lsbLoad and leftRusageMem separately.*/
+            if ((ldx == MEM) && (options & ADJ_FOR_HEALING)
+                && (resValPtr->duration == INFINIT_INT)
+                && (execHosts[i].hPtr->maxMem > 0)) {
+                execHosts[i].hPtr->leftRusageMem -= jackValue;
+            }
+
             factor = 1.0;
             if (resValPtr->duration != INFINIT_INT) {
                 if (resValPtr->decay != INFINIT_FLOAT) {
                     float du;
 
                     if ( isItPreemptResourceIndex(ldx) ) {
-                        if (forResume) {
+                        if (options & ADJ_FOR_RESUME) {
                             du = duration;
                         } else {
                             du = duration - runTimeSinceResume(jpbw);
@@ -1774,16 +1777,16 @@ adjLsbLoad(struct jData *jpbw, int forResume, bool_t doAdj) {
                 orgnalLoad = execHosts[i].hPtr->lsbLoad[ldx];
                 execHosts[i].hPtr->lsbLoad[ldx] += jackValue;
                 if (execHosts[i].hPtr->lsbLoad[ldx] <= 0.0
-                    && forResume == FALSE)
+                    && !(options & ADJ_FOR_RESUME))
                     execHosts[i].hPtr->lsbLoad[ldx] = 0.0;
                 if (ldx == UT && execHosts[i].hPtr->lsbLoad[ldx] > 1.0
-                    && forResume == FALSE)
+                    && !(options & ADJ_FOR_RESUME))
                     execHosts[i].hPtr->lsbLoad[ldx] = 1.0;
                 load = execHosts[i].hPtr->lsbLoad[ldx];
             } else {
                 orgnalLoad = atof (instance->value);
                 load = orgnalLoad + jackValue;
-                if (load < 0.0 && forResume == FALSE)
+                if (load < 0.0 && !(options & ADJ_FOR_RESUME))
                     load = 0.0;
                 FREEUP (instance->value);
                 sprintf (loadString, "%-10.1f", load);

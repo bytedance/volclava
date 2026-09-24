@@ -21,6 +21,7 @@
 
 #include "mbd.h"
 #include "mbd.query.h"
+#include "mbd.rsrclimit.h"
 
 static unsigned int     msgcnt = 0;
 extern int numLsbUsable;
@@ -296,9 +297,6 @@ do_submitPackReq(XDR *xdrs,
     struct submitMbdReply   *replyArray = NULL;
     struct submitMbdReply   *submitReply;
     struct jData            *jobData;
-    char                    *savedFromHost, *savedCommand, *savedJobName;
-    char                    *savedQueue, *savedResReq;
-    int                     savedMaxNumProcessors, savedNumProcessors;
     int                     fileCount = 0;
     int                     j, i, reply;
     int                     overallReply = LSBE_NO_ERROR;
@@ -1806,7 +1804,6 @@ do_hostInfoReq(XDR *xdrs,
     int reply;
     struct infoReq hostsReq;
     struct hostDataReply hostsReply;
-    int i = 0;
 
     replyStruct = NULL;
     memset(&hostsReply, 0, sizeof(struct hostDataReply));
@@ -2047,7 +2044,6 @@ do_groupInfoReq(XDR *xdrs,
     XDR                     xdrs2;
     int                     reply;
     int                     len;
-    struct gData **         gplist;
     struct LSFHeader        hdr;
     char *                  replyStruct;
     struct groupInfoReply   groupInfoReply;
@@ -2058,16 +2054,13 @@ do_groupInfoReq(XDR *xdrs,
         reply = LSBE_XDR;
         ls_syslog(LOG_ERR, "\
 %s: failed decode data from %s", __func__, sockAdd2Str_(from));
-        gplist  = NULL;
     }
 
     if (groupInfoReq.options & HOST_GRP) {
-        gplist = hostgroups;
 
         if (numofhgroups == 0) {
             reply = LSBE_NO_HOST_GROUP;
         } else {
-
             groupInfoReply.groups = (struct groupInfoEnt *)
                 my_calloc(numofhgroups,
                           sizeof(struct groupInfoEnt),
@@ -2080,8 +2073,6 @@ do_groupInfoReq(XDR *xdrs,
         if (numofugroups == 0) {
             reply = LSBE_NO_USER_GROUP;
         } else {
-            gplist = usergroups;
-
             reply = checkGroups(&groupInfoReq, &groupInfoReply);
         }
     }
@@ -2551,7 +2542,7 @@ sendBackPack(int overallReply, int successCount, int firstError,
     XDR xdrs;
     struct LSFHeader replyHdr;
     struct submitMbdPackReply packReply;
-    int i, j, replyLen;
+    int i, replyLen;
     int return_code = 0;
 
     memset(&packReply, 0, sizeof(struct submitMbdPackReply));
