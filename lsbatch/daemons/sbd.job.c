@@ -4722,6 +4722,45 @@ cwdListLock(void)
 }
 
 /*
+ * Open cwdlist or its replacement for writing while holding cwdListLock().
+ * execJob() applies the submitter's umask before cwdTrackCreate(), whereas
+ * sbatchd uses 022.  Enforce 0644 independently of the caller's umask and
+ * normalize existing files too.  Never create a group/other-writable file.
+ * Use the fd rather than chmod(path), and refuse a symlink at the final
+ * component.  If permissions cannot be enforced, fail without writing
+ * records; callers must not replace cwdlist with that temporary file.
+ */
+static FILE *
+cwdListOpenWrite(const char *path, int append)
+{
+    int fd;
+    int savedErrno;
+    FILE *fp;
+
+    fd = open(path, O_WRONLY | O_CREAT | O_NOFOLLOW |
+              (append ? O_APPEND : O_TRUNC), 0644);
+    if (fd < 0)
+        return NULL;
+
+    if (fchmod(fd, 0644) < 0) {
+        savedErrno = errno;
+        ls_syslog(LOG_ERR, "cwdListOpenWrite: fchmod(%s, 0644) failed: %m",
+                  path);
+        close(fd);
+        errno = savedErrno;
+        return NULL;
+    }
+
+    fp = fdopen(fd, append ? "a" : "w");
+    if (fp == NULL) {
+        savedErrno = errno;
+        close(fd);
+        errno = savedErrno;
+    }
+    return fp;
+}
+
+/*
  * Parse one cwdlist record: "<pathLen> <path> <jobId> <finishTime> <ttl>\n".
  * The path is length-prefixed so it may contain spaces. All fields are
  * read with bounds checks to avoid overrunning the output buffers.
@@ -4826,7 +4865,7 @@ cwdTrackAdd(const char *path, LS_LONG_INT jobId)
         return;
     }
 
-    fp = fopen(listPath, "a");
+    fp = cwdListOpenWrite(listPath, 1);
     if (fp == NULL) {
         ls_syslog(LOG_ERR, "cwdTrackAdd: cannot open %s: %m", listPath);
         close(lockFd);
@@ -4934,7 +4973,7 @@ cwdTrackMarkFinished(LS_LONG_INT jobId)
         return;
     }
 
-    tmpFp = fopen(tmpPath, "w");
+    tmpFp = cwdListOpenWrite(tmpPath, 0);
     if (tmpFp == NULL) {
         ls_syslog(LOG_ERR, "cwdTrackMarkFinished: cannot open %s: %m",
                   tmpPath);
@@ -5111,7 +5150,7 @@ cwdCleanupExpired(int checkOrphans)
     }
 
     snprintf(tmpPath, sizeof(tmpPath), "%s.tmp", listPath);
-    tmpFp = fopen(tmpPath, "w");
+    tmpFp = cwdListOpenWrite(tmpPath, 0);
     if (tmpFp == NULL) {
         ls_syslog(LOG_ERR, "cwdCleanupExpired: cannot open %s: %m",
                   tmpPath);
