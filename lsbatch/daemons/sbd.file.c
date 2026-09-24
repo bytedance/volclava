@@ -610,8 +610,9 @@ initPaths(struct jobCard *jp, struct hostent *fromHp, struct lenData *jf)
  * is what keeps root from deleting a directory the job did not create.  See
  * the SAFETY note on cwdCleanupExpired() in sbd.job.c.
  *
- * Note this creates every missing level but cleanup only rmdir()s the leaf,
- * so intermediate levels are intentionally left behind.
+ * Note this creates every missing level, and TTL cleanup removes the whole
+ * leaf subtree, so intermediate parent levels created here are intentionally
+ * left behind.
  */
 static int
 mkdirRecursive(const char *path, mode_t mode)

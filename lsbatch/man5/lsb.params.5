@@ -473,31 +473,48 @@ directory instead of %windir% for spooled output.
 .PP
 Specifies the time-to-live in hours for the current working directory
 (CWD) of a job created by the \fB-cwd\fR option of \fBbsub\fR.
-The system cleans created CWD directories after a job finishes based
-on the TTL value. Only directories that were created by the system for
-the job are deleted. The following values are available:
+The system removes CWD directories created for a job after the job
+finishes, based on the TTL value. Only directories that were created by
+the system for the job are removed. Removal is recursive: the directory
+and everything in it, including files the job wrote into its CWD, are
+deleted. The following values are available:
 .PP
-\fB0\fR: sbatchd deletes CWD when all processes related to the job finish.
+\fB0\fR: sbatchd deletes the CWD and its contents when all processes
+related to the job finish.
 .PP
 \fB2147483647\fR: Never delete the CWD for a job.
 .PP
 \fB1\fR to \fB2147483646\fR: Delete the CWD for a job after the specified
 number of hours expires.
 .PP
-The system checks the directory list every 5 minutes and deletes only
-the last directory of the path to avoid conflicts when multiple jobs
-share parent directories. TTL is calculated after the post-exec script
-finishes. When sbatchd starts, it checks the directory list file and
-deletes expired CWDs.
+The system checks the directory list every 5 minutes. It removes the
+last directory of the path and its contents, but leaves the parent
+directories alone to avoid conflicts when multiple jobs share parents.
+TTL is calculated after the post-exec script finishes. When sbatchd
+starts, it checks the directory list file and deletes expired CWDs.
+.PP
+Removal is best-effort: if a CWD cannot be removed, sbatchd logs a
+warning and removes its tracking record instead of retrying later; the
+directory (possibly partially deleted) is then left on disk. A CWD is
+only removed while the path still names the same directory that was
+created for the job. Pending deletions are not persisted: if sbatchd
+crashes after a record is removed but before the directory is deleted,
+that directory is left on disk and is not retried later.
+.PP
+While \fBJOB_CWD_TTL\fR is in effect, neither the job CWD itself nor
+anything inside it may be a mount point (a bind mount included) that is
+visible to sbatchd: the expiry cleanup deletes the whole directory tree
+recursively and cannot tell a bind mount apart, so its contents would
+be deleted along with the CWD.
 .PP
 Note: Avoid multiple jobs sharing the same CWD path when
-\fBJOB_CWD_TTL\fR is in effect. For example, if the same user submits
-several jobs with \fBbsub -cwd '/tmp/%U'\fR, the first job to finish can
-cause the system to delete \fB/tmp/<user name>\fR while another job is
-still running in that directory, leaving the remaining jobs with a
-deleted CWD. Use distinct paths (for example \fB%J\fR) for jobs that run
-concurrently, or make sure no other job still depends on the directory
-before it is deleted.
+\fBJOB_CWD_TTL\fR is in effect. Removal is recursive, so if the same
+user submits several jobs with \fBbsub -cwd '/tmp/%U'\fR, the first job
+to finish causes the system to delete \fB/tmp/<user name>\fR and
+everything in it while another job is still running there, destroying
+the other job's files. Use distinct paths (for example \fB%J\fR) for
+jobs that run concurrently, or make sure no other job still depends on
+the directory before it is deleted.
 .SS Default
 .BR
 .PP
