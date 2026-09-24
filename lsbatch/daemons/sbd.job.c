@@ -3329,10 +3329,12 @@ runQPost(struct jobCard *jp)
 {
     int i;
     int pid;
+    int waitResult;
     int maxfds;
     char val[MAXLINELEN];
     char *myargv[6];
     sigset_t newmask;
+    LS_WAIT_T status;
 
     if (logclass & LC_TRACE) {
         chuser(batchId);
@@ -3346,7 +3348,7 @@ runQPost(struct jobCard *jp)
     }
 
     if (!jp->jobSpecs.postCmd || jp->jobSpecs.postCmd[0] == '\0')
-        return -1;
+        return 0;
 
     if (jp->jobSpecs.preCmd && jp->jobSpecs.preCmd[0] != '\0') {
 
@@ -3381,13 +3383,37 @@ runQPost(struct jobCard *jp)
     }
 
     if (pid) {
-        if (waitpid(pid, NULL, 0) < 0) {
+        while ((waitResult = waitpid(pid, &status, 0)) < 0
+               && errno == EINTR)
+            ;
+
+        if (waitResult < 0) {
             chuser(batchId);
             ls_syslog(LOG_ERR, "\
-%s: waitpid(%d) failed for qpre for job <%d>: %m",
+%s: waitpid(%d) failed for qpost for job <%d>: %m",
                       __func__, pid, jp->jobSpecs.jobId);
             chuser(jp->jobSpecs.execUid);
+            return -1;
         }
+
+        if (WIFEXITED(status) && WEXITSTATUS(status) == 0)
+            return 0;
+
+        chuser(batchId);
+        if (WIFEXITED(status)) {
+            ls_syslog(LOG_ERR, "\
+%s: queue's post-exec command for job <%d> exited with status <%d>",
+                      __func__, jp->jobSpecs.jobId, WEXITSTATUS(status));
+        } else if (WIFSIGNALED(status)) {
+            ls_syslog(LOG_ERR, "\
+%s: queue's post-exec command for job <%d> terminated by signal <%d>",
+                      __func__, jp->jobSpecs.jobId, WTERMSIG(status));
+        } else {
+            ls_syslog(LOG_ERR, "\
+%s: queue's post-exec command for job <%d> ended with status <%d>",
+                      __func__, jp->jobSpecs.jobId, LS_STATUS(status));
+        }
+        chuser(jp->jobSpecs.execUid);
         return -1;
     }
 
