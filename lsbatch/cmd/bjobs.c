@@ -61,9 +61,9 @@ int jsonflag = FALSE;
 char *fields[] = {
         "JOBID", "USER", "STAT", "QUEUE", "FROM_HOST", "EXEC_HOST", "JOB_NAME", "SUBMIT_TIME",
         "PROJ_NAME", "CPU_USED", "MEM", "SWAP", "PIDS", "START_TIME", "FINISH_TIME",
-        "EXIT_CODE", "JOBINDEX"
+        "EXIT_CODE", "JOBINDEX", "MAX_MEM", "AVG_MEM"
 };
-#define FIELD_INDEX          17
+#define FIELD_INDEX          19
 
 static int isLSFAdmin(void);
 static char *Timer2String(float timer);
@@ -1034,6 +1034,26 @@ displayO (struct jobInfoEnt *job, struct jobInfoHead *jInfoH,
             printf("%s%d", delimiter,  ((job->runRusage.swap>0)?job->runRusage.swap:0));
             continue;
         }
+        if ( strcmp(customizedFields[j], "MAX_MEM") == 0 ) {
+            if (job->maxMem > 0) {
+                if (job->maxMem > 1024)
+                    printf("%s%d Mbytes", delimiter, job->maxMem/1024);
+                else
+                    printf("%s%d Kbytes", delimiter, job->maxMem);
+            } else
+                printf("%s-", delimiter);
+            continue;
+        }
+        if ( strcmp(customizedFields[j], "AVG_MEM") == 0 ) {
+            if (job->avgMem > 0) {
+                if (job->avgMem > 1024)
+                    printf("%s%d Mbytes", delimiter, job->avgMem/1024);
+                else
+                    printf("%s%d Kbytes", delimiter, job->avgMem);
+            } else
+                printf("%s-", delimiter);
+            continue;
+        }
 
         if ( strcmp(customizedFields[j], "PIDS") == 0 ) {
             if (job->runRusage.npids) {
@@ -1118,6 +1138,8 @@ cJSON
     char jobIdStr[MAXLINELEN];
     char jobMemStr[MAXLINELEN];
     char jobSwapStr[MAXLINELEN];
+    char jobMaxMemStr[MAXLINELEN];
+    char jobAvgMemStr[MAXLINELEN];
 
     cJSON *jobItem = cJSON_CreateObject();
 
@@ -1281,6 +1303,30 @@ cJSON
         if ( strcmp(customizedFields[j], "SWAP") == 0 ) {
             sprintf(jobSwapStr, "%d", ((job->runRusage.swap>0)?job->runRusage.swap:0));
             cJSON_AddStringToObject(jobItem, "SWAP", jobSwapStr);
+            continue;
+        }
+
+        if ( strcmp(customizedFields[j], "MAX_MEM") == 0 ) {
+            if (job->maxMem > 0) {
+                if (job->maxMem > 1024)
+                    sprintf(jobMaxMemStr, "%d Mbytes", job->maxMem/1024);
+                else
+                    sprintf(jobMaxMemStr, "%d Kbytes", job->maxMem);
+            } else
+                sprintf(jobMaxMemStr, "-");
+            cJSON_AddStringToObject(jobItem, "MAX_MEM", jobMaxMemStr);
+            continue;
+        }
+
+        if ( strcmp(customizedFields[j], "AVG_MEM") == 0 ) {
+            if (job->avgMem > 0) {
+                if (job->avgMem > 1024)
+                    sprintf(jobAvgMemStr, "%d Mbytes", job->avgMem/1024);
+                else
+                    sprintf(jobAvgMemStr, "%d Kbytes", job->avgMem);
+            } else
+                sprintf(jobAvgMemStr, "-");
+            cJSON_AddStringToObject(jobItem, "AVG_MEM", jobAvgMemStr);
             continue;
         }
 

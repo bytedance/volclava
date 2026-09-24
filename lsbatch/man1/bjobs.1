@@ -219,6 +219,15 @@ An invalid field name will cause bjobs to exit with an error.
 The following field names are supported:
 
 .IP
+AVG_MEM
+.BR
+.RS
+.IP
+Average memory usage of the job (displayed as "-" if job rusage
+has not been reported by the sbatchd daemon).
+.RE
+
+.IP
 CPU_USED
 .BR
 .RS
@@ -283,6 +292,15 @@ JOB_NAME
 .IP
 The job name assigned by the user, or the command string assigned
 by default (see bsub(1)).
+.RE
+
+.IP
+MAX_MEM
+.BR
+.RS
+.IP
+Peak (maximum) memory usage of the job (displayed as "-" if job
+rusage has not been reported by the sbatchd daemon).
 .RE
 
 .IP
