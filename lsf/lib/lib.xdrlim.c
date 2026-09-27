@@ -82,11 +82,25 @@ xdr_decisionReq(XDR *xdrs, struct decisionReq *decisionReqPtr,
 {
     char *sp1 = decisionReqPtr->hostType;
     char *sp2 = decisionReqPtr->resReq;
+    int hasOutputFields = hdr
+                          && (hdr->opCode == LIM_GET_HOSTINFO || hdr->opCode == LIM_HOST_OUTPUT)
+                          && hdr->version >= _VOLCLAVA_VERSION2_3_;
+    int i;
 
+    if (xdrs->x_op == XDR_FREE) {
+        if (decisionReqPtr->preferredHosts) {
+            for (i = 0; i < decisionReqPtr->numPrefs; i++)
+                FREEUP(decisionReqPtr->preferredHosts[i]);
+        }
+        FREEUP(decisionReqPtr->preferredHosts);
+        FREEUP(decisionReqPtr->outputFields);
+        return TRUE;
+    }
 
     if (xdrs->x_op == XDR_DECODE) {
         decisionReqPtr->resReq[0] = '\0';
         decisionReqPtr->hostType[0] = '\0';
+        decisionReqPtr->outputFields = NULL;
     }
 
     if (!(xdr_enum(xdrs, (int *) &decisionReqPtr->ofWhat) &&
@@ -111,6 +125,10 @@ xdr_decisionReq(XDR *xdrs, struct decisionReq *decisionReqPtr,
         if (xdrs->x_op == XDR_DECODE)
             FREEUP(decisionReqPtr->preferredHosts);
         return (FALSE);
+    }
+    if (hasOutputFields) {
+        if (!xdr_var_string(xdrs, &decisionReqPtr->outputFields))
+            return (FALSE);
     }
 
     return(TRUE);
@@ -1256,5 +1274,89 @@ xdr_hostName(XDR *xdrs,
     if (! xdr_string(xdrs, &hostname, MAXHOSTNAMELEN))
         return FALSE;
 
+    return TRUE;
+}
+
+/* Typed LIM output owns its metadata and rows, unlike the legacy decoder. */
+bool_t
+xdr_hostOutputInfoReply(XDR *xdrs, struct hostInfoReply *reply,
+                        struct LSFHeader *hdr)
+{
+    struct shortLsInfo *info = reply->shortLsInfo;
+    int i, j;
+    (void)hdr;
+    if (xdrs->x_op == XDR_FREE) {
+        if (reply->hostMatrix) for (i = 0; i < reply->nHost; i++) {
+            FREEUP(reply->hostMatrix[i].windows);
+            FREEUP(reply->hostMatrix[i].resBitMaps);
+        }
+        FREEUP(reply->hostMatrix);
+        if (info->resName) for (i = 0; i < info->nRes; i++) FREEUP(info->resName[i]);
+        FREEUP(info->resName);
+        for (i = 0; i < info->nTypes && i < MAXTYPES; i++) FREEUP(info->hostTypes[i]);
+        for (i = 0; i < info->nModels && i < MAXMODELS; i++) FREEUP(info->hostModels[i]);
+        memset(info, 0, sizeof(*info));
+        reply->nHost = 0;
+        return TRUE;
+    }
+    if (!xdr_u_int(xdrs, &reply->outputMask) || (reply->outputMask >> 12) ||
+        !xdr_int(xdrs, &reply->nHost) || reply->nHost < 0 || reply->nHost > 1000000 ||
+        !xdr_int(xdrs, &info->nTypes) || info->nTypes < 0 || info->nTypes > MAXTYPES ||
+        !xdr_int(xdrs, &info->nModels) || info->nModels < 0 || info->nModels > MAXMODELS ||
+        !xdr_int(xdrs, &info->nRes) || info->nRes < 0 || info->nRes > 65536)
+        return FALSE;
+    if (xdrs->x_op == XDR_DECODE && info->nRes) {
+        info->resName = calloc(info->nRes, sizeof(char *));
+        if (!info->resName) return FALSE;
+    }
+    for (i = 0; i < info->nTypes; i++)
+        if (!xdr_var_string(xdrs, &info->hostTypes[i])) return FALSE;
+    for (i = 0; i < info->nModels; i++)
+        if (!xdr_var_string(xdrs, &info->hostModels[i]) ||
+            !xdr_float(xdrs, &info->cpuFactors[i])) return FALSE;
+    for (i = 0; i < info->nRes; i++)
+        if (!xdr_var_string(xdrs, &info->resName[i])) return FALSE;
+    if (xdrs->x_op == XDR_DECODE && reply->nHost) {
+        reply->hostMatrix = calloc(reply->nHost, sizeof(struct shortHInfo));
+        if (!reply->hostMatrix) return FALSE;
+    }
+    for (i = 0; i < reply->nHost; i++) {
+        struct shortHInfo *row = &reply->hostMatrix[i];
+        char *name = row->hostName;
+        if (xdrs->x_op == XDR_DECODE) {
+            row->hTypeIndx = MAXTYPES;
+            row->hModelIndx = MAXMODELS;
+        }
+        if (!xdr_string(xdrs, &name, MAXHOSTNAMELEN)) return FALSE;
+#define LIM_MEMBER(bits, member) \
+        if ((reply->outputMask & (bits)) && !xdr_int(xdrs, &row->member)) return FALSE;
+        LIM_MEMBER(1u << 1, hTypeIndx)
+        LIM_MEMBER((1u << 2) | (1u << 3), hModelIndx)
+        LIM_MEMBER((1u << 4) | (1u << 10), maxCpus)
+        LIM_MEMBER(1u << 5, maxMem)
+        LIM_MEMBER(1u << 6, maxSwap)
+        LIM_MEMBER((1u << 7) | (1u << 11), flags)
+        LIM_MEMBER(1u << 9, maxTmp)
+#undef LIM_MEMBER
+        if (xdrs->x_op == XDR_DECODE) {
+            if (row->hTypeIndx < 0 || row->hTypeIndx >= info->nTypes) row->hTypeIndx = MAXTYPES;
+            if (row->hModelIndx < 0 || row->hModelIndx >= info->nModels) row->hModelIndx = MAXMODELS;
+        }
+        if ((reply->outputMask & (1u << 11)) && !xdr_var_string(xdrs, &row->windows))
+            return FALSE;
+        if (reply->outputMask & (1u << 8)) {
+            if (!xdr_int(xdrs, &row->resClass) || !xdr_int(xdrs, &row->nRInt) ||
+                row->nRInt < 0 || row->nRInt > GET_INTNUM(info->nRes)) return FALSE;
+            /* The legacy scalar bitmap indexes the resource-name table. */
+            if (!row->nRInt && info->nRes < 32 &&
+                ((unsigned int)row->resClass >> info->nRes)) return FALSE;
+            if (xdrs->x_op == XDR_DECODE && row->nRInt) {
+                row->resBitMaps = calloc(GET_INTNUM(info->nRes), sizeof(int));
+                if (!row->resBitMaps) return FALSE;
+            }
+            for (j = 0; j < row->nRInt; j++)
+                if (!xdr_int(xdrs, &row->resBitMaps[j])) return FALSE;
+        }
+    }
     return TRUE;
 }

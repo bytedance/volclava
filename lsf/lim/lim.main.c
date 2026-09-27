@@ -488,6 +488,7 @@ processUDPMsg(void)
         case LIM_PING:
             pingReq(&xdrs, &from, &reqHdr);
             break;
+        case LIM_HOST_OUTPUT:
         case LIM_GET_HOSTINFO:
             hostInfoReq(&xdrs, fromHost, &from, &reqHdr, -1);
             break;
@@ -534,7 +535,7 @@ processUDPMsg(void)
             rcvConfInfo(&xdrs, &from, &reqHdr);
             break;
         default:
-            if (reqHdr.version <= VOLCLAVA_VERSION) {
+            if (reqHdr.version <= VOLCLAVA_PROTOCOL_VERSION) {
                 static int lastcode;
 
                 errorBack(&from, &reqHdr, LIME_BAD_REQ_CODE, -1);

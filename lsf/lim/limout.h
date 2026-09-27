@@ -34,7 +34,10 @@ struct decisionReq {
     char      resReq[MAXLINELEN];
     int       numPrefs;
     char      **preferredHosts;
+    char      *outputFields;
 };
+
+int limProjectHostInfoFlags(int, const char *);
 
 struct placeReply {
     int   numHosts;
@@ -46,6 +49,8 @@ struct jobXfer {
     char resReq[MAXLINELEN];
     struct placeInfo *placeInfo;
 };
+
+#define LIM_OUTPUT_CAPABILITY 0x4f555431 /* OUT1, optional INFO probe body. */
 
 enum limReqCode {
     LIM_PLACEMENT     = 1,
@@ -65,6 +70,7 @@ enum limReqCode {
     LIM_RM_HOST       = 15,
     LIM_GET_MASTINFO2 = 16,
     LIM_SHOWCONF      = 17,
+    LIM_HOST_OUTPUT   = 18,
 
 #define FIRST_LIM_PRIV	LIM_REBOOT
     LIM_REBOOT        = 50,
@@ -156,6 +162,7 @@ struct shortLsInfo {
 };
 
 struct hostInfoReply {
+    unsigned int outputMask;
     int    nHost;
     int    nIndex;
     struct shortLsInfo *shortLsInfo;

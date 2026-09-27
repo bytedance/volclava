@@ -77,5 +77,6 @@ extern bool_t xdr_hostEntry(XDR *,
 extern bool_t xdr_hostName(XDR *,
                            char *,
                            struct LSFHeader *);
+extern bool_t xdr_hostOutputInfoReply(XDR *, struct hostInfoReply *, struct LSFHeader *);
 #endif
 

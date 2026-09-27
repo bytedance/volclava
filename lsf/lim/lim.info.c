@@ -20,6 +20,7 @@
  */
 
 #include "lim.h"
+#include "../intlib/outfields.h"
 
 #define NL_SETN 24
 
@@ -30,6 +31,16 @@ static int checkResources (struct resourceInfoReq *, struct resourceInfoReply *,
 static int copyResource (struct resourceInfoReply *,
                          struct sharedResource *, int *, char *);
 static void freeResourceInfoReply (struct resourceInfoReply *);
+
+
+int
+limProjectHostInfoFlags(int flags, const char *fields)
+{
+    if (OUTPUT_MASK(fields, lim) & ((1u << 7) | (1u << 11)))
+        return flags & HINFO_SERVER;
+
+    return 0;
+}
 
 void
 pingReq(XDR *xdrs, struct sockaddr_in *from, struct LSFHeader *reqHdr)
@@ -387,9 +398,11 @@ hostInfoReq(XDR *xdrs,
     XDR  xdrs2;
     enum limReplyCode limReplyCode;
     struct hostInfoReply hostInfoReply;
+    struct shortLsInfo outputInfo;
     struct decisionReq hostInfoRequest;
     struct resVal resVal;
     int i, ncandidates, cc, propt, bufSize;
+    size_t outputSize;
     struct LSFHeader replyHdr;
     char  *replyStruct;
     char  fromEligible, clName;
@@ -398,13 +411,22 @@ hostInfoReq(XDR *xdrs,
     if (logclass & (LC_TRACE | LC_HANG | LC_COMM))
         ls_syslog(LOG_DEBUG1, "%s: Entering this routine...", fname);
 
+    memset(&hostInfoReply, 0, sizeof(hostInfoReply));
     initResVal(&resVal);
 
     ignDedicatedResource = TRUE;
+    memset(&hostInfoRequest, 0, sizeof(struct decisionReq));
 
     if (! xdr_decisionReq(xdrs, &hostInfoRequest, reqHdr)) {
         limReplyCode = LIME_BAD_DATA;
+        xdr_lsffree(xdr_decisionReq, (char *) &hostInfoRequest, reqHdr);
         goto Reply1;
+    }
+    if ((logclass & (LC_TRACE | LC_COMM))
+        && hostInfoRequest.outputFields != NULL
+        && hostInfoRequest.outputFields[0] != '\0') {
+        ls_syslog(LOG_DEBUG, "%s: custom output fields: %s",
+                  fname, hostInfoRequest.outputFields);
     }
 
     if (! (hostInfoRequest.ofWhat == OF_HOSTS
@@ -419,6 +441,7 @@ hostInfoReq(XDR *xdrs,
             for (i = 0; i < hostInfoRequest.numPrefs; i++)
                 free(hostInfoRequest.preferredHosts[i]);
             free(hostInfoRequest.preferredHosts);
+            FREEUP(hostInfoRequest.outputFields);
             return;
         }
     }
@@ -514,12 +537,56 @@ hostInfoReq(XDR *xdrs,
         }
         infoPtr->rexPriority = candidates[i]->rexPriority;
     }
+
+    if (hostInfoRequest.outputFields
+        && hostInfoRequest.outputFields[0] != '\0') {
+        unsigned int mask = (unsigned int)OUTPUT_MASK(hostInfoRequest.outputFields, lim);
+        int needsModel;
+
+        needsModel = (mask & (1u << 2))
+                     || (mask & (1u << 3));
+        hostInfoReply.nIndex = 0;
+        for (i = 0; i < ncandidates; i++) {
+            struct shortHInfo *infoPtr = &hostInfoReply.hostMatrix[i];
+
+            if (!(mask & (1u << 1)))
+                infoPtr->hTypeIndx = -1;
+            if (!needsModel)
+                infoPtr->hModelIndx = -1;
+            if (!(mask & (1u << 4))
+                && !(mask & (1u << 10)))
+                infoPtr->maxCpus = 0;
+            if (!(mask & (1u << 5)))
+                infoPtr->maxMem = 0;
+            if (!(mask & (1u << 6)))
+                infoPtr->maxSwap = 0;
+            if (!(mask & (1u << 9)))
+                infoPtr->maxTmp = 0;
+            if (!(mask & (1u << 8))) {
+                infoPtr->resClass = 0;
+                infoPtr->nRInt = 0;
+            }
+            if (!(mask & (1u << 11)))
+                infoPtr->windows = "-";
+            infoPtr->flags = limProjectHostInfoFlags(
+                infoPtr->flags, hostInfoRequest.outputFields);
+        }
+    }
     limReplyCode = LIME_NO_ERR;
 
+    if (reqHdr->opCode == LIM_HOST_OUTPUT) {
+        hostInfoReply.outputMask = (unsigned int)OUTPUT_MASK(hostInfoRequest.outputFields, lim);
+        outputInfo = *hostInfoReply.shortLsInfo;
+        if (!(hostInfoReply.outputMask & (1u << 1))) outputInfo.nTypes = 0;
+        if (!(hostInfoReply.outputMask & ((1u << 2) | (1u << 3)))) outputInfo.nModels = 0;
+        if (!(hostInfoReply.outputMask & (1u << 8))) outputInfo.nRes = 0;
+        hostInfoReply.shortLsInfo = &outputInfo;
+    }
 Reply:
     for (i = 0; i < hostInfoRequest.numPrefs; i++)
         free(hostInfoRequest.preferredHosts[i]);
     free(hostInfoRequest.preferredHosts);
+    FREEUP(hostInfoRequest.outputFields);
 
 Reply1:
     freeResVal (&resVal);
@@ -532,6 +599,23 @@ Reply1:
         bufSize = ALIGNWORD_(MSGSIZE
                              + hostInfoReply.nHost * (128 + hostInfoReply.nIndex*4));
         bufSize = MAX(bufSize, 4*MSGSIZE);
+        if (reqHdr->opCode == LIM_HOST_OUTPUT) {
+            struct shortLsInfo *info = hostInfoReply.shortLsInfo;
+            outputSize = 128 + (size_t)(info->nTypes + info->nModels + info->nRes)
+                                    * (MAXLSFNAMELEN + 16);
+            for (i = 0; i < hostInfoReply.nHost; i++) {
+                struct shortHInfo *row = &hostInfoReply.hostMatrix[i];
+                size_t rowSize = MAXHOSTNAMELEN + 128 +
+                    (size_t)row->nRInt * 4 + strlen(row->windows ? row->windows : "");
+                if (outputSize > INT_MAX || rowSize > INT_MAX - outputSize) {
+                    free(hostInfoReply.hostMatrix);
+                    errorBack(from, reqHdr, LIME_NO_MEM, s);
+                    return;
+                }
+                outputSize += rowSize;
+            }
+            bufSize = (int)outputSize;
+        }
     } else {
         replyStruct = NULL;
         bufSize = 512;
@@ -547,12 +631,14 @@ Reply1:
 
     xdrmem_create(&xdrs2, buf, bufSize, XDR_ENCODE);
 
-    if (!xdr_encodeMsg(&xdrs2,
+    if (!xdr_encodeMsgVersion(&xdrs2,
                        replyStruct,
                        &replyHdr,
-                       xdr_hostInfoReply,
+                       reqHdr->opCode == LIM_HOST_OUTPUT
+                       ? xdr_hostOutputInfoReply : xdr_hostInfoReply,
                        0,
-                       NULL)) {
+                       NULL, reqHdr->opCode == LIM_HOST_OUTPUT
+                      ? _VOLCLAVA_VERSION2_3_ : VOLCLAVA_VERSION)) {
         ls_syslog(LOG_ERR, I18N_FUNC_FAIL, fname, "xdr_encodeMsg");
         xdr_destroy(&xdrs2);
         if (limReplyCode == LIME_NO_ERR)
@@ -596,6 +682,30 @@ infoReq(XDR *xdrs, struct sockaddr_in *from, struct LSFHeader *reqHdr, int s)
     static int len = 0;
     int cc;
 
+    /* Old LIM ignores the optional probe and returns ordinary INFO. New
+     * clients only need this header to negotiate the typed output opcode. */
+    if (reqHdr->version >= _VOLCLAVA_VERSION2_3_ && reqHdr->length == 4) {
+        int capability = 0;
+        char capabilityReply[LSF_HEADER_LEN];
+        if (!xdr_int(xdrs, &capability) || capability != LIM_OUTPUT_CAPABILITY) {
+            errorBack(from, reqHdr, LIME_BAD_DATA, s);
+            return;
+        }
+        initLSFHeader_(&replyHdr);
+        replyHdr.opCode = LIME_NO_ERR;
+        replyHdr.refCode = reqHdr->refCode;
+        xdrmem_create(&xdrs2, capabilityReply, sizeof(capabilityReply), XDR_ENCODE);
+        if (xdr_encodeMsgVersion(&xdrs2, NULL, &replyHdr, NULL, 0, NULL,
+                                 _VOLCLAVA_VERSION2_3_)) {
+            if (s < 0)
+                chanSendDgram_(limSock, capabilityReply, XDR_GETPOS(&xdrs2), from);
+            else
+                chanWrite_(s, capabilityReply, XDR_GETPOS(&xdrs2));
+        }
+        xdr_destroy(&xdrs2);
+        return;
+    }
+
     if (buf == NULL) {
         len = sizeof (struct lsInfo) + allInfo.nRes * sizeof (struct resItem)
             + 10000;
@@ -616,8 +726,8 @@ infoReq(XDR *xdrs, struct sockaddr_in *from, struct LSFHeader *reqHdr, int s)
     replyHdr.opCode  = (short) limReplyCode;
     replyHdr.refCode = reqHdr->refCode;
 
-    if (!xdr_encodeMsg(&xdrs2, (char *)&allInfo, &replyHdr, xdr_lsInfo, 0,
-                       NULL)) {
+    if (!xdr_encodeMsgVersion(&xdrs2, (char *)&allInfo, &replyHdr, xdr_lsInfo, 0,
+                       NULL, MIN(reqHdr->version, VOLCLAVA_PROTOCOL_VERSION))) {
         ls_syslog(LOG_ERR, I18N_FUNC_FAIL, fname, "xdr_encodeMsg");
         xdr_destroy(&xdrs2);
         return;

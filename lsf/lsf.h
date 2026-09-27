@@ -887,6 +887,8 @@ extern char    *ls_getmastername(void);
 extern char    *ls_getmastername2(void);
 extern char    *ls_getmyhostname(void);
 extern struct  hostInfo *ls_gethostinfo(char *, int *, char **, int, int);
+extern struct  hostInfo *ls_gethostinfo_fields(char *, int *, char **, int,
+                                                int, const char *);
 extern char    *ls_getISVmode(void);
 
 extern struct  lsInfo    *ls_info(void);

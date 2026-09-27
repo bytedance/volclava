@@ -554,6 +554,14 @@ struct hostInfo *
 ls_gethostinfo(char *resReq, int *numhosts, char **hostlist, int listsize,
                int options)
 {
+    return ls_gethostinfo_fields(resReq, numhosts, hostlist, listsize,
+                                 options, NULL);
+}
+
+struct hostInfo *
+ls_gethostinfo_fields(char *resReq, int *numhosts, char **hostlist,
+                      int listsize, int options, const char *outputFields)
+{
     static char fname[] = "ls_gethostinfo";
     struct decisionReq hostInfoReq;
     static struct hostInfoReply hostInfoReply;
@@ -630,12 +638,54 @@ ls_gethostinfo(char *resReq, int *numhosts, char **hostlist, int listsize,
 
     hostInfoReply.shortLsInfo = &lsInfo;
     hostInfoReq.numHosts=0;
-    cc = callLim_(LIM_GET_HOSTINFO,
-                  &hostInfoReq,
-                  xdr_decisionReq,
-                  &hostInfoReply,
-                  xdr_hostInfoReply,
-                  NULL, _USE_TCP_, NULL);
+    hostInfoReq.outputFields = (char *)(outputFields ? outputFields : "");
+    {
+        struct LSFHeader replyHeader;
+        static struct shortLsInfo outputInfo;
+        static struct hostInfoReply outputReply;
+        int custom = outputFields && outputFields[0];
+        int capability = LIM_OUTPUT_CAPABILITY;
+        memset(&replyHeader, 0, sizeof(replyHeader));
+        if (custom) {
+            /*
+             * Probe whether the remote LIM supports field-selective output (v2.3+).
+             * Legacy LIM TCP dispatchers silently drop unknown opcodes, so we probe
+             * LIM_GET_INFO with capability payload first before invoking LIM_HOST_OUTPUT.
+             */
+            cc = callLimVersion_(LIM_GET_INFO, &capability, xdr_int, NULL, NULL,
+                                 NULL, _USE_TCP_, _VOLCLAVA_VERSION2_3_, &replyHeader);
+            if (cc < 0 && replyHeader.opCode != LIME_BAD_REQ_CODE)
+                goto hostOutputDone;
+            custom = cc >= 0 && replyHeader.version >= _VOLCLAVA_VERSION2_3_;
+        }
+        if (custom) {
+            outputReply.shortLsInfo = &outputInfo;
+            xdr_lsffree(xdr_hostOutputInfoReply, (char *)&outputReply, &replyHeader);
+            memset(&outputReply, 0, sizeof(outputReply));
+            outputReply.shortLsInfo = &outputInfo;
+            memset(&replyHeader, 0, sizeof(replyHeader));
+            cc = callLimVersion_(LIM_HOST_OUTPUT, &hostInfoReq, xdr_decisionReq,
+                                 &outputReply, xdr_hostOutputInfoReply,
+                                 NULL, _USE_TCP_, _VOLCLAVA_VERSION2_3_, &replyHeader);
+            if (replyHeader.opCode == LIME_BAD_REQ_CODE ||
+                (replyHeader.opCode == LIME_NO_ERR && replyHeader.version > 0 &&
+                 replyHeader.version < _VOLCLAVA_VERSION2_3_)) {
+                xdr_lsffree(xdr_hostOutputInfoReply, (char *)&outputReply, &replyHeader);
+                custom = 0;
+            } else if (cc >= 0) {
+                hostInfoReply = outputReply;
+            } else {
+                xdr_lsffree(xdr_hostOutputInfoReply, (char *)&outputReply, &replyHeader);
+            }
+        }
+        /* Fall back to legacy full host info query (v2.2) if custom output is unsupported. */
+        if (!custom) {
+            cc = callLimVersion_(LIM_GET_HOSTINFO, &hostInfoReq, xdr_decisionReq,
+                                 &hostInfoReply, xdr_hostInfoReply,
+                                 NULL, _USE_TCP_, _VOLCLAVA_VERSION2_2_, NULL);
+        }
+    }
+hostOutputDone:
 
     for (i=0; i < hostInfoReq.numPrefs; i++)
         free(hostInfoReq.preferredHosts[i]);
@@ -800,4 +850,3 @@ ls_sharedresourceinfo(char **resources, int *numResources, char *hostName, int o
     return (resourceInfoReply.resources);
 
 }
-
