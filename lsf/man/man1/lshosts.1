@@ -9,7 +9,7 @@
 .BR
 .PP
 .PP
-\fBlshosts\fR [\fB-w\fR\fB | \fR\fB-l\fR] [\fB-R\fR\fB \fR\fB"\fR\fIres_req\fR\fB"\fR] [\fIhost_name\fR] ...
+\fBlshosts\fR [\fB-w\fR\fB | \fR\fB-l\fR | \fB-o\fR \fIoutput_format\fR [\fB-json\fR]] [\fB-R\fR\fB \fR\fB"\fR\fIres_req\fR\fB"\fR] [\fIhost_name\fR] ...
 .PP
 \fBlshosts\fR \fB-s \fR[\fIshared_resource_name\fR ...] 
 .PP
@@ -47,6 +47,14 @@ Displays host information in a long multi-line format. In addition to the
 default fields, displays information about the maximum /tmp space, 
 the number of local disks, the execution priority for remote jobs, load 
 thresholds, and run windows. 
+
+
+.TP
+\fB-o\fR \fIoutput_format\fR
+\fR
+.IP
+Displays only the requested custom output fields. The \fB-o\fR option
+cannot be used with \fB-w\fR, \fB-l\fR, \fB-s\fR, or \fB-e\fR. See CUSTOM OUTPUT.
 
 
 .TP 
@@ -285,6 +293,64 @@ LOCATION
 The hosts that are associated with the static shared resource. 
 
 .RE
+.TP
+\fB-json\fR
+.IP
+Requires \fB-o\fR and prints a JSON object containing COMMAND, a record
+count (HOSTS or QUEUES), and a RECORDS array. Values are strings; output
+width and delimiter settings do not pad or truncate JSON values. Repeated
+fields appear once. Strings are escaped for JSON.
+
+.SH CUSTOM OUTPUT
+.BR
+.PP
+.PP
+The \fB-o\fR option accepts a blank-separated output format:
+
+.IP
+\fIfield_name\fR[:[-]\fIoutput_width\fR] ... [delimiter='\fIcharacter\fR']
+.br
+\fIfield_name\fR%[-]\fIoutput_width\fR ... [delimiter='\fIcharacter\fR']
+
+.PP
+Field names and aliases are case-insensitive. A field without a width is
+unlimited and left-aligned. A colon or percent sign without a number uses
+the recommended width. A hyphen selects right alignment; otherwise output
+is left-aligned. Widths are limited to 1 through 4096 characters, and values
+longer than the selected width are truncated at UTF-8 character boundaries.
+Widths count bytes, not terminal display columns. Without \fBdelimiter\fR,
+fields are separated by one space. With \fBdelimiter\fR, the specified
+single character is used between fields.
+
+.PP
+Supported fields are:
+
+.IP
+HOST_NAME(HNAME), TYPE, MODEL, CPUF, NCPUS, MAXMEM, MAXSWP, SERVER,
+RESOURCES(RES), MAXTMP, NPROCS, RUN_WINDOWS(RUNWIN).
+
+.PP
+MAXMEM, MAXSWP, and MAXTMP use the unit configured by
+\fBLSF_UNIT_FOR_LIMITS\fR in lsf.conf. The default unit is M.
+
+.PP
+RESOURCES is emitted as one complete parenthesized list unless the user
+selects an explicit width. RUN_WINDOWS is "always open" for a server host
+with no configured window and a hyphen for a client-only host. Other
+unavailable values are displayed as a hyphen.
+
+.PP
+The delimiter is emitted literally between fields. The command does not add
+CSV quoting or escaping when a field contains the delimiter.
+
+.PP
+Examples:
+
+.IP
+\fBlshosts -o "hname type model ncpus maxmem maxswp res"\fR
+.br
+\fBlshosts -o "host_name:-24 runwin delimiter='|'"\fR
+
 .SH SEE ALSO
 .BR
 .PP

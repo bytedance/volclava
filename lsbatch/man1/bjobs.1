@@ -208,179 +208,55 @@ keyword all specifies all users.
 \fB-o customized_fields
 \fR
 .IP
-Sets the customized output fields with default delimiter of space character,
-such as: bjobs -o "jobid USER STAT".
+Sets the customized output fields. The format is
+\fIfield_name\fR[:[-]\fIoutput_width\fR] ...
+[delimiter='\fIcharacter\fR']. The percent sign is accepted as an
+alternative to the colon for compatibility with existing Volclava usage.
+Field names and aliases are case-insensitive. A field without a width is
+unlimited and left-aligned. A colon or percent sign without a number uses
+the recommended width. A hyphen selects right alignment; otherwise output
+is left-aligned. Widths are limited to 1 through 4096 characters, and values
+longer than the selected width are truncated at UTF-8 character boundaries.
+Widths count bytes, not terminal display columns. The default delimiter is a
+space. For example: bjobs -o "jobid user stat:- delimiter='|'".
 
 .IP
-Field names are case-insensitive. Multiple fields are separated by spaces.
-An invalid field name will cause bjobs to exit with an error.
+Supported fields are JOBID(ID), JOBINDEX, USER, STAT, QUEUE, FROM_HOST,
+EXEC_HOST, JOB_NAME(NAME), SUBMIT_TIME, PROJ_NAME, CPU_USED, MEM, SWAP, MAX_MEM, AVG_MEM,
+PIDS, START_TIME, FINISH_TIME, and EXIT_CODE. A value that is not available
+is generally displayed as a hyphen. JOBINDEX uses the text header
+and JSON key JOBINDEX; a non-array job has index 0. EXEC_HOST preserves the
+first host or first compressed host group selected by LSB_SHORT_HOSTLIST.
+Pending jobs use "-" in text and an empty string in JSON for EXEC_HOST.
+For finished jobs, EXIT_CODE retains the upstream extraction of the exit
+status; no shell-style signal conversion is applied.
 
 .IP
-The following field names are supported:
+MAX_MEM and AVG_MEM report the maximum and sampled average memory usage
+shown in the MEMORY USAGE section of -l. Their recommended width is 15.
+Positive values greater than 1024 KB are displayed as integer Mbytes;
+smaller values, including exactly 1024 KB, are displayed as Kbytes.
+A value that is zero or unavailable is displayed as a hyphen.
+JSON uses the same strings with keys MAX_MEM and AVG_MEM.
 
 .IP
-AVG_MEM
-.BR
-.RS
-.IP
-Average memory usage of the job (displayed as "-" if job rusage
-has not been reported by the sbatchd daemon).
-.RE
+The delimiter is emitted literally between fields. The command does not add
+CSV quoting or escaping when a field contains the delimiter.
 
 .IP
-CPU_USED
-.BR
-.RS
-.IP
-Cumulative total CPU time of all processes in a job.
-.RE
-
-.IP
-EXEC_HOST
-.BR
-.RS
-.IP
-The name of one or more hosts on which the job is executing (displayed
-as "-" if the job has not been dispatched).
-.RE
-
-.IP
-EXIT_CODE
-.BR
-.RS
-.IP
-The exit code of the job (displayed as "-" if the job has not finished).
-.RE
-
-.IP
-FINISH_TIME
-.BR
-.RS
-.IP
-The finish time of the job (displayed as "-" if the job has not finished).
-.RE
-
-.IP
-FROM_HOST
-.BR
-.RS
-.IP
-The name of the host from which the job was submitted.
-.RE
-
-.IP
-JOBID
-.BR
-.RS
-.IP
-The job ID that Lava assigned to the job. For a job array element,
-the job ID of the array.
-.RE
-
-.IP
-JOBINDEX
-.BR
-.RS
-.IP
-The index of a job array element. For a non-array job, the index is 0.
-.RE
-
-.IP
-JOB_NAME
-.BR
-.RS
-.IP
-The job name assigned by the user, or the command string assigned
-by default (see bsub(1)).
-.RE
-
-.IP
-MAX_MEM
-.BR
-.RS
-.IP
-Peak (maximum) memory usage of the job (displayed as "-" if job
-rusage has not been reported by the sbatchd daemon).
-.RE
-
-.IP
-MEM
-.BR
-.RS
-.IP
-Total resident memory usage of all processes in a job, in MB.
-.RE
-
-.IP
-PIDS
-.BR
-.RS
-.IP
-Currently active process IDs in a job (displayed as "-" if none).
-.RE
-
-.IP
-PROJ_NAME
-.BR
-.RS
-.IP
-The project the job was submitted from.
-.RE
-
-.IP
-QUEUE
-.BR
-.RS
-.IP
-The name of the job queue to which the job belongs.
-.RE
-
-.IP
-START_TIME
-.BR
-.RS
-.IP
-The start time of the job (displayed as "-" if the job has not started).
-.RE
-
-.IP
-STAT
-.BR
-.RS
-.IP
-The current status of the job (see JOB STATUS below).
-.RE
-
-.IP
-SUBMIT_TIME
-.BR
-.RS
-.IP
-The submission time of the job.
-.RE
-
-.IP
-SWAP
-.BR
-.RS
-.IP
-Total virtual memory usage of all processes in a job, in MB.
-.RE
-
-.IP
-USER
-.BR
-.RS
-.IP
-The user who submitted the job.
-.RE
+The -o option cannot be used with -w, -W, -l, or -UF, regardless of option
+order.
 
 
 .TP
 \fB-json
 \fR
 .IP
-Displays the customized output in JSON format, and -json need be used with -o option, such as: bjobs -o "jobid" -json.
+Displays the customized output in JSON format. Requires -o, for example:
+bjobs -o "jobid jobindex" -json. The object contains COMMAND, JOBS, and a
+RECORDS array. Field values are strings; widths and delimiters do not pad
+or truncate JSON values. Repeated fields appear once. JOBINDEX uses the
+JSON key JOBINDEX.
 
 
 .TP 

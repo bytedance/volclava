@@ -27,7 +27,7 @@
 
 static const struct fmt_field_def output_job_fields[] = {
     {"JOBID", "ID", "JOBID", 7, 0, NULL, 0},
-    {"JOB_IDX", "JOBINDEX", "JOB_IDX", 8, 0, "JOBINDEX", 0},
+    {"JOBINDEX", NULL, "JOBINDEX", 8, 0, NULL, 0},
     {"USER", NULL, "USER", 7, 0, NULL, (1ULL << 0)},
     {"STAT", NULL, "STAT", 5, 0, NULL, (1ULL << 1) | (1ULL << 15)},
     {"QUEUE", NULL, "QUEUE", 10, 0, NULL, (1ULL << 2)},
@@ -44,8 +44,7 @@ static const struct fmt_field_def output_job_fields[] = {
     {"PIDS", NULL, "PIDS", 20, 0, NULL, (1ULL << 11)},
     {"START_TIME", NULL, "START_TIME", 15, 0, NULL, (1ULL << 12)},
     {"FINISH_TIME", NULL, "FINISH_TIME", 16, 0, NULL, (1ULL << 13)},
-    {"EXIT_CODE", NULL, "EXIT_CODE", 10, 0, NULL, (1ULL << 14) | (1ULL << 1)}
-};
+    {"EXIT_CODE", NULL, "EXIT_CODE", 10, 0, NULL, (1ULL << 14) | (1ULL << 1)}};
 
 static const struct fmt_field_def output_host_fields[] = {
     {"HOST_NAME", "HNAME", "HOST_NAME", 20, 0, NULL, (1ULL << 0)},
@@ -60,8 +59,7 @@ static const struct fmt_field_def output_host_fields[] = {
     {"DISPATCH_WINDOW", "DISPWIN", "DISPATCH_WINDOW", 50, 0, NULL, (1ULL << 9)},
     {"AVAILABLE_MEM", NULL, "AVAILABLE_MEM", 15, 0, NULL, (1ULL << 10)},
     {"RESERVED_MEM", NULL, "RESERVED_MEM", 15, 0, NULL, (1ULL << 11)},
-    {"TOTAL_MEM", NULL, "TOTAL_MEM", 15, 0, NULL, (1ULL << 12)}
-};
+    {"TOTAL_MEM", NULL, "TOTAL_MEM", 15, 0, NULL, (1ULL << 12)}};
 
 static const struct fmt_field_def output_queue_fields[] = {
     {"QUEUE_NAME", "QNAME", "QUEUE_NAME", 15, 0, NULL, (1ULL << 0)},
@@ -96,8 +94,7 @@ static const struct fmt_field_def output_queue_fields[] = {
     {"MAX_SWAPLIMIT", "SWAPLIMIT", "MAX_SWAPLIMIT", 8, 0, NULL, (1ULL << 29)},
     {"MAX_TASKLIMIT", "TASKLIMIT", "MAX_TASKLIMIT", 6, 0, NULL, (1ULL << 30)},
     {"MIN_TASKLIMIT", NULL, "MIN_TASKLIMIT", 6, 0, NULL, (1ULL << 31)},
-    {"DEFAULT_TASKLIMIT", "DEF_TASKLIMIT", "DEFAULT_TASKLIMIT", 6, 0, NULL, (1ULL << 32)}
-};
+    {"DEFAULT_TASKLIMIT", "DEF_TASKLIMIT", "DEFAULT_TASKLIMIT", 6, 0, NULL, (1ULL << 32)}};
 
 static const struct fmt_field_def output_lim_fields[] = {
     {"HOST_NAME", "HNAME", "HOST_NAME", 20, 0, NULL, (1ULL << 0)},
@@ -111,55 +108,54 @@ static const struct fmt_field_def output_lim_fields[] = {
     {"RESOURCES", "RES", "RESOURCES", 20, 0, NULL, (1ULL << 8)},
     {"MAXTMP", NULL, "maxtmp", 10, 0, NULL, (1ULL << 9)},
     {"NPROCS", NULL, "nprocs", 8, 0, NULL, (1ULL << 10)},
-    {"RUN_WINDOWS", "RUNWIN", "RUN_WINDOWS", 20, 0, NULL, (1ULL << 11)}
-};
+    {"RUN_WINDOWS", "RUNWIN", "RUN_WINDOWS", 20, 0, NULL, (1ULL << 11)}};
 
 #define OUTPUT_FIELD_COUNT(table) ((int)(sizeof(table) / sizeof((table)[0])))
 #define OUTPUT_MASK(fields, group) \
     fmt_fields_mask(fields, output_##group##_fields, OUTPUT_FIELD_COUNT(output_##group##_fields))
 
-#define OUTPUT_HOST_MEMBERS(X) \
-    X(((1ULL << 0)), string, host) \
+#define OUTPUT_HOST_MEMBERS(X)                                                  \
+    X(((1ULL << 0)), string, host)                                              \
     X(((1ULL << 1) | (1ULL << 10) | (1ULL << 11) | (1ULL << 12)), int, hStatus) \
-    X(((1ULL << 2)), int, userJobLimit) \
-    X(((1ULL << 3)), int, maxJobs) \
-    X(((1ULL << 4)), int, numJobs) \
-    X(((1ULL << 5)), int, numRUN) \
-    X(((1ULL << 6)), int, numSSUSP) \
-    X(((1ULL << 7)), int, numUSUSP) \
-    X(((1ULL << 8)), int, numRESERVE) \
+    X(((1ULL << 2)), int, userJobLimit)                                         \
+    X(((1ULL << 3)), int, maxJobs)                                              \
+    X(((1ULL << 4)), int, numJobs)                                              \
+    X(((1ULL << 5)), int, numRUN)                                               \
+    X(((1ULL << 6)), int, numSSUSP)                                             \
+    X(((1ULL << 7)), int, numUSUSP)                                             \
+    X(((1ULL << 8)), int, numRESERVE)                                           \
     X(((1ULL << 9)), string, windows)
-#define OUTPUT_QUEUE_MEMBERS(X) \
-    X(((1ULL << 0)), string, queue) \
-    X(((1ULL << 1)), string, description) \
-    X(((1ULL << 2)), int, priority) \
-    X(((1ULL << 3)), int, qStatus) \
-    X(((1ULL << 4)), int, maxJobs) \
-    X(((1ULL << 5)), int, userJobLimit) \
-    X(((1ULL << 6)), float, procJobLimit) \
-    X(((1ULL << 7)), int, hostJobLimit) \
-    X(((1ULL << 8)), int, numJobs) \
-    X(((1ULL << 9)), int, numPEND) \
-    X(((1ULL << 10)), int, numRUN) \
-    X(((1ULL << 11) | (1ULL << 14)), int, numSSUSP) \
-    X(((1ULL << 11) | (1ULL << 13)), int, numUSUSP) \
-    X(((1ULL << 12)), int, numRESERVE) \
-    X(((1ULL << 15)), short, nice) \
-    X(((1ULL << 16)), string, hostList) \
-    X(((1ULL << 17)), string, resReq) \
-    X(((1ULL << 18)), int, rLimits[LSF_RLIMIT_CORE]) \
-    X(((1ULL << 19)), int, rLimits[LSF_RLIMIT_CPU]) \
-    X(((1ULL << 20)), int, defLimits[LSF_RLIMIT_CPU]) \
-    X(((1ULL << 21)), int, rLimits[LSF_RLIMIT_DATA]) \
-    X(((1ULL << 22)), int, defLimits[LSF_RLIMIT_DATA]) \
-    X(((1ULL << 23)), int, rLimits[LSF_RLIMIT_FSIZE]) \
-    X(((1ULL << 24)), int, rLimits[LSF_RLIMIT_RSS]) \
-    X(((1ULL << 25)), int, defLimits[LSF_RLIMIT_RSS]) \
-    X(((1ULL << 26)), int, rLimits[LSF_RLIMIT_PROCESS]) \
+#define OUTPUT_QUEUE_MEMBERS(X)                           \
+    X(((1ULL << 0)), string, queue)                       \
+    X(((1ULL << 1)), string, description)                 \
+    X(((1ULL << 2)), int, priority)                       \
+    X(((1ULL << 3)), int, qStatus)                        \
+    X(((1ULL << 4)), int, maxJobs)                        \
+    X(((1ULL << 5)), int, userJobLimit)                   \
+    X(((1ULL << 6)), float, procJobLimit)                 \
+    X(((1ULL << 7)), int, hostJobLimit)                   \
+    X(((1ULL << 8)), int, numJobs)                        \
+    X(((1ULL << 9)), int, numPEND)                        \
+    X(((1ULL << 10)), int, numRUN)                        \
+    X(((1ULL << 11) | (1ULL << 14)), int, numSSUSP)       \
+    X(((1ULL << 11) | (1ULL << 13)), int, numUSUSP)       \
+    X(((1ULL << 12)), int, numRESERVE)                    \
+    X(((1ULL << 15)), short, nice)                        \
+    X(((1ULL << 16)), string, hostList)                   \
+    X(((1ULL << 17)), string, resReq)                     \
+    X(((1ULL << 18)), int, rLimits[LSF_RLIMIT_CORE])      \
+    X(((1ULL << 19)), int, rLimits[LSF_RLIMIT_CPU])       \
+    X(((1ULL << 20)), int, defLimits[LSF_RLIMIT_CPU])     \
+    X(((1ULL << 21)), int, rLimits[LSF_RLIMIT_DATA])      \
+    X(((1ULL << 22)), int, defLimits[LSF_RLIMIT_DATA])    \
+    X(((1ULL << 23)), int, rLimits[LSF_RLIMIT_FSIZE])     \
+    X(((1ULL << 24)), int, rLimits[LSF_RLIMIT_RSS])       \
+    X(((1ULL << 25)), int, defLimits[LSF_RLIMIT_RSS])     \
+    X(((1ULL << 26)), int, rLimits[LSF_RLIMIT_PROCESS])   \
     X(((1ULL << 27)), int, defLimits[LSF_RLIMIT_PROCESS]) \
-    X(((1ULL << 28)), int, rLimits[LSF_RLIMIT_STACK]) \
-    X(((1ULL << 29)), int, rLimits[LSF_RLIMIT_SWAP]) \
-    X(((1ULL << 30)), int, procLimit) \
-    X(((1ULL << 31)), int, minProcLimit) \
+    X(((1ULL << 28)), int, rLimits[LSF_RLIMIT_STACK])     \
+    X(((1ULL << 29)), int, rLimits[LSF_RLIMIT_SWAP])      \
+    X(((1ULL << 30)), int, procLimit)                     \
+    X(((1ULL << 31)), int, minProcLimit)                  \
     X(((1ULL << 32)), int, defProcLimit)
 #endif
