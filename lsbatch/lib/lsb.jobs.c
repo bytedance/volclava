@@ -33,6 +33,89 @@ extern void copyJUsage(struct jRusage *to, struct jRusage *from);
 extern int _lsb_recvtimeout;
 
 static int mbdSock = -1;
+static __thread int compactJobOutput = FALSE;
+static __thread struct jobOutputReply compactReply;
+static __thread int jobInfoRemaining;
+
+static void
+finishJobInfoRecord(int *more)
+{
+    if (jobInfoRemaining > 0)
+        jobInfoRemaining--;
+    if (more)
+        *more = jobInfoRemaining;
+}
+
+static struct jobInfoEnt *
+readCompactJobOutput(char *buffer, struct LSFHeader *hdr, int *more)
+{
+    static __thread struct jobInfoEnt jobInfo;
+    static char empty[] = "";
+    XDR xdrs;
+
+    xdr_lsffree(xdr_jobOutputReply, (char *)&compactReply, hdr);
+    memset(&compactReply, 0, sizeof(compactReply));
+    xdrmem_create(&xdrs, buffer, XDR_DECODE_SIZE_(hdr->length), XDR_DECODE);
+    if (!xdr_jobOutputReply(&xdrs, &compactReply, hdr)) {
+        xdr_destroy(&xdrs);
+        xdr_lsffree(xdr_jobOutputReply, (char *)&compactReply, hdr);
+        memset(&compactReply, 0, sizeof(compactReply));
+        lsberrno = LSBE_XDR;
+        return NULL;
+    }
+    xdr_destroy(&xdrs);
+
+    memset(&jobInfo, 0, sizeof(jobInfo));
+    jobInfo.jobId = compactReply.jobId;
+    jobInfo.user = compactReply.userName ? compactReply.userName : empty;
+    jobInfo.status = compactReply.status;
+    jobInfo.reasons = compactReply.reasons;
+    jobInfo.submit.queue = compactReply.queue ? compactReply.queue : empty;
+    jobInfo.fromHost = compactReply.fromHost ? compactReply.fromHost : empty;
+    jobInfo.numExHosts = compactReply.numExHosts;
+    jobInfo.exHosts = compactReply.exHosts;
+    jobInfo.submit.jobName = compactReply.jobName
+                              ? compactReply.jobName : empty;
+    jobInfo.submitTime = compactReply.submitTime;
+    jobInfo.submit.projectName = compactReply.projectName
+                                  ? compactReply.projectName : empty;
+    jobInfo.cpuTime = compactReply.cpuTime;
+    jobInfo.maxMem = compactReply.maxMem;
+    jobInfo.avgMem = compactReply.avgMem;
+    jobInfo.runRusage.mem = compactReply.mem;
+    jobInfo.runRusage.swap = compactReply.swap;
+    jobInfo.runRusage.npids = compactReply.npids;
+    jobInfo.runRusage.pidInfo = compactReply.pidInfo;
+    jobInfo.startTime = compactReply.startTime;
+    jobInfo.endTime = compactReply.endTime;
+    jobInfo.exitStatus = compactReply.exitStatus;
+
+    jobInfo.submit.command = empty;
+    jobInfo.submit.resReq = empty;
+    jobInfo.submit.inFile = empty;
+    jobInfo.submit.outFile = empty;
+    jobInfo.submit.errFile = empty;
+    jobInfo.submit.hostSpec = empty;
+    jobInfo.submit.chkpntDir = empty;
+    jobInfo.submit.dependCond = empty;
+    jobInfo.submit.preExecCmd = empty;
+    jobInfo.submit.postExecCmd = empty;
+    jobInfo.submit.mailUser = empty;
+    jobInfo.submit.loginShell = empty;
+    jobInfo.cwd = empty;
+    jobInfo.subHomeDir = empty;
+    jobInfo.execHome = empty;
+    jobInfo.execCwd = empty;
+    jobInfo.execUsername = empty;
+    jobInfo.parentGroup = empty;
+    jobInfo.jName = empty;
+    jobInfo.chargedSAAP = empty;
+    jobInfo.mergedResReq = empty;
+    jobInfo.effeResReq = empty;
+
+    finishJobInfoRecord(more);
+    return &jobInfo;
+}
 
 int
 lsb_openjobinfo (LS_LONG_INT jobId, char *jobName, char *userName,
@@ -52,16 +135,29 @@ struct jobInfoHead *
 lsb_openjobinfo_a (LS_LONG_INT jobId, char *jobName, char *userName,
                  char *queueName, char *hostName, int options)
 {
+    return lsb_openjobinfo_a_fields(jobId, jobName, userName, queueName,
+                                    hostName, options, NULL);
+}
+
+struct jobInfoHead *
+lsb_openjobinfo_a_fields(LS_LONG_INT jobId, char *jobName, char *userName,
+                         char *queueName, char *hostName, int options,
+                         const char *outputFields)
+{
     static __thread int first = TRUE;
     static __thread struct jobInfoReq jobInfoReq;
     static __thread struct jobInfoHead jobInfoHead;
     mbdReqType mbdReqtype;
+    int useOutput, requestVersion, retried = 0;
     XDR xdrs, xdrs2;
-    char request_buf[MSGSIZE];
+    char *request_buf = NULL;
     char *reply_buf, *clusterName = NULL;
     int cc, aa;
+    size_t outputFieldsLength;
+    size_t requestSize;
     struct LSFHeader hdr;
     char lsfUserName[MAXLINELEN];
+    jobInfoRemaining = 0;
     if (first) {
         if (   !(jobInfoReq.jobName  = (char *) malloc(MAX_CMD_DESC_LEN))
             || !(jobInfoReq.queue    = (char *) malloc(MAX_LSB_NAME_LEN))
@@ -153,16 +249,36 @@ lsb_openjobinfo_a (LS_LONG_INT jobId, char *jobName, char *userName,
 	return(NULL);
     }
     jobInfoReq.jobId = jobId;
+    jobInfoReq.outputFields = (char *)(outputFields ? outputFields : "");
 
+    outputFieldsLength = strlen(jobInfoReq.outputFields);
+    requestSize = (size_t)MSGSIZE + outputFieldsLength + 8;
+    if (requestSize > UINT_MAX
+        || (request_buf = malloc(requestSize)) == NULL) {
+        lsberrno = LSBE_NO_MEM;
+        return(NULL);
+    }
 
-    mbdReqtype = BATCH_JOB_INFO;
-    xdrmem_create(&xdrs, request_buf, MSGSIZE, XDR_ENCODE);
+    compactJobOutput = outputFields && outputFields[0] != '\0'
+                       && !(options & JGRP_ARRAY_INFO);
+    useOutput = outputFields && outputFields[0] != '\0';
+retryOutput:
+    mbdReqtype = useOutput ? BATCH_OUTPUT : BATCH_JOB_INFO;
+    requestVersion = useOutput ? _VOLCLAVA_VERSION2_3_
+                               : _VOLCLAVA_VERSION2_2_;
+    xdrmem_create(&xdrs, request_buf, (u_int)requestSize, XDR_ENCODE);
 
+    initLSFHeader_(&hdr);
     hdr.opCode = mbdReqtype;
-    TIMEIT(1, (aa = xdr_encodeMsg(&xdrs, (char *) &jobInfoReq , &hdr,
-                           xdr_jobInfoReq, 0, NULL)), "xdr_encodeMsg");
+    hdr.reserved = useOutput ? (compactJobOutput ? OUTPUT_JOB : OUTPUT_JOB_GROUP) : 0;
+    TIMEIT(1, (aa = xdr_encodeMsgVersion(&xdrs,
+                           (char *) &jobInfoReq, &hdr,
+                           xdr_jobInfoReq, 0, NULL,
+                           requestVersion)), "xdr_encodeMsgVersion");
     if (aa == FALSE) {
         lsberrno = LSBE_XDR;
+        xdr_destroy(&xdrs);
+        free(request_buf);
         return(NULL);
     }
 
@@ -172,10 +288,26 @@ lsb_openjobinfo_a (LS_LONG_INT jobId, char *jobName, char *userName,
                     &reply_buf, &hdr, &mbdSock, NULL, NULL)), "callmbd");
     if (cc  == -1) {
         xdr_destroy(&xdrs);
+	free(request_buf);
 	return (NULL);
     }
 
+    /* Negotiate required fields before reading rows: older typed peers may
+     * accept a newer request without supplying its added fields. */
+    if (useOutput && !retried &&
+        (hdr.opCode == LSBE_PROTOCOL ||
+         (hdr.opCode == LSBE_NO_ERROR && hdr.version < _VOLCLAVA_VERSION2_3_))) {
+        if (cc) free(reply_buf);
+        reply_buf = NULL;
+        xdr_destroy(&xdrs);
+        useOutput = 0;
+        retried = 1;
+        lsb_closejobinfo();
+        compactJobOutput = FALSE;
+        goto retryOutput;
+    }
     xdr_destroy(&xdrs);
+    free(request_buf);
 
 
 
@@ -184,7 +316,8 @@ lsb_openjobinfo_a (LS_LONG_INT jobId, char *jobName, char *userName,
 
 
 	xdrmem_create(&xdrs2, reply_buf, XDR_DECODE_SIZE_(cc), XDR_DECODE);
-	if (! xdr_jobInfoHead (&xdrs2, &jobInfoHead, &hdr)) {
+	if (! xdr_jobInfoHead (&xdrs2, &jobInfoHead, &hdr) ||
+            jobInfoHead.numJobs < 0) {
 	    lsberrno = LSBE_XDR;
             xdr_destroy(&xdrs2);
 	    if (cc)
@@ -194,6 +327,7 @@ lsb_openjobinfo_a (LS_LONG_INT jobId, char *jobName, char *userName,
 	xdr_destroy(&xdrs2);
 	if (cc)
 	    free(reply_buf);
+        jobInfoRemaining = jobInfoHead.numJobs;
         return (&jobInfoHead);
     }
 
@@ -226,6 +360,14 @@ lsb_readjobinfo(int *more)
 	closeSession(mbdSock);
         lsberrno = LSBE_EOF;
 	return NULL;
+    }
+
+    if (compactJobOutput) {
+        struct jobInfoEnt *compactInfo;
+
+        compactInfo = readCompactJobOutput(buffer, &hdr, more);
+        free(buffer);
+        return compactInfo;
     }
 
     if (first) {
@@ -419,8 +561,7 @@ lsb_readjobinfo(int *more)
     jobInfo.maxMem = jobInfoReply.maxMem;
     jobInfo.avgMem = jobInfoReply.avgMem;
 
-    if (more)
-	*more = hdr.reserved;
+    finishJobInfoRecord(more);
 
     return &jobInfo;
 }
@@ -429,7 +570,17 @@ lsb_readjobinfo(int *more)
 void
 lsb_closejobinfo()
 {
+     struct LSFHeader hdr;
+
      closeSession(mbdSock);
+     mbdSock = -1;
+     jobInfoRemaining = 0;
+     if (compactJobOutput) {
+         memset(&hdr, 0, sizeof(hdr));
+         xdr_lsffree(xdr_jobOutputReply, (char *)&compactReply, &hdr);
+         memset(&compactReply, 0, sizeof(compactReply));
+         compactJobOutput = FALSE;
+     }
 }
 
 int

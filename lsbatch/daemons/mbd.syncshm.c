@@ -12,7 +12,8 @@
 #include <time.h>
 
 extern int ensureJobListCapacity(void ***, int, int *, int);
-extern int packJobInfo(struct jData *, int, char **, int, int, int);
+extern int packJobInfo(struct jData *, int, char **, int, int, int,
+                       const char *);
 extern int findLastJob(int, struct jData *, struct jData **);
 
 long long syncShmXdrBufferSize = 0;     /* SHM XDR ring size in bytes. */
@@ -265,7 +266,7 @@ addJobToSyncShm(struct jData *job, int parentIndex)
     if (getShmAttachCount(shm->shmId) <= 1)
         return -1;
 
-    xdrLen = packJobInfo(job, 0, &xdrBuf, 0, 0, 0);
+    xdrLen = packJobInfo(job, 0, &xdrBuf, 0, 0, 0, NULL);
     if (xdrLen < 0 || xdrBuf == NULL)
         return -1;
 
@@ -825,30 +826,48 @@ selectQmbdShmSyncJgrps(struct jobInfoReq *jobInfoReq,
  * Write the serialized SHM XDR payload for one selected metadata entry.
  * @param[in] chfd: Client channel descriptor.
  * @param[in] jobMeta: Selected SHM metadata entry.
+ * @param[in] remain: Number of records still to send for this query.
  * @return: 0 on success, -1 on write failure.
  */
 int
-chanWriteQmbdShmJobXdr(int chfd, struct jobMetaData *jobMeta)
+chanWriteQmbdShmJobXdr(int chfd, struct jobMetaData *jobMeta, int remain,
+                        int version)
 {
-    int res, len;
+    struct LSFHeader hdr;
+    XDR xdrs;
+    char *packet;
+    int first, result = -1;
 
-    if (shm == NULL || jobMeta == NULL)
+    if (!shm || !shm->xdrBuffer || !jobMeta ||
+        jobMeta->xdrLen < LSF_HEADER_LEN ||
+        jobMeta->xdrLen > shm->xdrBuffer->capacity ||
+        jobMeta->xdrOffset < 0 ||
+        jobMeta->xdrOffset >= shm->xdrBuffer->capacity)
         return -1;
 
-    len = jobMeta->xdrLen;
-    res = jobMeta->xdrOffset + jobMeta->xdrLen - shm->xdrBuffer->capacity;
-    if (res > 0)
-        len -= res;
-
-    if (chanWriteNonBlock_(chfd, &shm->xdrBuffer->buff[0] + jobMeta->xdrOffset,
-                           len, DEF_WRITE_TIMEOUT) != len)
+    /* Keep the shared cache immutable for other queries and readers. */
+    packet = malloc(jobMeta->xdrLen);
+    if (!packet)
         return -1;
-    if (res > 0
-        && chanWriteNonBlock_(chfd, (&shm->xdrBuffer->buff[0]), res,
-                              DEF_WRITE_TIMEOUT) != res)
-        return -1;
-
-    return 0;
+    first = MIN(jobMeta->xdrLen,
+                shm->xdrBuffer->capacity - jobMeta->xdrOffset);
+    memcpy(packet, shm->xdrBuffer->buff + jobMeta->xdrOffset, first);
+    memcpy(packet + first, shm->xdrBuffer->buff, jobMeta->xdrLen - first);
+    xdrmem_create(&xdrs, packet, LSF_HEADER_LEN, XDR_DECODE);
+    result = xdr_LSFHeader(&xdrs, &hdr);
+    xdr_destroy(&xdrs);
+    if (result) {
+        hdr.reserved = MIN(remain, USHRT_MAX);
+        hdr.version = MIN(version, VOLCLAVA_PROTOCOL_VERSION);
+        xdrmem_create(&xdrs, packet, LSF_HEADER_LEN, XDR_ENCODE);
+        result = xdr_LSFHeader(&xdrs, &hdr);
+        xdr_destroy(&xdrs);
+    }
+    if (result)
+        result = chanWriteNonBlock_(chfd, packet, jobMeta->xdrLen,
+                                    DEF_WRITE_TIMEOUT) == jobMeta->xdrLen;
+    free(packet);
+    return result ? 0 : -1;
 }
 
 /*
@@ -977,4 +996,30 @@ static long long
 getBufferUsedBytes(struct bufferQueue *queue)
 {
     return (queue->tail - queue->head + queue->capacity) % queue->capacity;
+}
+
+/* Copy the ring entry before decoding, including entries crossing its end. */
+int
+chanWriteQmbdShmJobOutput(int chfd, struct jobMetaData *meta, int remain,
+                         int version, const char *fields)
+{
+    char *packet, *output = NULL;
+    int first, length, result = -1;
+    if (!shm || !meta || meta->xdrLen < LSF_HEADER_LEN ||
+        meta->xdrLen > shm->xdrBuffer->capacity || meta->xdrOffset < 0 ||
+        meta->xdrOffset >= shm->xdrBuffer->capacity)
+        return -1;
+    packet = malloc(meta->xdrLen);
+    if (!packet) return -1;
+    first = MIN(meta->xdrLen, shm->xdrBuffer->capacity - meta->xdrOffset);
+    memcpy(packet, shm->xdrBuffer->buff + meta->xdrOffset, first);
+    memcpy(packet + first, shm->xdrBuffer->buff, meta->xdrLen - first);
+    length = transcodeJobOutput(packet, meta->xdrLen, remain, &output,
+                               version, fields);
+    free(packet);
+    if (length > 0 && chanWriteNonBlock_(chfd, output, length,
+                                        DEF_WRITE_TIMEOUT) == length)
+        result = 0;
+    free(output);
+    return result;
 }

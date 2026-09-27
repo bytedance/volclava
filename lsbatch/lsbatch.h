@@ -1650,7 +1650,10 @@ extern int lsb_init P_((char *appName));
 extern int lsb_openjobinfo P_((LS_LONG_INT, char *, char *, char *, char *,
 			       int));
 extern struct jobInfoHead *lsb_openjobinfo_a P_((LS_LONG_INT, char *,char *,
-						 char *, char *, int));
+					 char *, char *, int));
+extern struct jobInfoHead *lsb_openjobinfo_a_fields P_((LS_LONG_INT, char *,
+                                                        char *, char *, char *,
+                                                        int, const char *));
 extern struct jobInfoEnt *lsb_readjobinfo P_((int *));
 extern LS_LONG_INT lsb_submit P_((struct submit  *, struct submitReply *));
 
@@ -1660,6 +1663,12 @@ extern void lsb_closejobinfo P_((void));
 
 extern int  lsb_hostcontrol P_((char *, int, char *));
 extern struct queueInfoEnt *lsb_queueinfo P_((char **queues, int *numQueues, char *host, char *userName, int options));
+extern struct queueInfoEnt *lsb_queueinfo_fields P_((char **queues,
+                                                     int *numQueues,
+                                                     char *host,
+                                                     char *userName,
+                                                     int options,
+                                                     const char *fields));
 extern int  lsb_reconfig P_((struct controlReq *));
 extern int  lsb_signaljob P_((LS_LONG_INT, int));
 extern int  lsb_msgjob P_((LS_LONG_INT, char *));
@@ -1676,6 +1685,8 @@ extern int lsb_mig P_((struct submig *, int *badHostIdx));
 
 extern struct hostInfoEnt *lsb_hostinfo P_(( char **, int *));
 extern struct hostInfoEnt *lsb_hostinfo_ex P_(( char **, int *, char *, int));
+extern struct hostInfoEnt *lsb_hostinfo_ex_fields P_((char **, int *, char *,
+                                                       int, const char *));
 extern int lsb_movejob P_((LS_LONG_INT jobId, int *, int));
 extern int lsb_switchjob P_((LS_LONG_INT jobId, char *queue));
 extern int lsb_queuecontrol P_((char *, int, char *));

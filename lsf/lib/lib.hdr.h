@@ -86,6 +86,8 @@ extern bool_t xdr_packLSFHeader(char *, struct LSFHeader *);
 
 extern bool_t xdr_encodeMsg(XDR *, char *, struct LSFHeader *,
                             bool_t (*)(), int, struct lsfAuth *);
+extern bool_t xdr_encodeMsgVersion(XDR *, char *, struct LSFHeader *,
+                                   bool_t (*)(), int, struct lsfAuth *, int);
 
 extern bool_t xdr_arrayElement(XDR *, char *, struct LSFHeader *,
 				bool_t (*)(), ...);
@@ -96,4 +98,3 @@ extern bool_t xdr_lsfAuth(XDR *, struct lsfAuth *, struct LSFHeader *);
 extern int xdr_lsfAuthSize(struct lsfAuth *);
 extern bool_t xdr_jRusage(XDR *, struct jRusage *, struct LSFHeader *);
 #endif
-

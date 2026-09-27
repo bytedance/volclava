@@ -313,7 +313,8 @@ static void processQueryRequestByThread(struct clientNode *client) {
      which leads to a deadlock and inability to process other requests. 
      Therefore, we allocate a dedicated thread pool to handle BATCH_JOB_INFO requests to prevent BATCH_QUE_INFO requests from being unprocessed.
     */
-    if(reqHdr.opCode == BATCH_JOB_INFO){
+    if (reqHdr.opCode == BATCH_JOB_INFO || IS_JOB_OUTPUT(&reqHdr) ||
+        (reqHdr.opCode == BATCH_OUTPUT && reqHdr.reserved == OUTPUT_JOB_GROUP)) {
         ret = addTaskToThreadPool(heavyQueryPool, processRequest, reqContext);
     }else{
         ret = addTaskToThreadPool(lightQueryPool, processRequest, reqContext);
@@ -416,10 +417,14 @@ static void* processRequest(void* arg) {
         ret = -1;
         goto cleanup;
     }
-    if(reqContext->reqHdr.opCode == BATCH_JOB_INFO){
+    if (reqContext->reqHdr.opCode == BATCH_JOB_INFO) {
         ret = do_jobInfoReq(reqContext->xdr, reqContext->client->chanfd, &reqContext->client->from, &reqContext->reqHdr,reqContext->schedule);
     }else{
         switch (reqContext->reqHdr.opCode) {
+            case BATCH_OUTPUT:
+                ret = do_outputReq(reqContext->xdr, reqContext->client->chanfd,
+                    &reqContext->client->from, &reqContext->reqHdr, reqContext->schedule);
+                break;
             case BATCH_QUE_INFO:
                 ret = do_queueInfoReq(reqContext->xdr, reqContext->client->chanfd, &reqContext->client->from, &reqContext->reqHdr);
                 break;

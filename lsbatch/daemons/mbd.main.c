@@ -896,6 +896,9 @@ processClient(struct clientNode *client, int *needFree)
         case BATCH_QUE_INFO:
             TIMEIT(3, do_queueInfoReq(&xdrs, s, &from, &reqHdr),"do_queueInfoReq()");
             break;
+        case BATCH_OUTPUT:
+            do_outputReq(&xdrs, s, &from, &reqHdr, schedule);
+            break;
         case BATCH_JOB_INFO:
             TIMEIT(3, do_jobInfoReq(&xdrs, s, &from, &reqHdr, schedule),"do_jobInfoReq()");
             break;
@@ -915,7 +918,7 @@ processClient(struct clientNode *client, int *needFree)
             break;
         default:
             errorBack(s, LSBE_PROTOCOL, &from);
-            if (reqHdr.version <= VOLCLAVA_VERSION)
+            if (reqHdr.version <= VOLCLAVA_PROTOCOL_VERSION)
                 ls_syslog(LOG_ERR, "\
 %s: Unknown request type %d from host %s",
                           fname, mbdReqtype, sockAdd2Str_(&from));
@@ -1249,6 +1252,7 @@ forkOnRequest(mbdReqType req)
         return 0;
 
     if (req == BATCH_JOB_INFO
+        || req == BATCH_OUTPUT
         || req == BATCH_QUE_INFO
         || req == BATCH_HOST_INFO
         || req == BATCH_GRP_INFO

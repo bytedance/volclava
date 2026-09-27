@@ -118,7 +118,6 @@ extern int runBatchEsub(struct lenData *, struct submit *, int);
 
 extern int packAllJobFiles(struct lenData *jf_array, int job_count, 
                             struct lenData *packed);
-
 #define TRAVERSE_FS_SIZE 1    
 #define TRAVERSE_FS_SACCTXDR 2
 extern int traverseSATree(struct shareAcctInfoEnt *, int, int (*)(), ...);
