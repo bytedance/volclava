@@ -27,7 +27,7 @@
 #include "../lib/lsb.h"
 #include <netdb.h>
 #include <errno.h>
-#include <cJSON.h>
+#include "../../lsf/intlib/cJSON.h"
 #define NL_SETN 8
 
 
