@@ -278,6 +278,16 @@ printLong (struct parameterInfo *reply)
         printf("%s\n", "The time-to-live of the job CWD directory:");
         printf("    JOB_CWD_TTL = %d (hours)\n\n", reply->jobCwdTtl);
     }
+    if (reply->detectIdleJobAfter > 0 && reply->detectIdleJobAfter != INFINIT_INT) {
+        printf("%s:\n", I18N(2460, "The minimum run time in minutes before mbatchd checks and reports idle jobs"));
+        printf("    %s = %d (minutes)\n\n", "DETECT_IDLE_JOB_AFTER", reply->detectIdleJobAfter);
+    }
+
+    printf("%s:\n", I18N(2461, "The interval in minutes to re-trigger the eadmin script during a job exception"));
+    printf("    %s = %d (minutes)\n\n", "EADMIN_TRIGGER_DURATION", reply->eadminTriggerDuration);
+
+    printf("%s:\n", I18N(2462, "The interval in minutes at which mbatchd calls the eadmin script, even if no job exception occurs"));
+    printf("    %s = %d (minutes)\n\n", "EADMIN_TRIGGER_INTERVAL", reply->eadminTriggerInterval);
 } 
 
 

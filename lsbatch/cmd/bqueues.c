@@ -360,6 +360,13 @@ prtQueuesLong(int numQueues, struct queueInfoEnt *queueInfo)
                 exit (-1);
         }
 
+        if (qp->jobIdle != INFINIT_FLOAT) {
+            printf("\nJOB EXCEPTION PARAMETERS\n");
+            printf("              IDLE(cputime/runtime)\n");
+            printf("  Threshold %6.2f\n", qp->jobIdle);
+            printf("       Jobs %6d\n", qp->numIdleJobs);
+        }
+
         if ((qp->qAttrib & Q_ATTRIB_EXCLUSIVE)
             || (qp->qAttrib & Q_ATTRIB_BACKFILL)
             || (qp->qAttrib & Q_ATTRIB_IGNORE_DEADLINE)

@@ -743,6 +743,7 @@ struct jobInfoEnt {
     int     avgMem;
     struct  limitDetailEnt *limitDetailTb;
     int     numLimitDetail;
+    float   idleFactor;
 };
 
 struct userInfoEnt {
@@ -831,6 +832,8 @@ struct queueInfoEnt {
     struct shareAcctInfoEnt *shareAcctTree;
     struct fsFactors fsFactors;
     char   *actionComment;
+    float  jobIdle;
+    int    numIdleJobs;
 };
 
 struct shareAcctInfoEnt {
@@ -935,6 +938,9 @@ struct parameterInfo {
     float runTimeFactor;
     float runJobFactor;
     float histHours;
+    int  detectIdleJobAfter;
+    int  eadminTriggerDuration;
+    int  eadminTriggerInterval;
 };
 
 

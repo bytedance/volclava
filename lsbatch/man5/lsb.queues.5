@@ -600,6 +600,109 @@ overrides JOB_ACCEPT_INTERVAL set at the cluster level
 .PP
 Undefined (the queue uses JOB_ACCEPT_INTERVAL defined in 
 lsb.params, which has a default value of 1).
+.SH JOB_IDLE
+.BR
+.PP
+.SS Syntax
+.BR
+.PP
+.PP
+\fBJOB_IDLE = \fR\fInumber\fR
+.SS Description
+.BR
+.PP
+.PP
+Enables the calculation of the IDLE_FACTOR (idle factor) for jobs
+submitted to this queue, and specifies the threshold for idle job
+exception detection.
+.PP
+The idle factor is defined as:
+.PP
+IDLE_FACTOR = (CPU time / n) / run time
+.PP
+where CPU time is the accumulated CPU time of the job, n is the
+number of slots requested by the job, and run time is the elapsed
+run time of the job. A value close to 0 means the job is occupying
+job slots without using much CPU; a value close to 1 means high CPU
+utilization.
+.PP
+The value must be a number between 0.0 and 1.0. If the idle factor
+of a running job falls below this threshold, the job is considered
+idle. Configuring JOB_IDLE alone only enables the calculation of the
+idle factor for jobs in the queue.
+.PP
+To trigger the job idle exception actions, both of the following are
+required:
+.RS
+.HP 2
+\(bu \fBDETECT_IDLE_JOB_AFTER\fR must be defined in lsb.params. It
+specifies the minimum run time in minutes before mbatchd checks and
+reports idle jobs. If it is undefined, the idle factor is still
+calculated but no exception is reported.
+.HP 2
+\(bu An executable \fBeadmin\fR file must exist in $LSF_SERVERDIR.
+.RE
+.PP
+When the job idle exception is triggered, mbatchd runs
+$LSF_SERVERDIR/eadmin as the LSF administrator, without monitoring
+its exit status, and sets the following environment variables for
+it:
+.RS
+.HP 2
+\(bu \fBLSB_EXCEPTION=JOB_IDLE\fR: the exception type.
+.HP 2
+\(bu \fBLSB_IDLE_JOBS=\fR\fIjobid idle_factor\fR ...: the list of idle
+jobs, each jobid followed by its idle factor. If the list exceeds
+the kernel single environment variable size limit (128KB), the remaining
+jobids are discarded.
+.HP 2
+\(bu \fBLSB_JOB_IDLE_FACTOR=Y\fR: indicates that the job idle factor
+feature is enabled.
+.RE
+.PP
+The frequency at which eadmin is invoked is controlled by the
+following lsb.params parameters:
+.RS
+.HP 2
+\(bu \fBEADMIN_TRIGGER_DURATION\fR: during a job exception period,
+eadmin is re-triggered at this interval in minutes while idle jobs
+still exist. Default: 1 (one minute).
+.HP 2
+\(bu \fBEADMIN_TRIGGER_INTERVAL\fR: when set to an integer greater
+than 0, eadmin is called at this interval in minutes even if no job
+exception has occurred. Default: 0 (eadmin is triggered according
+to EADMIN_TRIGGER_DURATION).
+.RE
+.PP
+Example eadmin script:
+.PP
+.RS
+.nf
+\&#!/bin/sh
+\&# eadmin example for IDLE_FACTOR feature: logs trigger info to /tmp/eadmin_trigger.log
+\&
+\&LOG=/tmp/eadmin_trigger.log
+\&
+\&{
+\&echo "===== eadmin triggered at $(date '+%Y-%m-%d %H:%M:%S') ====="
+\&echo "LSB_EXCEPTION=$LSB_EXCEPTION"
+\&echo "LSB_IDLE_JOBS=$LSB_IDLE_JOBS"
+\&echo "LSB_JOB_IDLE_FACTOR=$LSB_JOB_IDLE_FACTOR"
+\&echo "run_as_user=$(id -un) (uid=$(id -u))"
+\&} >> $LOG 2>&1
+\&
+\&exit 0
+.fi
+.RE
+.PP
+When JOB_IDLE is configured for a queue, the \fBbqueues -l\fR
+command displays the threshold in the JOB EXCEPTION PARAMETERS
+section.
+.SS Default
+.BR
+.PP
+.PP
+Undefined (-1.0; the idle factor is not calculated for the queue).
 .SH JOB_CONTROLS
 .BR
 .PP

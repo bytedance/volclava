@@ -245,6 +245,34 @@ specifying a queue, and there are no candidate default queues defined
 LSB_DEFAULTQUEUE), Lava automatically creates a new queue named 
 default, using the default configuration, and submits the job to that 
 queue.
+.SH DETECT_IDLE_JOB_AFTER
+.BR
+.PP
+.SS Syntax
+.BR
+.PP
+.PP
+\fBDETECT_IDLE_JOB_AFTER = \fR\fIminutes\fR
+.SS Description
+.BR
+.PP
+.PP
+The minimum number of minutes a job must run before mbatchd checks
+and reports whether the job is idle. An idle job is a job whose idle
+factor (CPU time / slots / run time) is below the JOB_IDLE threshold
+configured for the queue in lsb.queues.
+.PP
+When an idle job is detected, mbatchd calls LSF_SERVERDIR/eadmin to
+trigger the job idle exception actions. eadmin is a user-defined
+executable script. Use it together with JOB_IDLE in lsb.queues(5),
+which documents the complete trigger conditions and provides an
+example eadmin script.
+.SS Default
+.BR
+.PP
+.PP
+Undefined (idle job exception detection is disabled; the idle factor
+is still calculated for queues with JOB_IDLE configured).
 .SH DISABLE_UACCT_MAP
 .BR
 .PP
@@ -264,6 +292,58 @@ Specify y or Y to disable user-level account mapping.
 .PP
 .PP
 Undefined
+.SH EADMIN_TRIGGER_DURATION
+.BR
+.PP
+.SS Syntax
+.BR
+.PP
+.PP
+\fBEADMIN_TRIGGER_DURATION = \fR\fIminutes\fR
+.SS Description
+.BR
+.PP
+.PP
+During a job exception period, this parameter specifies the interval
+in minutes at which LSF_SERVERDIR/eadmin is re-triggered while the
+exception continues.
+.PP
+eadmin is a user-defined executable script. Use it together with
+JOB_IDLE in lsb.queues(5), which documents the complete trigger
+conditions and provides an example eadmin script.
+.SS Default
+.BR
+.PP
+.PP
+1 (one minute).
+.SH EADMIN_TRIGGER_INTERVAL
+.BR
+.PP
+.SS Syntax
+.BR
+.PP
+.PP
+\fBEADMIN_TRIGGER_INTERVAL = \fR\fIminutes\fR
+.SS Description
+.BR
+.PP
+.PP
+When set to an integer greater than 0, this parameter defines the
+interval in minutes at which mbatchd calls the eadmin script in
+LSF_SERVERDIR, even if no job exception has occurred.
+.PP
+When set to 0, the eadmin script is triggered according to the
+EADMIN_TRIGGER_DURATION parameter.
+.PP
+eadmin is a user-defined executable script. Use it together with
+JOB_IDLE in lsb.queues(5), which documents the complete trigger
+conditions and provides an example eadmin script.
+.SS Default
+.BR
+.PP
+.PP
+0 (the eadmin script is triggered according to
+EADMIN_TRIGGER_DURATION).
 .SH HIST_HOURS
 .BR
 .PP

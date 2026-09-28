@@ -574,7 +574,9 @@ int initQueryDaemon(){
         ls_syslog(LOG_ERR, "%s: Cannot get query batch server socket... %M", __func__);
         return -1;
     }else{
-        ls_syslog(LOG_INFO, "%s: query batch server start , port is %d", __func__, ntohs(qmbd_port));
+        if (logclass & LC_TRACE) {
+            ls_syslog(LOG_DEBUG, "%s: query batch server start , port is %d", __func__, ntohs(qmbd_port));
+        }
     }
     if(qmbdSubmitSockPair[0] >= 0){
         /*

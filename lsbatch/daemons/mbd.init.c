@@ -1483,6 +1483,7 @@ initQData (void)
     qPtr->mig                = INFINIT_INT;
     qPtr->schedDelay         = INFINIT_INT;
     qPtr->acceptIntvl        = INFINIT_INT;
+    qPtr->numIdleJobs        = 0;
 
     qPtr->loadSched = my_calloc(allLsInfo->numIndx,
                               sizeof(float), __func__);
@@ -1545,6 +1546,7 @@ initQData (void)
     qPtr->fsFactors.runTimeFactor = -1;
     qPtr->fsFactors.runJobFactor = -1;
     qPtr->fsFactors.histHours = -1;
+    qPtr->jobIdle = INFINIT_FLOAT;
     qPtr->actionComment = NULL;
     qPtr->rlBitmap = NULL;
 
@@ -1957,6 +1959,10 @@ setParams(struct paramConf *paramConf)
     if (histHours > 0.0) {
         clsDecay = (float) pow(10.0, -1.0/(histHours * 4));
     }
+
+    setValue(detectIdleJobAfter, params->detectIdleJobAfter);
+    setValue(eadminTriggerDuration, params->eadminTriggerDuration);
+    setValue(eadminTriggerInterval, params->eadminTriggerInterval);
 }
 
 static void
@@ -2267,6 +2273,9 @@ setDefaultParams(void)
     maxAcctArchiveNum = -1;
     acctArchiveInDays = -1;
     acctArchiveInSize = -1;
+    detectIdleJobAfter = INFINIT_INT;
+    eadminTriggerDuration = DEF_EADMIN_TRIGGER_DURATION;
+    eadminTriggerInterval = DEF_EADMIN_TRIGGER_INTERVAL;
 }
 
 static void
@@ -2427,6 +2436,7 @@ addQData(struct queueConf *queueConf, int mbdInitFlags )
         setValue(qPtr->fsFactors.runTimeFactor, queue->fsFactors.runTimeFactor);
         setValue(qPtr->fsFactors.runJobFactor, queue->fsFactors.runJobFactor);
         setValue(qPtr->fsFactors.histHours, queue->fsFactors.histHours);
+        setValue(qPtr->jobIdle, queue->jobIdle);
         qPtr->windEdge = 0 ;
 
         if (queue->windows != NULL) {

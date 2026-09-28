@@ -254,6 +254,7 @@ struct jobInfoReply {
     int       avgMem;
     struct    limitDetailEnt *limitDetailTb;
     int       numLimitDetail;
+    float     idleFactor;
 };
 
 struct infoReq {

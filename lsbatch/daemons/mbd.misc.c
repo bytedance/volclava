@@ -149,6 +149,11 @@ updCounters (struct jData *jData, int oldStatus, time_t eventTime)
         case JOB_STAT_EXIT:
         case JOB_STAT_DONE:
 
+            if (jData->jFlags & JFLAG_COUNTED_IDLE) {
+                jData->jFlags &= ~JFLAG_COUNTED_IDLE;
+                jData->qPtr->numIdleJobs--;
+            }
+
             if (eventTime == LOG_IT) {
                 accumHistCpuTime(jData);
                 detachedJobFromFSTree(jData, "updCounters()/job ended");
@@ -196,6 +201,10 @@ updCounters (struct jData *jData, int oldStatus, time_t eventTime)
             if (IS_START(oldStatus)) {
                 cleanRLAccount4Job(jData, "updCounters()/started job get pending");
                 updHostLeftRusageMem(jData, 1);
+                if (jData->jFlags & JFLAG_COUNTED_IDLE) {
+                    jData->jFlags &= ~JFLAG_COUNTED_IDLE;
+                    jData->qPtr->numIdleJobs--;
+                }
             }
 
             if (oldStatus & JOB_STAT_RUN) {
@@ -252,6 +261,14 @@ updSwitchJob (struct jData *jp, struct qData *qfp, struct qData *qtp,
     int num = jp->numHostPtr;
     int numReq = jp->shared->jobBill.maxNumProcessors;
     int reserved = FALSE;
+
+    /* An idle-flagged job leaving its queue must drop the old queue's
+     * count; updIdleFactor() re-evaluates the job against the new
+     * queue's JOB_IDLE threshold on the next rusage update. */
+    if (qfp != qtp && (jp->jFlags & JFLAG_COUNTED_IDLE)) {
+        jp->jFlags &= ~JFLAG_COUNTED_IDLE;
+        qfp->numIdleJobs--;
+    }
 
     if (jp->jStatus & JOB_STAT_RESERVE) {
         jp->qPtr = qfp;
@@ -1321,6 +1338,9 @@ checkParams (struct infoReq *req, struct parameterInfo *reply)
     reply->jobCwdTtl = jobCwdTtl;
     reply->jobCwdTtlSet = jobCwdTtlSet;
     reply->defaultJobCwd = (defaultJobCwd != NULL) ? defaultJobCwd : "";
+    reply->detectIdleJobAfter = detectIdleJobAfter;
+    reply->eadminTriggerDuration = eadminTriggerDuration;
+    reply->eadminTriggerInterval = eadminTriggerInterval;
 }
 
 void

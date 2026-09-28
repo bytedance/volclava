@@ -631,6 +631,30 @@ be suspended.
 .RE
 
 .IP
+JOB EXCEPTION PARAMETERS
+.BR
+.RS
+.IP
+Displayed when JOB_IDLE is configured for the queue in lsb.queues
+(see lsb.queues(5)). This section shows the job exception threshold
+and the jobs currently in exception status.
+
+.IP
+IDLE(cputime/runtime)
+.BR
+.RS
+.IP
+The idle job exception. The idle factor of a job is
+(CPU time / slots) / run time. Threshold is the JOB_IDLE value
+configured for the queue; a running job whose idle factor is below
+the threshold is considered idle. Jobs lists the jobs that are
+currently below the threshold; `-' means no job is currently in
+exception status.
+
+.RE
+.RE
+
+.IP
 SCHEDULING POLICIES
 .BR
 .RS

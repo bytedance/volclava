@@ -870,8 +870,14 @@ prtJobRusage(struct jobInfoEnt *job)
         return;
 
     if (job->runRusage.utime > 0 || job->runRusage.stime > 0) {
-        sprintf(prline, (_i18n_msg_get(ls_catd,NL_SETN,647, "                     The CPU time used is %d seconds.\n")), /* catgets  647  */
+        sprintf(prline, (_i18n_msg_get(ls_catd,NL_SETN,647, "                     The CPU time used is %d seconds.\n")), /* catgets 647  */
                              job->runRusage.utime + job->runRusage.stime);
+        printf("%s", prline);
+    }
+
+    if (job->idleFactor != INFINIT_FLOAT) {
+        sprintf(prline, "                     IDLE_FACTOR(cputime/runtime):   %1.2f\n", /* catgets  657  */
+                job->idleFactor);
         printf("%s", prline);
     }
 
@@ -1707,8 +1713,14 @@ prtJobRusageUF(struct jobInfoEnt *job)
         return;
 
     if (job->runRusage.utime > 0 || job->runRusage.stime > 0) {
-        sprintf(prline, (_i18n_msg_get(ls_catd,NL_SETN,647, " The CPU time used is %d seconds.")), /* catgets  647  */
+        sprintf(prline, (_i18n_msg_get(ls_catd,NL_SETN,647, " The CPU time used is %d seconds.")), /* catgets 647  */
                 job->runRusage.utime + job->runRusage.stime);
+        printf("%s", prline);
+    }
+
+    if (job->idleFactor != INFINIT_FLOAT) {
+        sprintf(prline, (_i18n_msg_get(ls_catd,NL_SETN,657, " IDLE_FACTOR(cputime/runtime):   %1.2f;")), /* catgets  657  */
+                job->idleFactor);
         printf("%s", prline);
     }
 

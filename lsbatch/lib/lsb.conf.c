@@ -430,8 +430,10 @@ do_Param(struct lsConf *conf, char *fname, int *lineNum)
         {"HIST_HOURS", NULL, 0},
         {"JOB_CWD_TTL", NULL, 0},           /* 44 */
         {"DEFAULT_JOB_CWD", NULL, 0},       /* 45 */
+        {"DETECT_IDLE_JOB_AFTER", NULL, 0}, /* 46 */
+        {"EADMIN_TRIGGER_DURATION", NULL, 0},   /* 47 */
+        {"EADMIN_TRIGGER_INTERVAL", NULL, 0},   /* 48 */
         {NULL, NULL, 0}
-
     };
 
     if (conf == NULL)
@@ -735,7 +737,7 @@ do_Param(struct lsConf *conf, char *fname, int *lineNum)
                 } else {
                     pConf->param->runJobFactor = value;
                 }
-            } else if ( i == 43 ) {
+            } else if ( i == 43) {
                 float value = my_atof(keylist[i].val, INFINIT_FLOAT, -0.001);
                 if (value == INFINIT_FLOAT) {
                     ls_syslog(LOG_ERR, _i18n_msg_get(ls_catd , NL_SETN, 5072, "\
@@ -772,6 +774,26 @@ do_Param(struct lsConf *conf, char *fname, int *lineNum)
                 } else {
                     pConf->param->jobCwdTtl = (int)value;
                     pConf->param->jobCwdTtlSet = TRUE;
+                }
+            } else if (i == 46) {
+                value = my_atoi(keylist[i].val, INFINIT_INT, 0);
+                if (value == INFINIT_INT) {
+                    ls_syslog(LOG_ERR, _i18n_msg_get(ls_catd , NL_SETN, 5071,
+                                                     "%s: File %s in section Parameters ending at line %d: Value <%s> of %s isn't a positive integer between 1 and %d; ignored"), pname, fname, *lineNum, keylist[i].val, keylist[i].key, INFINIT_INT - 1); /* catgets 5071 */
+                    lsberrno = LSBE_CONF_WARNING;
+                } else {
+                    pConf->param->detectIdleJobAfter = value;
+                }
+            } else if (i == 47 || i == 48) {
+                value = my_atoi(keylist[i].val, INFINIT_INT, -1);
+                if (value == INFINIT_INT) {
+                    ls_syslog(LOG_ERR, _i18n_msg_get(ls_catd , NL_SETN, 5067,
+                                                     "%s: File %s in section Parameters ending at line %d: Value <%s> of %s isn't a non-negative integer between 0 and %d; ignored"), pname, fname, *lineNum, keylist[i].val, keylist[i].key, INFINIT_INT - 1); /* catgets 5067 */
+                    lsberrno = LSBE_CONF_WARNING;
+                } else if (i == 47) {
+                    pConf->param->eadminTriggerDuration = value;
+                } else {
+                    pConf->param->eadminTriggerInterval = value;
                 }
             } else if (i > 5) {
                 if ( i < 23 || i > 36)
@@ -968,6 +990,9 @@ initParameterInfo(struct parameterInfo *param)
         param->jobCwdTtl = INFINIT_INT;
         param->jobCwdTtlSet = FALSE;
         param->defaultJobCwd = NULL;
+        param->detectIdleJobAfter = INFINIT_INT;
+        param->eadminTriggerDuration = INFINIT_INT;
+        param->eadminTriggerInterval = INFINIT_INT;
     }
 }
 
@@ -4177,7 +4202,8 @@ do_Queues(struct lsConf *conf,
 #define QKEY_RUNTIME_FACTOR  info->numIndx+49
 #define QKEY_RUNJOB_FACTOR   info->numIndx+50
 #define QKEY_HIST_HOURS        info->numIndx+51
-#define KEYMAP_SIZE info->numIndx+53
+#define QKEY_JOB_IDLE          info->numIndx+52
+#define KEYMAP_SIZE info->numIndx+54
 
     static char pname[] = "do_Queues";
     struct queueInfoEnt queue;
@@ -4246,7 +4272,8 @@ do_Queues(struct lsConf *conf,
     keylist[QKEY_CPUTIME_FACTOR].key="CPU_TIME_FACTOR";
     keylist[QKEY_RUNTIME_FACTOR].key="RUN_TIME_FACTOR";
     keylist[QKEY_RUNJOB_FACTOR].key="RUN_JOB_FACTOR";
-    keylist[QKEY_HIST_HOURS].key="HIST_HOURS";    
+    keylist[QKEY_HIST_HOURS].key="HIST_HOURS";
+    keylist[QKEY_JOB_IDLE].key="JOB_IDLE";
     keylist[KEYMAP_SIZE - 1].key = NULL;
 
     initQueueInfo(&queue);
@@ -5163,6 +5190,21 @@ do_Queues(struct lsConf *conf,
             }
         }
 
+        if ((keylist[QKEY_JOB_IDLE].val != NULL)
+                && (0 != strcmp(keylist[QKEY_JOB_IDLE].val, ""))) {
+            float jobIdleValue = my_atof(keylist[QKEY_JOB_IDLE].val,
+                                         INFINIT_FLOAT, -0.001);
+            if (jobIdleValue == INFINIT_FLOAT || jobIdleValue > 1.0) {
+                ls_syslog(LOG_ERR, I18N(5359,
+                            "%s: File %s in section Queue ending at line %d: %s <%s> isn't a number between 0.0 and 1.0; ignored."
+                             ), pname, fname, *lineNum, keylist[QKEY_JOB_IDLE].key, keylist[QKEY_JOB_IDLE].val); /* catgets 5359 */
+                queue.jobIdle = INFINIT_FLOAT;
+                lsberrno = LSBE_CONF_WARNING;
+            } else {
+                queue.jobIdle = jobIdleValue;
+            }
+        }
+
         if (info->numIndx
             && (queue.loadSched = calloc(info->numIndx,
                                          sizeof(float *))) == NULL) {
@@ -5261,6 +5303,7 @@ initQueueInfo(struct queueInfoEnt *qp)
     qp->fsFactors.runTimeFactor = -1;
     qp->fsFactors.runJobFactor = -1;
     qp->fsFactors.histHours = -1;
+    qp->jobIdle = INFINIT_FLOAT;
     qp->actionComment = NULL;
 }
 

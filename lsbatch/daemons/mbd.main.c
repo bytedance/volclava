@@ -90,6 +90,9 @@ float  runTimeFactor = DEF_RUN_TIME_FACTOR;
 float  runJobFactor = DEF_RUN_JOB_FACTOR;
 float  histHours = DEF_HIST_HOURS;
 float  clsDecay = 1.0; /* cluster-wide decay factor for history of CPU time */
+int    detectIdleJobAfter = INFINIT_INT;
+int    eadminTriggerDuration = DEF_EADMIN_TRIGGER_DURATION;
+int    eadminTriggerInterval = DEF_EADMIN_TRIGGER_INTERVAL;
 
 int    numofqueues  = 0;
 int    numofprocs   = 0;
@@ -1109,6 +1112,9 @@ periodicCheck(void)
         }
         fastUpdHostInfo = 0;
             }
+
+    /* Check for idle job exceptions and trigger eadmin if due. */
+    triggerEadmin();
 }
 
 void

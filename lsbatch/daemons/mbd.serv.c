@@ -950,6 +950,7 @@ packJobInfo(struct jData * jobData,
     jobInfoReply.predictedStartTime = jobData->predictedStartTime;
     jobInfoReply.endTime = jobData->endTime;
     jobInfoReply.cpuTime = jobData->cpuTime;
+    jobInfoReply.idleFactor = jobData->idleFactor;
     jobInfoReply.numToHosts = jobData->numHostPtr;
     jobInfoReply.chargedSAAP = (jobData->sa ? jobData->sa->path : "");
     jobInfoReply.mergedResReq = (jobData->shared->mergedResReqEnt ? GET_JOB_MERGED_RES_REQ_STR(jobData): "");

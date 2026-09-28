@@ -204,6 +204,10 @@ copyJData(struct jData *jp)
     }
     reqHistory = jData->reqHistory;
     memcpy((char *)jData, (char *)jp, sizeof(struct jData));
+    if (jData->jFlags & JFLAG_COUNTED_IDLE) {
+        /*Defensive programming：JFLAG_COUNTED_IDLE was set on original job, it should not be set on copy job*/
+        jData->jFlags &= ~JFLAG_COUNTED_IDLE;
+    }
     jData->reqHistory = reqHistory;
     jData->numRef = 0;
     jData->nextJob = NULL;

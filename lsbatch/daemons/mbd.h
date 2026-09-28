@@ -45,12 +45,11 @@
 #define DEF_FRESH_PERIOD     15
 #define DEF_PEND_EXIT       512
 #define DEF_JOB_ARRAY_SIZE  1000
-
 #define DEF_LONG_JOB_TIME  1800
-
 #define MAX_JOB_PRIORITY   INFINIT_INT
-
 #define DEF_PRE_EXEC_DELAY    -1
+#define DEF_EADMIN_TRIGGER_DURATION  1
+#define DEF_EADMIN_TRIGGER_INTERVAL  0
 
 /* Global MBD job lists
  */
@@ -83,6 +82,7 @@ typedef enum {
 #define JFLAG_DEPCOND_INVALID  0x004
 
 #define JFLAG_READY            0x008
+#define JFLAG_COUNTED_IDLE     0x1000
 #define JFLAG_EXACT            0x200
 #define JFLAG_UPTO             0x400
 #define JFLAG_DEPCOND_REJECT   0x8000
@@ -292,6 +292,7 @@ struct jData {
     int     jobPGid;
     int     runTime;
     float   cpuTime;
+    float   idleFactor;
     time_t  endTime;
     time_t  requeueTime;
     struct pendEvent {
@@ -617,6 +618,8 @@ struct qData {
                    */
     struct fairsharePolicy * policy;
     struct fsFactors fsFactors;
+    float   jobIdle;
+    int     numIdleJobs;
     char   *actionComment;
     int    *rlBitmap;
 };
@@ -1006,6 +1009,9 @@ extern float                  runTimeFactor;
 extern float                  runJobFactor;
 extern float                  histHours;
 extern float                  clsDecay;
+extern int                    detectIdleJobAfter;
+extern int                    eadminTriggerDuration;
+extern int                    eadminTriggerInterval;
 
 
 extern int                    numofqueues;
@@ -1462,6 +1468,7 @@ extern int                  minit(int);
 extern struct qData *       lostFoundQueue(void);
 extern void                 freeHData(struct hData *);
 extern void                 deleteQData(struct qData *);
+extern void                 triggerEadmin(void);
 
 extern int                  my_atoi(char *, int, int);
 extern void                 freeKeyVal(struct keymap *);

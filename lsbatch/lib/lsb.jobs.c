@@ -318,6 +318,7 @@ lsb_readjobinfo(int *more)
     jobInfo.predictedStartTime = jobInfoReply.predictedStartTime;
     jobInfo.endTime  = jobInfoReply.endTime;
     jobInfo.cpuTime  = jobInfoReply.cpuTime;
+    jobInfo.idleFactor = jobInfoReply.idleFactor;
     jobInfo.numExHosts = jobInfoReply.numToHosts;
     jobInfo.exHosts = jobInfoReply.toHosts;
     jobInfo.nIdx = jobInfoReply.nIdx;
