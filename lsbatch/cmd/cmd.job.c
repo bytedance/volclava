@@ -197,9 +197,9 @@ prtFileNames(struct jobInfoEnt *job, int prtCwd)
     if (job->submit.options2 & SUB2_JOB_CWD && job->submit.cwd && job->submit.cwd[0] != '\0') {
         if (job->submit.cwd[0] == '/' || job->submit.cwd[0] == '\\' ||
             (job->submit.cwd[1] == ':'))
-            sprintf(prline, ", Specified CWD <%s>", job->submit.cwd);
+            snprintf(prline, sizeof(prline), ", Specified CWD <%s>", job->submit.cwd);
         else
-            sprintf(prline, ", Specified CWD <$HOME/%s>", job->submit.cwd);
+            snprintf(prline, sizeof(prline), ", Specified CWD <$HOME/%s>", job->submit.cwd);
         printf(prline);
     }
 
@@ -1894,9 +1894,9 @@ prtFileNamesUF(struct jobInfoEnt *job, int prtCwd)
     if (job->submit.options2 & SUB2_JOB_CWD && job->submit.cwd && job->submit.cwd[0] != '\0') {
         if (job->submit.cwd[0] == '/' || job->submit.cwd[0] == '\\' ||
             (job->submit.cwd[1] == ':'))
-            sprintf(prline, ", Specified CWD <%s>", job->submit.cwd);
+            snprintf(prline, sizeof(prline), ", Specified CWD <%s>", job->submit.cwd);
         else
-            sprintf(prline, ", Specified CWD <$HOME/%s>", job->submit.cwd);
+            snprintf(prline, sizeof(prline), ", Specified CWD <$HOME/%s>", job->submit.cwd);
         printf("%s", prline);
     }
 
