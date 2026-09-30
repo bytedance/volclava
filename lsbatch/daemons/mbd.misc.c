@@ -1317,6 +1317,7 @@ checkParams (struct infoReq *req, struct parameterInfo *reply)
     reply->runJobFactor = runJobFactor;
     reply->histHours = histHours;
     reply->jobCwdTtl = jobCwdTtl;
+    reply->jobCwdTtlSet = jobCwdTtlSet;
     reply->defaultJobCwd = (defaultJobCwd != NULL) ? defaultJobCwd : "";
 }
 

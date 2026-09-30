@@ -929,6 +929,7 @@ struct parameterInfo {
     int  maxPendSlots;
     int  defaultLimitIgnoreUserGroup;
     int  jobCwdTtl;
+    int  jobCwdTtlSet;
     char *defaultJobCwd;
     float cpuTimeFactor;
     float runTimeFactor;

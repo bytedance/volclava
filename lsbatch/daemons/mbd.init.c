@@ -1920,9 +1920,13 @@ setParams(struct paramConf *paramConf)
      * (2147483647).  Do NOT use the setValue() macro here: it also compares
      * against INFINIT_FLOAT ((float)0x7fffffff, which rounds to 2147483648.0f),
      * and any specValue in [2147483584, 2147483647] -- the top 64 values --
-     * promotes to that same float value, so the macro would wrongly discard it. */
-    if (params->jobCwdTtl != INFINIT_INT)
+     * promotes to that same float value, so the macro would wrongly discard it.
+     * The presence flag distinguishes an explicitly configured 2147483647
+     * from the unset default so that bparams can display it. */
+    if (params->jobCwdTtlSet) {
         jobCwdTtl = params->jobCwdTtl;
+        jobCwdTtlSet = TRUE;
+    }
     setString(pjobSpoolDir, params->pjobSpoolDir);
     setString(defaultJobCwd, params->defaultJobCwd);
 
@@ -2250,6 +2254,7 @@ setDefaultParams(void)
     maxJobArraySize = DEF_JOB_ARRAY_SIZE;
     jobTerminateInterval = DEF_JTERMINATE_INTERVAL;
     jobCwdTtl = DEF_JOB_CWD_TTL;
+    jobCwdTtlSet = FALSE;
     jobRunTimes = INFINIT_INT;
     jobDepLastSub = 0;
     scheRawLoad = 0;

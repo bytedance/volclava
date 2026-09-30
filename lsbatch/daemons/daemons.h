@@ -521,6 +521,7 @@ extern int rusageUpdateRate;
 extern int rusageUpdatePrecent;
 extern int jobTerminateInterval;
 extern int jobCwdTtl;
+extern int jobCwdTtlSet;
 extern char *defaultJobCwd;
 extern int lsf_crossUnixNT;
 

@@ -761,6 +761,17 @@ xdr_parameterInfo (XDR *xdrs, struct parameterInfo *paramInfo,
     if (!xdr_var_string(xdrs, &paramInfo->defaultJobCwd))
         return (FALSE);
 
+    /* Trailing field: an older mbatchd ends the reply after
+     * defaultJobCwd, so a missing value on decode only means the sender
+     * predates the flag -- default it to "not explicitly configured". */
+    if (!xdr_int(xdrs, &paramInfo->jobCwdTtlSet)) {
+        if (xdrs->x_op == XDR_DECODE) {
+            paramInfo->jobCwdTtlSet = FALSE;
+            return (TRUE);
+        }
+        return (FALSE);
+    }
+
     return(TRUE);
 }
 

@@ -55,6 +55,7 @@ int    managerId    = 0;
 uid_t  batchId      = 0;
 int    jobTerminateInterval = DEF_JTERMINATE_INTERVAL;
 int    jobCwdTtl    = DEF_JOB_CWD_TTL;
+int    jobCwdTtlSet = FALSE;
 char   *defaultJobCwd = NULL;
 int    msleeptime   = DEF_MSLEEPTIME;
 int    subTryInterval   = DEF_SUB_TRY_INTERVAL;

@@ -274,7 +274,7 @@ printLong (struct parameterInfo *reply)
         printf("    DEFAULT_JOB_CWD = %s\n\n", reply->defaultJobCwd);
     }
 
-    if (reply->jobCwdTtl != INFINIT_INT) {
+    if (reply->jobCwdTtlSet) {
         printf("%s\n", "The time-to-live of the job CWD directory:");
         printf("    JOB_CWD_TTL = %d (hours)\n\n", reply->jobCwdTtl);
     }
