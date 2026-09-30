@@ -358,9 +358,9 @@ struct sbdPackage {
     int    rusageUpdateRate;
     int    rusageUpdatePercent;
     int    jobTerminateInterval;
-    int    jobCwdTtl;
     int    nAdmins;
     char   **admins;
+    int    jobCwdTtl;
 };
 
 struct jobSig {

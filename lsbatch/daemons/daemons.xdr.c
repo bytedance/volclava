@@ -710,14 +710,6 @@ xdr_sbdPackage1 (XDR *xdrs, struct sbdPackage *sbdPackage, struct LSFHeader *hdr
 	return (FALSE);
     }
 
-    if (!xdr_int(xdrs, &sbdPackage->jobCwdTtl)) {
-        ls_syslog(LOG_ERR, I18N_FUNC_S_FAIL, fname,
-		"xdr_int", "jobCwdTtl");
-	return (FALSE);
-    }
-
-	
-    
     if (xdrs->x_op == XDR_ENCODE || (xdrs->x_op != XDR_FREE)) {
 
         if (!xdr_int(xdrs, &sbdPackage->nAdmins))
@@ -742,6 +734,26 @@ xdr_sbdPackage1 (XDR *xdrs, struct sbdPackage *sbdPackage, struct LSFHeader *hdr
 	    FREEUP(sbdPackage->admins[i]);
         }
 	FREEUP(sbdPackage->admins);
+    }
+
+    /* Appended after the admins array so an older decoder stops cleanly
+     * before it instead of misaligning on the preceding fields. */
+    if (xdrs->x_op != XDR_FREE) {
+        if (!xdr_int(xdrs, &sbdPackage->jobCwdTtl)) {
+            if (xdrs->x_op == XDR_DECODE) {
+                /* An older daemon ends its package after the admins
+                 * array: fall back to the safe default -- cleanup
+                 * disabled -- instead of rejecting the whole package. */
+                sbdPackage->jobCwdTtl = DEF_JOB_CWD_TTL;
+                ls_syslog(LOG_WARNING,
+                          "%s: package ends before jobCwdTtl; assuming JOB_CWD_TTL disabled (older daemon?)",
+                          fname);
+            } else {
+                ls_syslog(LOG_ERR, I18N_FUNC_S_FAIL, fname,
+                          "xdr_int", "jobCwdTtl");
+                return (FALSE);
+            }
+        }
     }
 
     return(TRUE);
