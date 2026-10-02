@@ -2356,8 +2356,7 @@ initSubmit(int *first, struct submitReq *subReq,
     }
 
 
-    subReq->askedHosts = NULL;
-    subReq->numAskedHosts = 0;
+    /* Preserve askedHosts so xdr_submitReq() can free the previous request. */
 
 
     subReq->nxf = 0;
