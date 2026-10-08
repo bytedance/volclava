@@ -61,6 +61,9 @@ URL: https://www.bytedance.com/
 Source: %{name}-%{version}.tar.gz
 Buildroot: %{_tmppath}/%{name}-%{version}-buildroot
 BuildRequires: gcc, tcl-devel, ncurses-devel
+%if 0%{?rhel} >= 8
+BuildRequires: libtirpc-devel, libnsl2-devel
+%endif
 Requires: ncurses, tcl
 Requires(pre): /usr/sbin/useradd
 Requires(post): /sbin/chkconfig
