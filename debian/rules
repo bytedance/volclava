@@ -47,12 +47,6 @@ override_dh_auto_build:
 override_dh_auto_install:
 	dh_auto_install
 
-ifeq ($(BHIST_SPEEDUP_ENABLED),1)
-	printf '%s\n' '$(VOLC_PREFIX_VALUE)/etc/lsb.hist' > debian/volclava.conffiles
-else
-	rm -f debian/volclava.conffiles
-endif
-
 	# Debian-specific service files are not part of the Autotools install.
 	install -d debian/volclava/etc/init.d
 	install -m 755 config/volclava debian/volclava/etc/init.d/volclava
@@ -60,6 +54,28 @@ endif
 	install -d debian/volclava/lib/systemd/system
 	install -m 644 debian/volclava.service debian/volclava/lib/systemd/system/volclava.service
 
+# debhelper compat 12 silently ignores debian/volclava.conffiles and only
+# auto-registers files under /etc, so register the cluster configs under
+# $(VOLC_PREFIX)/etc manually after dh_installdeb runs. This mirrors the
+# %config(noreplace) list in spec/volclava.spec: dpkg preserves local
+# modifications on upgrade (use --force-confold for fully non-interactive
+# upgrades, new versions are then kept as *.dpkg-dist, like rpm's .rpmnew).
+override_dh_installdeb:
+	dh_installdeb
+	@etcdir=debian/volclava$(VOLC_PREFIX_VALUE)/etc; \
+	if [ -d "$$etcdir" ]; then \
+		for f in lsf.conf lsf.shared lsf.task lsb.hosts lsb.params \
+			lsb.queues lsb.users lsb.resources lsb.hist; do \
+			if [ -f "$$etcdir/$$f" ]; then \
+				printf '%s\n' '$(VOLC_PREFIX_VALUE)/etc/'"$$f" >> debian/volclava/DEBIAN/conffiles; \
+			fi; \
+		done; \
+		for c in "$$etcdir"/lsf.cluster.*; do \
+			if [ -f "$$c" ]; then \
+				printf '%s\n' '$(VOLC_PREFIX_VALUE)/etc/'"$${c##*/}" >> debian/volclava/DEBIAN/conffiles; \
+			fi; \
+		done; \
+	fi
+
 override_dh_auto_clean:
 	$(MAKE) clean || true
-	rm -f debian/volclava.conffiles

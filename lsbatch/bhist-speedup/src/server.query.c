@@ -302,7 +302,7 @@ jobMapDestroy(struct jobMap *map)
  * across batches.
  */
 
-#define MAX_BHIST_WORKERS 128
+#define MAX_BHIST_WORKERS 16
 #define BHIST_LONG_SEPARATOR \
     "------------------------------------------------------------------------------\n"
 

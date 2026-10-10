@@ -1224,14 +1224,14 @@ validateAndAssign(const struct configValue values[KEY_COUNT],
                           queryDbMmapSizeMib, "256", 0,
                           INT_MAX);
         ASSIGN_SERVER_INT(KEY_MAX_FORMATTERS_PER_QUERY,
-                          formattersPerQuery, "4", 1, 128);
+                          formattersPerQuery, "4", 1, 16);
         ASSIGN_SERVER_INT(KEY_JOBS_PER_BATCH, jobsPerBatch, "10000", 1,
                           INT_MAX);
         ASSIGN_SERVER_INT(KEY_MAX_CONCURRENT_QUERIES, maxConcurrentQueries,
                           "16", 1, 128);
         ASSIGN_SERVER_INT(KEY_MAX_CONCURRENT_SCAN_QUERIES,
                           maxConcurrentScanQueries,
-                          "4", 1, 128);
+                          "4", 1, 16);
         if (config->maxConcurrentScanQueries >
             config->maxConcurrentQueries) {
             setError(error, errorSize,

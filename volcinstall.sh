@@ -75,7 +75,7 @@ SCRIPT_PATH="$(realpath "$0")"
 #######################################
 function usage() {
     echo "Usage: volcinstall.sh [--help]"
-    echo "                      [--setup=pre [--uid=number] [--file=/path/install.conf] [--enable-bhist-speedup=Y|N]]"
+    echo "                      [--setup=pre [--uid=number] [--enable-bhist-speedup=Y|N]]"
     echo "                      [--setup=install [--type=code|rpm|deb] [--prefix=/opt/volclava] [--hosts=\"master server1 ...\"|/path/file] [--file=/path/install.conf] [--enable-bhist-speedup=Y|N]]"
     echo "                      [--setup=post [--env=/volclava_top] [--startup=Y|y|N|n]]"
     echo "                      [--type=code|rpm|deb|server] [--prefix=/opt/volclava] [--hosts=\"master server1 ...\"|/path/file] [--uid=number] [--startup=Y|y|N|n] [--file=/path/install.conf] [--enable-bhist-speedup=Y|N]"
@@ -408,7 +408,9 @@ function install() {
 
         # Install through dpkg so dependencies, maintainer scripts, upgrades,
         # conffiles and uninstall remain under Debian package management.
-        dpkg -i ../volclava_2.2*.deb
+        # --force-confold keeps locally modified configs (new versions are kept
+        # as *.dpkg-dist), matching the silent %config(noreplace) rpm behavior.
+        dpkg -i --force-confold ../volclava_2.2*.deb
         if [ $? -ne 0 ]; then
             echo "Failed to install volclava deb package. Please check."
             exit 1
