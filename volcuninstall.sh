@@ -14,6 +14,40 @@ function usage() {
     echo "                        [--env=/volclava_top]"
 }
 
+function unregister_bhist_speedup_service() {
+    local unit=bhist-speedup.service
+    local unit_file=/etc/systemd/system/bhist-speedup.service
+    local unit_state
+    local systemd_running=0
+
+    if command -v systemctl > /dev/null 2>&1 && [ -d /run/systemd/system ]; then
+        systemd_running=1
+        # A missing unit file can still leave an active service and its processes.
+        if ! unit_state=$(systemctl show -p LoadState -p ActiveState "$unit"); then
+            [[ "$unit_state" == *"LoadState=not-found"* ]] || return 1
+        fi
+        if [[ "$unit_state" != *"LoadState=not-found"* ||
+              ( "$unit_state" != *"ActiveState=inactive"* &&
+                "$unit_state" != *"ActiveState=failed"* ) ]]; then
+            systemctl stop "$unit" || return 1
+        fi
+    fi
+    if command -v systemctl > /dev/null 2>&1; then
+        if [ -e "$unit_file" ] || [ -e /etc/init.d/bhist-speedup ]; then
+            systemctl disable "$unit" || return 1
+        fi
+    fi
+    # Missing units and SysV stop links left by disable also need cleanup.
+    rm -f /etc/systemd/system/multi-user.target.wants/bhist-speedup.service \
+        /etc/rc[0-6S].d/[SK][0-9][0-9]bhist-speedup \
+        /etc/rc.d/rc[0-6S].d/[SK][0-9][0-9]bhist-speedup \
+        "$unit_file" /etc/init.d/bhist-speedup || return 1
+    if [ "$systemd_running" = 1 ]; then
+        systemctl daemon-reload || return 1
+    fi
+    return 0
+}
+
 
 VERSION="2.2"
 VOLC_TOP=""
@@ -55,9 +89,17 @@ fi
 if [[ -z "$VOLC_TOP" ]];then
     VOLC_TOP=$(dirname $LSF_ENVDIR)
 fi
+if [[ -z "$LSF_ENVDIR" ]]; then
+    LSF_ENVDIR="${VOLC_TOP}/etc"
+fi
 
-if [ -e $LSF_ENVDIR/volclava.sh ]; then
-    MIX_OS_FOLDER=$(grep '^MIX_OS_FOLDER=' $LSF_ENVDIR/volclava.sh  | tail -n 1 | cut -d'=' -f2- | tr -d '"')
+if ! unregister_bhist_speedup_service; then
+    echo "Failed to clean up the bhist-speedup service; uninstall stopped." >&2
+    exit 1
+fi
+
+if [ -e "$LSF_ENVDIR/volclava.sh" ]; then
+    MIX_OS_FOLDER=$(grep '^MIX_OS_FOLDER=' "$LSF_ENVDIR/volclava.sh" | tail -n 1 | cut -d'=' -f2- | tr -d '"')
 else
     echo "Cannot find $LSF_ENVDIR/volclava.sh. We cannot determine the current installation mode, exit..."
     exit 1
@@ -70,6 +112,17 @@ if [[ -n ${MIX_OS_FOLDER} ]]; then
     BINARY_PATH="${VOLC_TOP}/${MIX_OS_FOLDER}/${PLATFORM}"
 else
     BINARY_PATH=$VOLC_TOP
+fi
+
+if [ -x "$BINARY_PATH/bin/bhist-speedup-server" ]; then
+    LSF_ENVDIR="$LSF_ENVDIR" \
+        "$BINARY_PATH/bin/bhist-speedup-server" stop \
+        > /dev/null 2>&1 || true
+fi
+if [ -x "$BINARY_PATH/bin/bhist-speedup-loader" ]; then
+    LSF_ENVDIR="$LSF_ENVDIR" \
+        "$BINARY_PATH/bin/bhist-speedup-loader" stop \
+        > /dev/null 2>&1 || true
 fi
 
 service volclava stop  > /dev/null 2>&1
@@ -113,7 +166,7 @@ systemctl daemon-reload > /dev/null 2>&1 || true
 if [[ -n ${MIX_OS_FOLDER} ]]; then
     DIR_COUNT=$(find "${VOLC_TOP}/${MIX_OS_FOLDER}" -maxdepth 1 -mindepth 1 | wc -l)
     if [ "$DIR_COUNT" -eq 0 ]; then
-        rm -rf "${VOLC_TOP}/${MIX_OS_FOLDER}" "${VOLC_TOP}/share" "${VOLC_TOP}/include" /dev/null 2>&1   || true
+        rm -rf "${VOLC_TOP}/${MIX_OS_FOLDER}" "${VOLC_TOP}/share" "${VOLC_TOP}/include" > /dev/null 2>&1 || true
         echo "Volclava has been successfully uninstalled. Please manually delete the remaining application data."
     else
         echo "Volclava has been successfully uninstalled from the ${PLATFORM} platform."

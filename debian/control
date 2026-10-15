@@ -2,11 +2,11 @@ Source: volclava
 Section: misc
 Priority: optional
 Maintainer: Mingze Li <limingze.jiayou@bytedance.com>; Guangbo Shu <shuguangbo@bytedance.com>; Nan Qi <qinan.cn@bytedance.com>
-Build-Depends: autoconf, automake, tcl-dev, libncurses-dev
+Build-Depends: autoconf, automake, tcl-dev, libncurses-dev, libsqlite3-dev <pkg.volclava.bhist-speedup>
 Standards-Version: 2.2-0
 Homepage:
 
 Package: volclava
 Architecture: any
-Depends: tcl-dev, libncurses-dev
+Depends: ${shlibs:Depends}, ${misc:Depends}, tcl-dev, libncurses-dev
 Description: volclava 2.2.0 for Ubuntu/Debian
