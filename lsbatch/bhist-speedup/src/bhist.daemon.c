@@ -1,7 +1,9 @@
 #define _GNU_SOURCE
 
-#include "daemon.h"
+#include "bhist.daemon.h"
 #include "bhist.config.h"
+#include "bhist.util.h"
+#include "lproto.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -17,31 +19,30 @@
 #include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
+#include <sqlite3.h>
+
+/*
+ * Verify the runtime SQLite library supports the SQL features this module
+ * needs.  Partial indexes (CREATE INDEX ... WHERE) require SQLite 3.8.0; on
+ * older libraries index creation fails with a bare syntax error.
+ * @return: 0 when sufficient, otherwise -1 (reason already logged).
+ */
+int
+checkSqliteRuntime(void)
+{
+    if (sqlite3_libversion_number() < 3008000) {
+        ls_syslog(LOG_ERR, "sqlite too old runtime=%s need=3.8.0",
+                  sqlite3_libversion());
+        return -1;
+    }
+    return 0;
+}
 
 /*
  * Local authorization for management commands. The query protocol does not
  * use this result, and a client-supplied user name is not an authenticated
  * identity.
  */
-
-/*
- * Format a management error when an output buffer is available.
- * @param[out] error: Optional buffer receiving the formatted message.
- * @param[in] errorSize: Size of error.
- * @param[in] format: printf-style message format followed by its arguments.
- * @return: None.
- */
-static void
-setError(char *error, size_t errorSize, const char *format, ...)
-{
-    va_list arguments;
-
-    if (error == NULL || errorSize == 0)
-        return;
-    va_start(arguments, format);
-    (void)vsnprintf(error, errorSize, format, arguments);
-    va_end(arguments);
-}
 
 /*
  * Check the original local identity before entering a management command.
@@ -97,7 +98,9 @@ switchServiceUser(const char *user, char *error, size_t errorSize)
     gid_t gid;
 
     if (user == NULL || user[0] == '\0') {
-        setError(error, errorSize, "no service administrator is configured");
+        setError(error, errorSize,
+                 "no service administrator is configured; "
+                 "define ClusterAdmins in lsf.shared");
         return -1;
     }
     account = getpwnam(user);
@@ -264,6 +267,127 @@ ensureDirectory(const char *path, char *error, size_t errorSize)
             break;
         *cursor = saved;
         component = cursor + 1;
+    }
+    return 0;
+}
+
+/*
+ * Give one root-owned path to the service administrator.
+ * @param[in] path: Existing path to reown.
+ * @param[in] uid: Administrator user ID.
+ * @param[in] gid: Administrator group ID.
+ * @param[in] adminUser: Administrator name for logging.
+ * @param[out] error: Buffer receiving an error message.
+ * @param[in] errorSize: Size of error.
+ * @return: 0 on success, otherwise -1.
+ */
+static int
+reownRootPath(const char *path, uid_t uid, gid_t gid,
+              const char *adminUser, char *error, size_t errorSize)
+{
+    struct stat st;
+
+    if (stat(path, &st) != 0 || st.st_uid != 0)
+        return 0;
+    if (chown(path, uid, gid) != 0) {
+        setError(error, errorSize, "cannot give %s to %s: %s",
+                 path, adminUser, strerror(errno));
+        return -1;
+    }
+    return 0;
+}
+
+/*
+ * Create and hand over the runtime paths the daemon service administrator
+ * must write. Runs as root before switchServiceUser(): creates the database
+ * parent directory, pre-creates the log file, and reowns root-owned
+ * leftovers (database directory, database and its journal sidecars, PID
+ * file, log file). The shared log directory and non-root-owned paths are
+ * never reowned.
+ * @param[in] dbPath: Absolute database path.
+ * @param[in] logPath: Absolute log file path, or NULL to skip.
+ * @param[in] pidPath: Absolute PID file path, or NULL to skip.
+ * @param[in] adminUser: Service administrator name.
+ * @param[out] error: Buffer receiving an error message.
+ * @param[in] errorSize: Size of error.
+ * @return: 0 on success, otherwise -1.
+ */
+int
+prepareServicePaths(const char *dbPath, const char *logPath,
+                    const char *pidPath, const char *adminUser,
+                    char *error, size_t errorSize)
+{
+    static const char *const sidecarSuffixes[] = {
+        "", "-wal", "-shm", "-journal"
+    };
+    struct passwd *account;
+    char directory[4096];
+    char sidecar[4096];
+    uid_t uid;
+    gid_t gid;
+    size_t i;
+
+    if (dbPath == NULL || dbPath[0] != '/' ||
+        adminUser == NULL || adminUser[0] == '\0') {
+        setError(error, errorSize, "invalid service path argument");
+        return -1;
+    }
+    account = getpwnam(adminUser);
+    if (account == NULL) {
+        setError(error, errorSize,
+                 "cannot resolve service administrator %s", adminUser);
+        return -1;
+    }
+    uid = account->pw_uid;
+    gid = account->pw_gid;
+    if (uid == 0) {
+        setError(error, errorSize,
+                 "service administrator %s must have a non-root user ID",
+                 adminUser);
+        return -1;
+    }
+
+    if (parentDirectory(dbPath, directory, sizeof(directory),
+                        error, errorSize) != 0)
+        return -1;
+    if (ensureDirectory(directory, error, errorSize) != 0)
+        return -1;
+    if (reownRootPath(directory, uid, gid, adminUser,
+                      error, errorSize) != 0)
+        return -1;
+
+    /* Databases and journal sidecars may remain from earlier root runs. */
+    for (i = 0; i < sizeof(sidecarSuffixes) / sizeof(sidecarSuffixes[0]);
+         i++) {
+        if (snprintf(sidecar, sizeof(sidecar), "%s%s",
+                     dbPath, sidecarSuffixes[i]) >= (int)sizeof(sidecar)) {
+            setError(error, errorSize, "database path is too long: %s",
+                     dbPath);
+            return -1;
+        }
+        if (reownRootPath(sidecar, uid, gid, adminUser,
+                          error, errorSize) != 0)
+            return -1;
+    }
+
+    if (pidPath != NULL && pidPath[0] == '/' &&
+        reownRootPath(pidPath, uid, gid, adminUser,
+                      error, errorSize) != 0)
+        return -1;
+
+    if (logPath != NULL && logPath[0] == '/') {
+        int fd;
+
+        fd = open(logPath, O_WRONLY | O_CREAT | O_APPEND, 0644);
+        if (fd < 0) {
+            setError(error, errorSize, "cannot create log file %s: %s",
+                     logPath, strerror(errno));
+            return -1;
+        }
+        close(fd);
+        if (reownRootPath(logPath, uid, gid, adminUser,
+                          error, errorSize) != 0)
+            return -1;
     }
     return 0;
 }
@@ -677,22 +801,6 @@ daemonStart(const char *pidPath, const char *logPath,
     if (pidOut != NULL)
         *pidOut = message.pid;
     return 0;
-}
-
-/*
- * Sleep for a millisecond duration while retrying interrupted nanosleep calls.
- * @param[in] milliseconds: Requested sleep duration.
- * @return: None.
- */
-static void
-sleepMs(int milliseconds)
-{
-    struct timespec duration;
-
-    duration.tv_sec = milliseconds / 1000;
-    duration.tv_nsec = (long)(milliseconds % 1000) * 1000000L;
-    while (nanosleep(&duration, &duration) != 0 && errno == EINTR)
-        ;
 }
 
 /*

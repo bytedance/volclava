@@ -66,7 +66,8 @@ BuildRequires: gcc, tcl-devel, ncurses-devel
 Requires: ncurses, tcl
 %if %{with bhist_speedup}
 BuildRequires: sqlite-devel
-Requires: sqlite-libs
+# Partial indexes (CREATE INDEX ... WHERE) need SQLite 3.8.0+.
+Requires: sqlite-libs >= 3.8.0
 %endif
 Requires(pre): /usr/sbin/useradd
 Requires(post): /sbin/chkconfig
@@ -148,8 +149,8 @@ install -m 755 ${RPM_BUILD_DIR}/%{name}-%{version}/lsbatch/cmd/bswitch  ${RPM_BU
 install -m 755 ${RPM_BUILD_DIR}/%{name}-%{version}/lsbatch/cmd/btop     ${RPM_BUILD_ROOT}%{_bindir}
 install -m 755 ${RPM_BUILD_DIR}/%{name}-%{version}/lsbatch/cmd/busers   ${RPM_BUILD_ROOT}%{_bindir}
 %if %{with bhist_speedup}
-install -m 755 ${RPM_BUILD_DIR}/%{name}-%{version}/lsbatch/bhist/bhist_original ${RPM_BUILD_ROOT}%{_bindir}
-install -m 755 ${RPM_BUILD_DIR}/%{name}-%{version}/lsbatch/bhist-speedup/bhist-speedup ${RPM_BUILD_ROOT}%{_bindir}
+install -m 755 ${RPM_BUILD_DIR}/%{name}-%{version}/lsbatch/bhist/bhist-standard ${RPM_BUILD_ROOT}%{_bindir}
+install -m 755 ${RPM_BUILD_DIR}/%{name}-%{version}/lsbatch/bhist-speedup/bhist-fast ${RPM_BUILD_ROOT}%{_bindir}
 %endif
 install -m 755 ${RPM_BUILD_DIR}/%{name}-%{version}/scripts/lam-mpirun ${RPM_BUILD_ROOT}%{_bindir}
 install -m 755 ${RPM_BUILD_DIR}/%{name}-%{version}/lsf/lstools/lsacct     ${RPM_BUILD_ROOT}%{_bindir}
@@ -203,8 +204,8 @@ install -m 755 ${RPM_BUILD_DIR}/%{name}-%{version}/lsf/pim/pim  ${RPM_BUILD_ROOT
 install -m 755 ${RPM_BUILD_DIR}/%{name}-%{version}/lsf/res/res ${RPM_BUILD_ROOT}%{_sbindir}
 install -m 755 ${RPM_BUILD_DIR}/%{name}-%{version}/lsbatch/daemons/sbatchd ${RPM_BUILD_ROOT}%{_sbindir}
 %if %{with bhist_speedup}
-install -m 755 ${RPM_BUILD_DIR}/%{name}-%{version}/lsbatch/bhist-speedup/bhist-speedup-server ${RPM_BUILD_ROOT}%{_bindir}
-install -m 755 ${RPM_BUILD_DIR}/%{name}-%{version}/lsbatch/bhist-speedup/bhist-speedup-loader ${RPM_BUILD_ROOT}%{_bindir}
+install -m 755 ${RPM_BUILD_DIR}/%{name}-%{version}/lsbatch/bhist-speedup/bhist-speedup-server ${RPM_BUILD_ROOT}%{_sbindir}
+install -m 755 ${RPM_BUILD_DIR}/%{name}-%{version}/lsbatch/bhist-speedup/bhist-speedup-loader ${RPM_BUILD_ROOT}%{_sbindir}
 %endif
 install -m 755 ${RPM_BUILD_DIR}/%{name}-%{version}/chkpnt/echkpnt          ${RPM_BUILD_ROOT}%{_sbindir}
 install -m 755 ${RPM_BUILD_DIR}/%{name}-%{version}/chkpnt/erestart         ${RPM_BUILD_ROOT}%{_sbindir}
@@ -232,7 +233,7 @@ install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/lsbatch/man1/bugroup.1 ${RPM_
 install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/lsbatch/man1/busers.1 ${RPM_BUILD_ROOT}%{_mandir}/man1
 install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/lsbatch/man1/bswitch.1 ${RPM_BUILD_ROOT}%{_mandir}/man1
 %if %{with bhist_speedup}
-install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/lsbatch/bhist-speedup/man/bhist-speedup.1 ${RPM_BUILD_ROOT}%{_mandir}/man1
+install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/lsbatch/man1/bhist-speedup.1 ${RPM_BUILD_ROOT}%{_mandir}/man1
 %endif
 install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/lsf/man/man1/lsacct.1 ${RPM_BUILD_ROOT}%{_mandir}/man1
 install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/lsf/man/man1/lseligible.1 ${RPM_BUILD_ROOT}%{_mandir}/man1
@@ -319,11 +320,18 @@ sed -i "s:/opt/volclava-%{version}:${_volclavatop}:g" ${_volclavatop}/etc/lsf.co
 
 %preun
 _volclavatop=${RPM_INSTALL_PREFIX}/volclava-%{version}
-if [ -x "${_volclavatop}/bin/bhist-speedup-server" ]; then
+# Daemons live in sbin; also stop legacy copies from older installs in bin.
+if [ -x "${_volclavatop}/sbin/bhist-speedup-server" ]; then
+    LSF_ENVDIR="${_volclavatop}/etc" \
+        "${_volclavatop}/sbin/bhist-speedup-server" stop > /dev/null 2>&1 || true
+elif [ -x "${_volclavatop}/bin/bhist-speedup-server" ]; then
     LSF_ENVDIR="${_volclavatop}/etc" \
         "${_volclavatop}/bin/bhist-speedup-server" stop > /dev/null 2>&1 || true
 fi
-if [ -x "${_volclavatop}/bin/bhist-speedup-loader" ]; then
+if [ -x "${_volclavatop}/sbin/bhist-speedup-loader" ]; then
+    LSF_ENVDIR="${_volclavatop}/etc" \
+        "${_volclavatop}/sbin/bhist-speedup-loader" stop > /dev/null 2>&1 || true
+elif [ -x "${_volclavatop}/bin/bhist-speedup-loader" ]; then
     LSF_ENVDIR="${_volclavatop}/etc" \
         "${_volclavatop}/bin/bhist-speedup-loader" stop > /dev/null 2>&1 || true
 fi
@@ -363,16 +371,16 @@ fi
 %{_sbindir}/nios
 %if %{with bhist_speedup}
 %attr(0755,%{VOLCADMIN},%{VOLCADMIN}) %{_etcdir}/bhist-speedup
-%{_bindir}/bhist-speedup-server
-%{_bindir}/bhist-speedup-loader
+%{_sbindir}/bhist-speedup-server
+%{_sbindir}/bhist-speedup-loader
 %endif
 %{_bindir}/badmin
 %{_bindir}/lsadmin
 %{_bindir}/bbot
 %{_bindir}/bhist
 %if %{with bhist_speedup}
-%{_bindir}/bhist_original
-%{_bindir}/bhist-speedup
+%{_bindir}/bhist-standard
+%{_bindir}/bhist-fast
 %endif
 %{_bindir}/bhosts
 %{_bindir}/bjobs

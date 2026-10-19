@@ -2,6 +2,9 @@
 # bhist speed up is built as part of Volclava and uses the selected cluster
 # environment from LSF_ENVDIR.
 #
+# All module files carry the bhist. prefix so includes such as
+# "bhist.network.h" identify their module at the reference site.
+#
 
 AM_CPPFLAGS = \
 	-D_POSIX_C_SOURCE=200809L \
@@ -16,52 +19,60 @@ VOLCLAVA_LIBS = \
 	../../lsf/lib/liblsf.a \
 	../../lsf/intlib/liblsfint.a
 
-CONFIG_SOURCES = src/config.c
-DAEMON_SOURCES = src/daemon.c
+CONFIG_SOURCES = src/bhist.config.c
+DAEMON_SOURCES = src/bhist.daemon.c
+UTIL_SOURCES = src/bhist.util.c
 
+# bhist-fast is the user-facing client; loader and server are daemons
+# managed by the administrator, so they install under sbin like mbatchd.
 bin_PROGRAMS = \
-	bhist-speedup \
+	bhist-fast
+
+sbin_PROGRAMS = \
 	bhist-speedup-server \
 	bhist-speedup-loader
 
-bhist_speedup_SOURCES = \
-	src/client.main.c \
-	src/network.c \
-	src/protocol.c \
-	$(CONFIG_SOURCES)
-bhist_speedup_LDFLAGS = -Wl,--as-needed
-bhist_speedup_LDADD = $(VOLCLAVA_LIBS) -lm
+bhist_fast_SOURCES = \
+	src/bhist.client.main.c \
+	src/bhist.network.c \
+	src/bhist.protocol.c \
+	$(CONFIG_SOURCES) \
+	$(UTIL_SOURCES)
+bhist_fast_LDFLAGS = -Wl,--as-needed
+bhist_fast_LDADD = $(VOLCLAVA_LIBS) -lm
 
 bhist_speedup_server_SOURCES = \
-	src/server.main.c \
-	src/server.query.c \
-	src/server.control.c \
-	src/network.c \
-	src/protocol.c \
+	src/bhist.server.main.c \
+	src/bhist.server.query.c \
+	src/bhist.server.control.c \
+	src/bhist.network.c \
+	src/bhist.protocol.c \
 	$(CONFIG_SOURCES) \
-	$(DAEMON_SOURCES)
+	$(DAEMON_SOURCES) \
+	$(UTIL_SOURCES)
 bhist_speedup_server_LDFLAGS = -Wl,--as-needed
 bhist_speedup_server_LDADD = $(VOLCLAVA_LIBS) $(SQLITE3_LIBS) -lm
 
 bhist_speedup_loader_SOURCES = \
 	$(CONFIG_SOURCES) \
 	$(DAEMON_SOURCES) \
-	src/loader.main.c \
-	src/loader.events.c \
-	src/loader.db.c
+	$(UTIL_SOURCES) \
+	src/bhist.loader.main.c \
+	src/bhist.loader.events.c \
+	src/bhist.loader.db.c
 bhist_speedup_loader_CFLAGS = -pthread
 bhist_speedup_loader_LDFLAGS = -pthread -Wl,--as-needed
 bhist_speedup_loader_LDADD = $(VOLCLAVA_LIBS) $(SQLITE3_LIBS) -lm
 
-man_MANS = man/bhist-speedup.1
+# The bhist-speedup(1) manual lives with the other user commands in
+# ../man1 and is installed from there.
 
 noinst_HEADERS = \
 	include/bhist.config.h \
-	include/loader.h \
-	include/network.h \
-	include/protocol.h \
-	include/daemon.h \
-	include/server.h \
-	include/version.h
-
-EXTRA_DIST = man/bhist-speedup.1
+	include/bhist.loader.h \
+	include/bhist.network.h \
+	include/bhist.protocol.h \
+	include/bhist.daemon.h \
+	include/bhist.server.h \
+	include/bhist.util.h \
+	include/bhist.version.h

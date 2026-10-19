@@ -114,12 +114,21 @@ else
     BINARY_PATH=$VOLC_TOP
 fi
 
-if [ -x "$BINARY_PATH/bin/bhist-speedup-server" ]; then
+# Daemons live in sbin; also stop legacy copies from older installs in bin.
+if [ -x "$BINARY_PATH/sbin/bhist-speedup-server" ]; then
+    LSF_ENVDIR="$LSF_ENVDIR" \
+        "$BINARY_PATH/sbin/bhist-speedup-server" stop \
+        > /dev/null 2>&1 || true
+elif [ -x "$BINARY_PATH/bin/bhist-speedup-server" ]; then
     LSF_ENVDIR="$LSF_ENVDIR" \
         "$BINARY_PATH/bin/bhist-speedup-server" stop \
         > /dev/null 2>&1 || true
 fi
-if [ -x "$BINARY_PATH/bin/bhist-speedup-loader" ]; then
+if [ -x "$BINARY_PATH/sbin/bhist-speedup-loader" ]; then
+    LSF_ENVDIR="$LSF_ENVDIR" \
+        "$BINARY_PATH/sbin/bhist-speedup-loader" stop \
+        > /dev/null 2>&1 || true
+elif [ -x "$BINARY_PATH/bin/bhist-speedup-loader" ]; then
     LSF_ENVDIR="$LSF_ENVDIR" \
         "$BINARY_PATH/bin/bhist-speedup-loader" stop \
         > /dev/null 2>&1 || true

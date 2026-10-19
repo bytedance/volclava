@@ -16,9 +16,9 @@
  */
 
 #include "bhist.config.h"
-#include "protocol.h"
-#include "network.h"
-#include "version.h"
+#include "bhist.protocol.h"
+#include "bhist.network.h"
+#include "bhist.version.h"
 
 #include <arpa/inet.h>
 #include <errno.h>
@@ -39,13 +39,13 @@
 static void
 usage(void)
 {
-    fputs("Usage: bhist-speedup [-l | -w] [-a] [-d] [-e] [-p] [-s] [-r]\n"
+    fputs("Usage: bhist-fast [-l | -w] [-a] [-d] [-e] [-p] [-s] [-r]\n"
           "                 [-C time0,time1] [-S time0,time1] "
           "[-D time0,time1]\n"
           "                 [-q queue_name] [-m host_name]\n"
           "                 [-u user_name | -u all] "
           "[jobId | \"jobId[indexList]\"]\n"
-          "       bhist-speedup [-h] [-V]\n", stdout);
+          "       bhist-fast [-h] [-V]\n", stdout);
 }
 
 /*

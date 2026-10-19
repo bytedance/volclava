@@ -5,10 +5,12 @@ AM_CPPFLAGS = -I$(top_srcdir)/lsf  -I$(top_srcdir)/lsf/lib \
            -I$(top_srcdir)/lsbatch  -I$(top_srcdir)/lsbatch/lib -I./
 
 if BUILD_BHIST_SPEEDUP
-bin_PROGRAMS = bhist_original
-bhist_original_SOURCES = bhist.c read.event.c bhist.h
-bhist_original_LDFLAGS = -Wl,--as-needed
-bhist_original_LDADD = ../cmd/cmd.job.o \
+# The installed binary is bhist-standard (hyphen); the bhist_standard_*
+# variable prefix is automake's canonicalization of the program name.
+bin_PROGRAMS = bhist-standard
+bhist_standard_SOURCES = bhist.c read.event.c bhist.h
+bhist_standard_LDFLAGS = -Wl,--as-needed
+bhist_standard_LDADD = ../cmd/cmd.job.o \
 	../cmd/cmd.misc.o ../cmd/cmd.jobid.o ../cmd/cmd.prt.o \
 	../cmd/cmd.err.o ../cmd/cmd.hist.o \
 	../lib/liblsbatch.a \

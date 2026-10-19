@@ -1,6 +1,6 @@
 .TH BHIST-SPEEDUP 1 "September 11, 2026" "Volclava 2.2" "User Commands"
 .SH NAME
-bhist, bhist-speedup, bhist-speedup-server, bhist-speedup-loader
+bhist, bhist-fast, bhist-speedup-server, bhist-speedup-loader
 \- accelerated retained job history
 .SH SYNOPSIS
 .B bhist
@@ -26,9 +26,9 @@ bhist, bhist-speedup, bhist-speedup-server, bhist-speedup-loader
 .B bhist
 is the public entry point.  Supported requests are sent to the accelerated
 client; unsupported requests execute
-.B bhist_original
+.B bhist-standard
 directly.  The server selects retained events from SQLite and passes them to
-.B bhist_original -f
+.B bhist-standard -f
 for native replay and formatting.
 .PP
 The accelerated subset includes
@@ -65,7 +65,7 @@ and
 An existing marker identifies LSF; a dangling marker link or an invalid or
 inaccessible environment directory leaves the type unknown.  Both cases
 execute
-.B bhist_original
+.B bhist-standard
 directly, with the usual fallback message.  LSF_ENVDIR must be an absolute,
 readable, searchable directory before the absence of both markers is treated
 as Volclava and acceleration is attempted.
@@ -95,13 +95,13 @@ Rocky Linux is not treated as CentOS.
 The wrapper does not probe the service before a query.  If configuration,
 connection, transport, or query processing fails before accelerated standard
 output is emitted, it reports the failure and executes
-.B bhist_original
+.B bhist-standard
 once.  After accelerated standard output has begun, a failure is reported as
 an incomplete result and native bhist is not executed, preventing duplicated
 output.  A no-match result is successful acceleration and does not fall back.
 .PP
 Direct invocation of
-.B bhist-speedup
+.B bhist-fast
 always enters the accelerated query path, subject to its usual configuration
 and request checks.  It returns 125 for a failure that permits safe native
 fallback before query output, but does not execute native bhist itself.
@@ -217,7 +217,7 @@ When bhist speedup support is enabled at build time, the installation includes
 This Bash script manages both components by invoking their existing management
 commands.  Use its full path to distinguish it from the accelerated query
 client named
-.IR $LSF_BINDIR/bhist-speedup .
+.IR $LSF_BINDIR/bhist-fast .
 .PP
 The script loads the readable shell profile from
 .I /etc/profile.d/volclava.sh
@@ -338,7 +338,7 @@ Cluster-owned settings are inherited from
 .IR $LSF_ENVDIR/lsf.conf .
 .B LSF_BINDIR
 selects
-.BR bhist_original ;
+.BR bhist-standard ;
 .B LSF_LOGDIR
 and
 .B LSF_LOG_MASK
@@ -371,10 +371,10 @@ appropriate data and query service.
 .I $LSF_BINDIR/bhist
 Public POSIX wrapper.
 .TP
-.I $LSF_BINDIR/bhist-speedup
+.I $LSF_BINDIR/bhist-fast
 Internal accelerated client.
 .TP
-.I $LSF_BINDIR/bhist_original
+.I $LSF_BINDIR/bhist-standard
 Native bhist formatter and fallback command.
 .TP
 .I $LSF_ENVDIR/bhist-speedup

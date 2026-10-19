@@ -1,11 +1,12 @@
 #define _GNU_SOURCE
 
-#include "server.h"
-#include "daemon.h"
+#include "bhist.server.h"
+#include "bhist.daemon.h"
 #include "bhist.config.h"
-#include "version.h"
-#include "protocol.h"
-#include "network.h"
+#include "bhist.version.h"
+#include "bhist.protocol.h"
+#include "bhist.network.h"
+#include "bhist.util.h"
 #include "lproto.h"
 
 #include <sqlite3.h>
@@ -174,7 +175,6 @@ static struct servicePerformanceMonitor serviceMonitor;
 static long long monotonicMillis(void);
 static void serviceLog(const char *event, unsigned long long requestId,
                        const char *format, ...);
-static void writeU32(unsigned char *buffer, uint32_t value);
 static uint32_t readU32(const unsigned char *buffer);
 static int sendErrorFrame(int fd, uint32_t code, const char *message);
 static int sendStatusFrame(int fd, int running, int queued,
@@ -548,21 +548,6 @@ serviceLog(const char *event, unsigned long long requestId,
     }
     ls_syslog(LOG_INFO, "%s", line);
     errno = savedErrno;
-}
-
-/*
- * Encode one 32-bit integer in network byte order.
- * @param[out] buffer: Four-byte destination.
- * @param[in] value: Host-order value.
- * @return: None.
- */
-static void
-writeU32(unsigned char *buffer, uint32_t value)
-{
-    uint32_t networkValue;
-
-    networkValue = htonl(value);
-    memcpy(buffer, &networkValue, sizeof(networkValue));
 }
 
 /*
@@ -1089,7 +1074,7 @@ relayQuery(struct pendingRequest *pending,
                                      sizeof(char *));
         if (childArgv == NULL)
             _exit(127);
-        childArgv[0] = "bhist-speedup";
+        childArgv[0] = "bhist-fast";
         for (i = 0; i < pending->query.argc; i++)
             childArgv[i + 1] = pending->query.argv[i];
         childArgv[pending->query.argc + 1] = NULL;
@@ -1733,9 +1718,6 @@ receiveConnection(const struct serviceConfig *config, int listenerFd,
         (void)fcntl(fd, F_SETFD, flags | FD_CLOEXEC);
     timeoutRc = setReceiveTimeout(fd, config->requestTimeoutSeconds);
     timeoutErrno = errno;
-    serviceLog("connection_accepted", 0,
-               "fd=%d peer=%s running=%d queued=%d",
-               fd, peer, *activeCount, *queuedCount);
     if (timeoutRc != 0)
         serviceLog("socket_setup_failed", 0,
                    "fd=%d peer=%s operation=recv_timeout error=%s",
@@ -2046,8 +2028,8 @@ runService(const struct config *sharedConfig)
         config.endpoint,
         config.maxRunning + config.maxQueued + 16);
     if (listenerFd < 0) {
-        fprintf(stderr, "bhist-speedup-server: cannot listen on %s: %s\n",
-                config.endpoint, strerror(errno));
+        ls_syslog(LOG_ERR, "cannot_listen endpoint=%s error=%m",
+                  config.endpoint);
         return 1;
     }
     installParentSignals();
@@ -2177,12 +2159,9 @@ runDaemon(void *opaque)
     parentChildChanged = 0;
     installParentSignals();
     if (configureQueryEnvironment(&context->config) != 0) {
-        serviceLog("query_environment_failed", 0, "error=%s",
-                   strerror(errno));
+        serviceLog("query_environment_failed", 0, "error=%m");
         return 1;
     }
-    serviceLog("database_validation_deferred", 0, "db=%s",
-               context->config.dbPath);
     return runService(&context->config);
 }
 
@@ -2251,7 +2230,8 @@ prepareDirectories(const struct config *config,
     if (stat(databaseDirectory, &st) != 0 || !S_ISDIR(st.st_mode) ||
         access(databaseDirectory, W_OK | X_OK) != 0) {
         snprintf(error, errorSize,
-                 "database directory is not writable: %.400s",
+                 "database directory is not writable: %.400s; "
+                 "run once as root to create paths and fix ownership",
                  databaseDirectory);
         return -1;
     }
@@ -2282,21 +2262,21 @@ startServer(struct daemonContext *context, const char *pidPath,
 
     if (prepareDirectories(&context->config,
                                     error, sizeof(error)) != 0) {
-        fprintf(stderr, "bhist-speedup-server: %s\n", error);
+        ls_syslog(LOG_ERR, "%s", error);
         return 1;
     }
     result = daemonStart(pidPath, logPath, runDaemon,
                               context, &pid, error, sizeof(error));
     if (result < 0) {
-        fprintf(stderr, "bhist-speedup-server: %s\n", error);
+        ls_syslog(LOG_ERR, "%s", error);
         return 1;
     }
     if (result > 0) {
-        printf("bhist-speedup-server: already running pid=%ld\n", (long)pid);
+        fprintf(stdout, "already running pid=%ld\n", (long)pid);
         return 0;
     }
-    printf("bhist-speedup-server: started pid=%ld endpoint=%s log=%s\n",
-           (long)pid, context->config.endpoint, logPath);
+    fprintf(stdout, "started pid=%ld endpoint=%s log=%s\n",
+            (long)pid, context->config.endpoint, logPath);
     return 0;
 }
 
@@ -2314,13 +2294,13 @@ stopServer(const char *pidPath)
 
     if (daemonStop(pidPath, 10000, &pid, &wasRunning,
                         error, sizeof(error)) != 0) {
-        fprintf(stderr, "bhist-speedup-server: %s\n", error);
+        ls_syslog(LOG_ERR, "%s", error);
         return 1;
     }
     if (wasRunning)
-        printf("bhist-speedup-server: stopped pid=%ld\n", (long)pid);
+        fprintf(stdout, "stopped pid=%ld\n", (long)pid);
     else
-        puts("bhist-speedup-server: not running");
+        fprintf(stdout, "not running\n");
     return 0;
 }
 
@@ -2343,13 +2323,13 @@ serverStatus(const struct config *config, const char *pidPath,
 
     result = pidFileStatus(pidPath, &pid, error, sizeof(error));
     if (result < 0) {
-        fprintf(stderr, "bhist-speedup-server: %s\n", error);
+        ls_syslog(LOG_ERR, "%s", error);
         return -1;
     }
     if (result == 0) {
         (void)pidFileRemoveStale(pidPath, error, sizeof(error));
         if (printStatus)
-            puts("state=stopped");
+            fprintf(stdout, "state=stopped\n");
         return 0;
     }
     if (pidOut != NULL)
@@ -2358,21 +2338,21 @@ serverStatus(const struct config *config, const char *pidPath,
                                config->connectTimeoutSeconds,
                                &control, error, sizeof(error)) != 0) {
         if (printStatus) {
-            puts("state=starting");
-            printf("endpoint=%s\n", config->endpoint);
-            printf("pid=%ld\n", (long)pid);
+            fprintf(stdout, "state=starting\n");
+            fprintf(stdout, "endpoint=%s\n", config->endpoint);
+            fprintf(stdout, "pid=%ld\n", (long)pid);
         }
         return 1;
     }
     if (printStatus) {
-        puts("state=running");
-        printf("endpoint=%s\n", config->endpoint);
-        printf("pid=%ld\n", (long)pid);
-        printf("running=%u\n", control.running);
-        printf("queued=%u\n", control.queued);
-        printf("max_running=%u\n", control.maxRunning);
-        printf("max_scan_running=%u\n", control.maxScanRunning);
-        printf("max_queued=%u\n", control.maxQueued);
+        fprintf(stdout, "state=running\n");
+        fprintf(stdout, "endpoint=%s\n", config->endpoint);
+        fprintf(stdout, "pid=%ld\n", (long)pid);
+        fprintf(stdout, "running=%u\n", control.running);
+        fprintf(stdout, "queued=%u\n", control.queued);
+        fprintf(stdout, "max_running=%u\n", control.maxRunning);
+        fprintf(stdout, "max_scan_running=%u\n", control.maxScanRunning);
+        fprintf(stdout, "max_queued=%u\n", control.maxQueued);
     }
     return 2;
 }
@@ -2395,10 +2375,10 @@ runPerfmonCommand(const struct config *config, const char *argument)
                 config->endpoint,
                 config->connectTimeoutSeconds,
                 error, sizeof(error)) != 0) {
-            fprintf(stderr, "bhist-speedup-server: %s\n", error);
+            ls_syslog(LOG_ERR, "%s", error);
             return 1;
         }
-        puts("Performance metric sampling stopped.");
+        fprintf(stdout, "sampling=stopped\n");
         return 0;
     }
     errno = 0;
@@ -2406,22 +2386,20 @@ runPerfmonCommand(const struct config *config, const char *argument)
     if (errno != 0 || end == argument || *end != '\0' ||
         periodSeconds < PERFMON_MIN_PERIOD_SECONDS ||
         periodSeconds > PERFMON_MAX_PERIOD_SECONDS) {
-        fprintf(stderr,
-                "bhist-speedup-server: sample period must be an integer between "
-                "%u and %u seconds\n",
-                PERFMON_MIN_PERIOD_SECONDS,
-                PERFMON_MAX_PERIOD_SECONDS);
+        ls_syslog(LOG_ERR,
+                  "sample period must be an integer between %u and %u seconds",
+                  PERFMON_MIN_PERIOD_SECONDS,
+                  PERFMON_MAX_PERIOD_SECONDS);
         return 2;
     }
     if (controlPerfmonStart(
             config->endpoint,
             config->connectTimeoutSeconds,
             (unsigned)periodSeconds, error, sizeof(error)) != 0) {
-        fprintf(stderr, "bhist-speedup-server: %s\n", error);
+        ls_syslog(LOG_ERR, "%s", error);
         return 1;
     }
-    printf("Performance metric sampling started. Sample period: "
-           "%lu Second(s).\n", periodSeconds);
+    fprintf(stdout, "sampling=started period=%lu\n", periodSeconds);
     return 0;
 }
 
@@ -2440,7 +2418,7 @@ viewPerformance(const struct config *config)
             config->endpoint,
             config->connectTimeoutSeconds,
             &result, error, sizeof(error)) != 0) {
-        fprintf(stderr, "bhist-speedup-server: %s\n", error);
+        ls_syslog(LOG_ERR, "%s", error);
         return 1;
     }
     renderPerformance(stdout, &result);
@@ -2465,6 +2443,13 @@ main(int argc, char **argv)
     uid_t callerUid = getuid();
     int result = 1;
 
+    /*
+     * Terminal fallback until configuration provides the runtime log
+     * directory and mask. Stages before daemon start report messages
+     * through ls_syslog() on stderr.
+     */
+    ls_openlog("bhist-speedup-server", NULL, 1, "LOG_NOTICE");
+
     if (argc == 2 && (strcmp(argv[1], "-h") == 0 ||
                       strcmp(argv[1], "--help") == 0)) {
         usage(stdout);
@@ -2486,10 +2471,14 @@ main(int argc, char **argv)
     }
     command = argv[1];
 
+    /* Only the daemon start opens the database; stop/status/view do not. */
+    if (strcmp(command, "start") == 0 && checkSqliteRuntime() != 0)
+        return 1;
+
     memset(&context, 0, sizeof(context));
     if (configLoad(CONFIG_ROLE_SERVER, &context.config,
                         error, sizeof(error)) != 0) {
-        fprintf(stderr, "bhist-speedup-server: %s\n", error);
+        ls_syslog(LOG_ERR, "%s", error);
         goto done;
     }
     if (configLoadAdmins(&context.config, error, sizeof(error)) != 0 ||
@@ -2497,14 +2486,34 @@ main(int argc, char **argv)
                        error, sizeof(error)) != 0 ||
         configRequireServiceHost(&context.config,
                                  error, sizeof(error)) != 0) {
-        fprintf(stderr, "bhist-speedup-server: %s\n", error);
+        ls_syslog(LOG_ERR, "%s", error);
+        goto done;
+    }
+    if (buildPidPath(&context.config, pidPath, sizeof(pidPath),
+                        error, sizeof(error)) != 0 ||
+        configLogPath(&context.config, "bhist-speedup-server",
+                            logPath, sizeof(logPath),
+                            error, sizeof(error)) != 0) {
+        ls_syslog(LOG_ERR, "%s", error);
+        goto done;
+    }
+    /*
+     * While still root, create the database directory and log file, and
+     * hand root-owned leftovers to the service administrator, so the
+     * switched daemon never fails on paths it cannot write.
+     */
+    if (callerUid == 0 && strcmp(command, "start") == 0 &&
+        prepareServicePaths(context.config.dbPath, logPath, pidPath,
+                            context.config.admins[0],
+                            error, sizeof(error)) != 0) {
+        ls_syslog(LOG_ERR, "%s", error);
         goto done;
     }
     /* Keep root for inspection and stopping services owned by any admin. */
     if (callerUid == 0 && strcmp(command, "stop") != 0 &&
         strcmp(command, "status") != 0 &&
         switchServiceUser(context.config.admins[0], error, sizeof(error)) != 0) {
-        fprintf(stderr, "bhist-speedup-server: %s\n", error);
+        ls_syslog(LOG_ERR, "%s", error);
         goto done;
     }
     if (strcmp(command, "perfmon") == 0) {
@@ -2513,14 +2522,6 @@ main(int argc, char **argv)
     }
     if (strcmp(command, "view") == 0) {
         result = viewPerformance(&context.config);
-        goto done;
-    }
-    if (buildPidPath(&context.config, pidPath, sizeof(pidPath),
-                        error, sizeof(error)) != 0 ||
-        configLogPath(&context.config, "bhist-speedup-server",
-                            logPath, sizeof(logPath),
-                            error, sizeof(error)) != 0) {
-        fprintf(stderr, "bhist-speedup-server: %s\n", error);
         goto done;
     }
     if (strcmp(command, "start") == 0)

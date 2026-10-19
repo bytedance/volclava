@@ -1,5 +1,6 @@
 #include "bhist.config.h"
 
+#include "bhist.util.h"
 #include "lib.h"
 #include "lproto.h"
 
@@ -82,25 +83,6 @@ struct configValue {
     char *value;
     int line;
 };
-
-/*
- * Format a configuration error when the caller supplied an output buffer.
- * @param[out] error: Optional buffer receiving the formatted message.
- * @param[in] errorSize: Size of error.
- * @param[in] format: printf-style message format followed by its arguments.
- * @return: None.
- */
-static void
-setError(char *error, size_t errorSize, const char *format, ...)
-{
-    va_list arguments;
-
-    if (error == NULL || errorSize == 0)
-        return;
-    va_start(arguments, format);
-    (void)vsnprintf(error, errorSize, format, arguments);
-    va_end(arguments);
-}
 
 /*
  * Remove leading and trailing ASCII whitespace in place.
@@ -351,7 +333,10 @@ parseInteger(const char *name, const char *value, long long minimum,
     parsed = strtoll(value, &end, 10);
     if (errno != 0 || end == value || *end != '\0' ||
         parsed < minimum || parsed > maximum) {
-        setError(error, errorSize, "invalid %s=%s", name, value);
+        setError(error, errorSize,
+                 "invalid %s=%s; expected an integer between %lld and %lld "
+                 "(check lsb.params)",
+                 name, value, minimum, maximum);
         return -1;
     }
     *result = parsed;
@@ -593,7 +578,7 @@ loadLsfEnvironment(const char *envdir, enum configRole role,
                      "LOG_WARNING");
     }
     if ((role & CONFIG_ROLE_SERVER) != 0 &&
-        joinPath(config->binDir, "bhist_original",
+        joinPath(config->binDir, "bhist-standard",
                   config->bhistOriginalPath,
                   sizeof(config->bhistOriginalPath),
                   error, errorSize) != 0)
@@ -1199,11 +1184,11 @@ validateAndAssign(const struct configValue values[KEY_COUNT],
                           error, errorSize) != 0)
             return -1;
         value = valueOrDefault(values, KEY_HISTORY_RETENTION,
-                                 "2592000");
-        if (parseInteger(keyNames[KEY_HISTORY_RETENTION], value, 1,
-                          LLONG_MAX - 1, &config->historyRetentionSeconds,
-                          error, errorSize) != 0)
+                                 "30");
+        if (parseInteger(keyNames[KEY_HISTORY_RETENTION], value, 1, 365,
+                          &parsed, error, errorSize) != 0)
             return -1;
+        config->historyRetentionSeconds = parsed * 86400LL;
         ASSIGN_LOADER_INT(KEY_IMPORT_CACHE_SIZE,
                           importCacheSizeMib, "1024", 1,
                           INT_MAX / 1024);

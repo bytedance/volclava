@@ -1,5 +1,5 @@
-#ifndef DAEMON_H
-#define DAEMON_H
+#ifndef BHIST_DAEMON_H
+#define BHIST_DAEMON_H
 
 #include <stddef.h>
 #include <sys/types.h>
@@ -9,7 +9,13 @@ struct config;
 int checkAdminUser(const struct config *config, uid_t callerUid,
                    char *error, size_t errorSize);
 
+int checkSqliteRuntime(void);
+
 int switchServiceUser(const char *user, char *error, size_t errorSize);
+
+int prepareServicePaths(const char *dbPath, const char *logPath,
+                        const char *pidPath, const char *adminUser,
+                        char *error, size_t errorSize);
 
 typedef int (*daemonCallback)(void *context);
 

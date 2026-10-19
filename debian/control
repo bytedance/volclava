@@ -8,5 +8,5 @@ Homepage:
 
 Package: volclava
 Architecture: any
-Depends: ${shlibs:Depends}, ${misc:Depends}, tcl-dev, libncurses-dev
+Depends: ${shlibs:Depends}, ${misc:Depends}, tcl-dev, libncurses-dev, libsqlite3-0 (>= 3.8.0) <pkg.volclava.bhist-speedup>
 Description: volclava 2.2.0 for Ubuntu/Debian

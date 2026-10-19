@@ -37,30 +37,40 @@ case "$1" in
         ;;
 esac
 
-unset LSF_ENVDIR LSF_BINDIR
-if [ -r /etc/profile.d/volclava.sh ]; then
-    profile=/etc/profile.d/volclava.sh
-elif [ -r /etc/profile.d/lsf.sh ]; then
-    profile=/etc/profile.d/lsf.sh
+# Directory containing lsf.conf. The build fills in the volclava
+# installation prefix as the default. If you run this against an
+# existing LSF installation instead, set LSF_ENVDIR to the real LSF
+# etc directory (for example /opt/lsf/conf) before starting.
+LSF_ENVDIR="@prefix@/etc"
+
+# Load the environment: volclava.sh for a volclava installation,
+# profile.lsf for a real LSF installation. Either one defines
+# LSF_ENVDIR, LSF_BINDIR and friends.
+if [ -r "$LSF_ENVDIR/volclava.sh" ]; then
+    profile="$LSF_ENVDIR/volclava.sh"
+elif [ -r "$LSF_ENVDIR/profile.lsf" ]; then
+    profile="$LSF_ENVDIR/profile.lsf"
 else
-    echo "bhist-speedup: cannot read volclava.sh or lsf.sh in /etc/profile.d" >&2
+    echo "bhist-speedup: cannot find volclava.sh or profile.lsf in $LSF_ENVDIR (adjust LSF_ENVDIR at the top of this script)" >&2
     exit 1
 fi
 if ! source "$profile"; then
     echo "bhist-speedup: failed to load $profile" >&2
     exit 1
 fi
-if [[ "$LSF_ENVDIR" != /* || "$LSF_BINDIR" != /* ]] ||
-    [ ! -d "$LSF_ENVDIR" ] || [ ! -d "$LSF_BINDIR" ]; then
-    echo "bhist-speedup: LSF_ENVDIR and LSF_BINDIR must name absolute directories" >&2
+if [[ "$LSF_ENVDIR" != /* || "$LSF_BINDIR" != /* || "$LSF_SERVERDIR" != /* ]] ||
+    [ ! -d "$LSF_ENVDIR" ] || [ ! -d "$LSF_BINDIR" ] ||
+    [ ! -d "$LSF_SERVERDIR" ]; then
+    echo "bhist-speedup: LSF_ENVDIR, LSF_BINDIR and LSF_SERVERDIR must name absolute directories" >&2
     exit 1
 fi
-export LSF_ENVDIR LSF_BINDIR
+export LSF_ENVDIR LSF_BINDIR LSF_SERVERDIR
 
-loader="$LSF_BINDIR/bhist-speedup-loader"
-server="$LSF_BINDIR/bhist-speedup-server"
+# The loader and server are daemons and live in sbin (LSF_SERVERDIR).
+loader="$LSF_SERVERDIR/bhist-speedup-loader"
+server="$LSF_SERVERDIR/bhist-speedup-server"
 if [ ! -x "$loader" ] || [ ! -x "$server" ]; then
-    echo "bhist-speedup: loader and server must be executable in $LSF_BINDIR" >&2
+    echo "bhist-speedup: loader and server must be executable in $LSF_SERVERDIR" >&2
     exit 1
 fi
 

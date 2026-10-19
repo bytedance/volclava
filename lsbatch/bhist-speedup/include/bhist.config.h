@@ -38,6 +38,7 @@ struct config {
     int eventPollIntervalMs;
     long long maxEventsPerTransaction;
     long long maxRawSizePerTransactionMib;
+    /* Configured in days (LSB_BHIST_HISTORY_RETENTION), stored in seconds. */
     long long historyRetentionSeconds;
     int importCacheSizeMib;
 

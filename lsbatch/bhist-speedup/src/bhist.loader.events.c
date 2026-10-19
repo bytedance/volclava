@@ -6,13 +6,14 @@
  * and imports them in bounded transactions through loader.db.c.
  */
 
-#include "loader.h"
+#include "bhist.loader.h"
 #include "lproto.h"
 
 #include <ctype.h>
 #include <dirent.h>
 #include <errno.h>
 #include <limits.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -305,13 +306,14 @@ planArchiveFromScan(sqlite3 *db,
 
     if (archiveIndex <= 0) {
         ls_syslog(LOG_ERR,
-                  "completed_source_count_exceeds_retained_archives");
+                  "event_archive_progress_inconsistent; "
+                  "run bhist-speedup-loader rebuild");
         return LOADER_STEP_REBUILD_REQUIRED;
     }
     if (archiveIndex > maxArchiveIndex) {
         ls_syslog(LOG_ERR,
-                  "target_archive_outside_retained_window "
-                  "archive_index=%ld max_archive=%ld",
+                  "event_archive_out_of_range index=%ld available=%ld; "
+                  "run bhist-speedup-loader rebuild",
                   archiveIndex, maxArchiveIndex);
         return LOADER_STEP_REBUILD_REQUIRED;
     }
@@ -319,8 +321,8 @@ planArchiveFromScan(sqlite3 *db,
                           archiveIndex);
     if (archive == NULL) {
         ls_syslog(LOG_ERR,
-                  "target_archive_for_completed_source_count_missing "
-                  "archive_index=%ld",
+                  "event_archive_missing index=%ld; "
+                  "run bhist-speedup-loader rebuild",
                   archiveIndex);
         return LOADER_STEP_REBUILD_REQUIRED;
     }
@@ -332,10 +334,9 @@ planArchiveFromScan(sqlite3 *db,
     if (sourceExists && !markRemapped &&
         strcmp(archive->fileIno, progress->currentFileIno) != 0) {
         ls_syslog(LOG_ERR,
-                  "archive_generation_mismatch source_id=%lld "
-                  "archive_index=%ld expected_ino=%s actual_ino=%s",
-                  progress->currentSourceId, archiveIndex,
-                  progress->currentFileIno, archive->fileIno);
+                  "event_archive_replaced index=%ld; "
+                  "run bhist-speedup-loader rebuild",
+                  archiveIndex);
         return LOADER_STEP_REBUILD_REQUIRED;
     }
     initPlanFromGeneration(plan, LOADER_SOURCE_ARCHIVE, archive);
@@ -411,8 +412,9 @@ loaderPlanArchiveQueue(const char *logdir,
     remaining = maxArchiveIndex - (long)progress.completedSources;
     if (remaining < 0) {
         ls_syslog(LOG_ERR,
-                  "completed_source_count_exceeds_retained_archives "
-                  "completed_sources=%lld max_archive=%ld",
+                  "event_archive_progress_inconsistent "
+                  "imported=%lld available=%ld; "
+                  "run bhist-speedup-loader rebuild",
                   progress.completedSources, maxArchiveIndex);
         freeGenerations(generations);
         return LOADER_STEP_REBUILD_REQUIRED;
@@ -441,8 +443,8 @@ loaderPlanArchiveQueue(const char *logdir,
             free(plans);
             freeGenerations(generations);
             ls_syslog(LOG_ERR,
-                      "target_archive_for_completed_source_count_missing "
-                      "archive_index=%ld",
+                      "event_archive_missing index=%ld; "
+                      "run bhist-speedup-loader rebuild",
                       archiveIndex);
             return LOADER_STEP_REBUILD_REQUIRED;
         }
@@ -515,10 +517,10 @@ loaderPlanNextSource(const char *logdir,
             if (currentSize < progress.currentPayloadStartOff +
                               progress.currentOffset) {
                 ls_syslog(LOG_ERR,
-                          "live_event_file_size_regressed "
-                          "source_id=%lld inode=%s size=%lld "
-                          "committed_position=%lld",
-                          progress.currentSourceId, currentIno, currentSize,
+                          "event_file_shrunk file=%s size=%lld "
+                          "committed_position=%lld; "
+                          "run bhist-speedup-loader rebuild",
+                          currentPath, currentSize,
                           progress.currentPayloadStartOff +
                           progress.currentOffset);
                 return LOADER_STEP_REBUILD_REQUIRED;
@@ -536,12 +538,7 @@ loaderPlanNextSource(const char *logdir,
         }
         if (currentStatRc == 0)
             ls_syslog(LOG_INFO,
-                      "live_rotate_mismatch source_id=%lld "
-                      "old_ino=%s new_ino=%s "
-                      "completed_sources=%lld current_offset=%lld",
-                      progress.currentSourceId,
-                      progress.currentFileIno, currentIno,
-                      progress.completedSources, progress.currentOffset);
+                      "event_file_rotated; rescanning event directory");
         discoverRc = scanVisibleGenerations(
             logdir, &generations, &generationCount);
         if (discoverRc == LOADER_FILE_DISCOVERY_STALE)
@@ -560,12 +557,9 @@ loaderPlanNextSource(const char *logdir,
                 maxArchiveIndex, remaining, 1, 1, openedAt, plan);
             if (result == LOADER_STEP_COMMITTED)
                 ls_syslog(LOG_INFO,
-                          "live_rotate_remap source_id=%lld archive_file=%s "
-                          "remaining=%ld completed_sources=%lld "
-                          "start_offset=%lld max_archive=%ld",
-                          plan->sourceId, plan->path, remaining,
-                          progress.completedSources, plan->currentOffset,
-                          maxArchiveIndex);
+                          "import_resumed_after_rotation archive_file=%s "
+                          "remaining_archives=%ld",
+                          plan->path, remaining);
             freeGenerations(generations);
             return result;
         }
@@ -596,7 +590,8 @@ loaderPlanNextSource(const char *logdir,
     if (strcmp(progress.currentState, "idle") != 0 &&
         strcmp(progress.currentKind, "none") != 0 &&
         progress.currentKind[0] != '\0') {
-        ls_syslog(LOG_ERR, "unsupported_progress_state state=%s kind=%s",
+        ls_syslog(LOG_ERR, "database_progress_invalid state=%s kind=%s; "
+                  "run bhist-speedup-loader rebuild",
                   progress.currentState, progress.currentKind);
         freeGenerations(generations);
         return LOADER_STEP_FATAL;
@@ -615,8 +610,9 @@ loaderPlanNextSource(const char *logdir,
         remaining = maxArchiveIndex - (long)progress.completedSources;
         if (remaining < 0) {
             ls_syslog(LOG_ERR,
-                      "completed_source_count_exceeds_retained_archives "
-                      "completed_sources=%lld max_archive=%ld",
+                      "event_archive_progress_inconsistent "
+                      "imported=%lld available=%ld; "
+                      "run bhist-speedup-loader rebuild",
                       progress.completedSources, maxArchiveIndex);
             freeGenerations(generations);
             return LOADER_STEP_REBUILD_REQUIRED;
@@ -694,9 +690,7 @@ static int validateArchiveContinuity(
 static int checkNextArchiveAfterDirChange(
     const char *logdir,
     const struct loaderGenerationBuilder *items,
-    size_t count,
-    const struct loaderDirStamp *before,
-    const struct loaderDirStamp *after);
+    size_t count);
 
 /*
  * Test whether a discovery error represents a transient generation change.
@@ -1012,6 +1006,42 @@ appendGeneration(struct loaderGenerationBuilder **items,
     return 0;
 }
 
+/* Last directory-change detail already reported; repeats are suppressed. */
+static char loaderLastDirChangeDetail[192];
+
+/*
+ * Log an event-directory change once per distinct detail so bounded
+ * stale-snapshot rescans do not repeat the same notice.
+ * @param[in] detailFormat: Printf format for the reason detail.
+ * @return: None.
+ */
+static void
+logEventDirChanged(const char *detailFormat, ...)
+{
+    char detail[sizeof(loaderLastDirChangeDetail)];
+    va_list arguments;
+
+    va_start(arguments, detailFormat);
+    (void)vsnprintf(detail, sizeof(detail), detailFormat, arguments);
+    va_end(arguments);
+    if (strcmp(detail, loaderLastDirChangeDetail) == 0)
+        return;
+    snprintf(loaderLastDirChangeDetail,
+             sizeof(loaderLastDirChangeDetail), "%s", detail);
+    ls_syslog(LOG_INFO, "event_dir_changed %s; rescanning", detail);
+}
+
+/*
+ * Forget the last reported directory-change detail so the next occurrence
+ * of an identical change is reported again.
+ * @return: None.
+ */
+static void
+resetEventDirChangedLog(void)
+{
+    loaderLastDirChangeDetail[0] = '\0';
+}
+
 /*
  * Verify that visible archive suffixes form one descending chain ending at 1.
  * @param[in] items: Sorted generation builders.
@@ -1039,18 +1069,16 @@ validateArchiveContinuity(
             expected--;
         }
         if (items[i].archiveIndex != expected) {
-            ls_syslog(LOG_INFO,
-                      "generation_snapshot_stale "
-                      "reason=archive_chain_gap expected=lsb.events.%ld",
-                      expected);
+            logEventDirChanged(
+                "reason=archive_chain_gap expected=lsb.events.%ld",
+                expected);
             return LOADER_FILE_DISCOVERY_STALE;
         }
     }
 
     if (haveArchive && expected != 1) {
-        ls_syslog(LOG_INFO,
-                  "generation_snapshot_stale "
-                  "reason=archive_chain_does_not_end_at_1");
+        logEventDirChanged(
+            "reason=archive_chain_does_not_end_at_1");
         return LOADER_FILE_DISCOVERY_STALE;
     }
     return 0;
@@ -1083,17 +1111,13 @@ findBuilderMaxArchiveIndex(const struct loaderGenerationBuilder *items,
  * @param[in] logdir: Event log directory.
  * @param[in] items: Generations captured by the scan.
  * @param[in] count: Number of captured generations.
- * @param[in] before: Directory stamp before scanning entries.
- * @param[in] after: Directory stamp after scanning entries.
  * @return: 0 when no next archive exists, STALE on rotation, otherwise -1.
  */
 static int
 checkNextArchiveAfterDirChange(
     const char *logdir,
     const struct loaderGenerationBuilder *items,
-    size_t count,
-    const struct loaderDirStamp *before,
-    const struct loaderDirStamp *after)
+    size_t count)
 {
     char nextName[64];
     char nextPath[LOADER_PATH_MAX];
@@ -1113,17 +1137,8 @@ checkNextArchiveAfterDirChange(
     if (stat(nextPath, &st) == 0) {
         if (!S_ISREG(st.st_mode))
             return 0;
-        ls_syslog(LOG_INFO,
-                  "generation_snapshot_stale "
-                  "reason=archive_upper_bound_changed path=%s "
-                  "max_archive=%ld next_archive=%s "
-                  "before_mtime=%lld.%09ld before_ctime=%lld.%09ld "
-                  "after_mtime=%lld.%09ld after_ctime=%lld.%09ld",
-                  logdir, maxArchiveIndex, nextName,
-                  before->mtimeSec, before->mtimeNsec,
-                  before->ctimeSec, before->ctimeNsec,
-                  after->mtimeSec, after->mtimeNsec,
-                  after->ctimeSec, after->ctimeNsec);
+        logEventDirChanged(
+            "reason=archive_upper_bound_changed file=%s", nextName);
         return LOADER_FILE_DISCOVERY_STALE;
     }
 
@@ -1196,9 +1211,8 @@ scanVisibleGenerations(const char *logdir,
             strcmp(entry->d_name, "lsb.events.tmp") == 0) {
             closedir(dir);
             free(builders);
-            ls_syslog(LOG_INFO,
-                      "generation_snapshot_stale reason=rotate_window file=%s",
-                      entry->d_name);
+            logEventDirChanged(
+                "reason=rotate_window file=%s", entry->d_name);
             return LOADER_FILE_DISCOVERY_STALE;
         }
 
@@ -1262,7 +1276,7 @@ scanVisibleGenerations(const char *logdir,
     }
     if (!dirStampsEqual(&beforeStamp, &afterStamp)) {
         stampRc = checkNextArchiveAfterDirChange(
-            logdir, builders, count, &beforeStamp, &afterStamp);
+            logdir, builders, count);
         if (stampRc != 0) {
             free(builders);
             return stampRc;
@@ -1291,6 +1305,7 @@ scanVisibleGenerations(const char *logdir,
         items[i] = builders[i].item;
 
     free(builders);
+    resetEventDirChangedLog();
     *outItems = items;
     *outCount = count;
     return 0;
@@ -2109,42 +2124,6 @@ commitChunk(sqlite3 *db,
 }
 
 /*
- * Emit one structured log record for a committed import chunk.
- * @param[in] plan: Source plan identifying the imported generation.
- * @param[in] stats: Cumulative source statistics.
- * @param[in] reason: Commit boundary reason.
- * @param[in] dayKey: Event day written by the chunk.
- * @param[in] chunkLines: Source lines consumed in the chunk.
- * @param[in] chunkRawBytes: Raw bytes consumed in the chunk.
- * @param[in] chunkEndOffset: Logical source offset after the chunk.
- * @param[in] inserted: Cumulative inserted row count.
- * @param[in] skipped: Cumulative skipped row count.
- * @return: None.
- */
-static void
-logChunkCommit(const struct loaderSourcePlan *plan,
-               const struct loaderImportStats *stats,
-               const char *reason,
-               const char *dayKey,
-               long long chunkLines,
-               long long chunkRawBytes,
-               long long chunkEndOffset,
-               long long inserted,
-               long long skipped)
-{
-    ls_syslog(LOG_INFO,
-              "import_chunk_commit source_id=%lld file=%s reason=%s "
-              "day=%s chunk_lines=%lld chunk_raw_bytes=%lld "
-              "end_offset=%lld total_lines=%lld total_inserted=%lld "
-              "total_skipped=%lld",
-              plan->sourceId, stats->file,
-              reason != NULL ? reason : "none",
-              dayKey != NULL && dayKey[0] != '\0' ? dayKey : "none",
-              chunkLines, chunkRawBytes, chunkEndOffset,
-              stats->inputLines, inserted, skipped);
-}
-
-/*
  * Switch the import writer to an event day.
  * @param[in] db: SQLite connection.
  * @param[in,out] writer: Current event writer.
@@ -2249,7 +2228,6 @@ loaderImportRefreshRetainedHead(sqlite3 *db,
     struct tm floorTm;
     time_t floorEpoch;
     time_t refreshStarted;
-    time_t transactionStarted;
     int floorYear;
     int floorMonth;
     int floorDayOfMonth;
@@ -2262,7 +2240,7 @@ loaderImportRefreshRetainedHead(sqlite3 *db,
     if (db == NULL || plan == NULL ||
         plan->kind != LOADER_SOURCE_LIVE_CURRENT ||
         historyRetentionSeconds <= 0 || now <= historyRetentionSeconds) {
-        ls_syslog(LOG_ERR, "invalid_retained_head_refresh");
+        ls_syslog(LOG_ERR, "retention_refresh_invalid");
         return LOADER_STEP_FATAL;
     }
 
@@ -2279,7 +2257,6 @@ loaderImportRefreshRetainedHead(sqlite3 *db,
     skipped = 0;
     inTransaction = 0;
     writerOpen = 0;
-    transactionStarted = 0;
     memset(&writer, 0, sizeof(writer));
     result = LOADER_STEP_FATAL;
 
@@ -2293,17 +2270,13 @@ loaderImportRefreshRetainedHead(sqlite3 *db,
 
     if (retainedSourceId > plan->sourceId) {
         ls_syslog(LOG_ERR,
-                "retained_head_source_ahead retained_source_id=%lld "
-                "current_source_id=%lld",
+                "retention_floor_inconsistent floor_source=%lld "
+                "current_source=%lld; run bhist-speedup-loader rebuild",
                 retainedSourceId, plan->sourceId);
         result = LOADER_STEP_REBUILD_REQUIRED;
         goto done;
     }
     if (retainedSourceId == plan->sourceId) {
-        ls_syslog(LOG_INFO,
-                "retained_head_refresh_skip file=%s source_id=%lld "
-                "reason=same_source",
-                plan->path, plan->sourceId);
         result = LOADER_STEP_IDLE;
         goto done;
     }
@@ -2323,7 +2296,8 @@ loaderImportRefreshRetainedHead(sqlite3 *db,
     if (strlen(floorDay) != 8 ||
         sscanf(floorDay, "%4d%2d%2d", &floorYear, &floorMonth,
                &floorDayOfMonth) != 3) {
-        ls_syslog(LOG_ERR, "parse retained day failed day=%s", floorDay);
+        ls_syslog(LOG_ERR, "retention_refresh_failed reason=invalid_day day=%s",
+                floorDay);
         goto done;
     }
     memset(&floorTm, 0, sizeof(floorTm));
@@ -2337,7 +2311,8 @@ loaderImportRefreshRetainedHead(sqlite3 *db,
                                       formattedFloorDay,
                                       sizeof(formattedFloorDay)) != 0 ||
         strcmp(formattedFloorDay, floorDay) != 0) {
-        ls_syslog(LOG_ERR, "invalid retained day day=%s", floorDay);
+        ls_syslog(LOG_ERR, "retention_refresh_failed reason=invalid_day day=%s",
+                floorDay);
         goto done;
     }
 
@@ -2346,7 +2321,7 @@ loaderImportRefreshRetainedHead(sqlite3 *db,
         int savedErrno;
 
         savedErrno = errno;
-        ls_syslog(LOG_ERR, "open retained head event file failed file=%s: %m",
+        ls_syslog(LOG_ERR, "retention_refresh_failed file=%s: %m",
                 plan->path);
         result = savedErrno == ENOENT ? LOADER_STEP_STALE_REPLAN :
             LOADER_STEP_FATAL;
@@ -2359,15 +2334,15 @@ loaderImportRefreshRetainedHead(sqlite3 *db,
         goto done;
     }
     if (fstat(fileno(fp), &st) != 0) {
-        ls_syslog(LOG_ERR, "stat retained head event file failed file=%s: %m",
+        ls_syslog(LOG_ERR, "retention_refresh_failed file=%s: %m",
                 plan->path);
         goto done;
     }
     if (plan->payloadStartOff <= 0 ||
         plan->payloadStartOff > (long long)st.st_size) {
         ls_syslog(LOG_INFO,
-                "retained_head_payload_boundary_stale file=%s "
-                "offset=%lld size=%lld",
+                "retention_refresh_retry reason=payload_boundary_stale "
+                "file=%s offset=%lld size=%lld",
                 plan->path, plan->payloadStartOff,
                 (long long)st.st_size);
         result = LOADER_STEP_STALE_REPLAN;
@@ -2376,7 +2351,8 @@ loaderImportRefreshRetainedHead(sqlite3 *db,
 
     rawLen = getline(&line, &lineCapacity, fp);
     if (rawLen < 0) {
-        ls_syslog(LOG_INFO, "retained_head_header_unavailable file=%s",
+        ls_syslog(LOG_INFO,
+                "retention_refresh_retry reason=header_unavailable file=%s",
                 plan->path);
         result = LOADER_STEP_STALE_REPLAN;
         goto done;
@@ -2388,7 +2364,8 @@ loaderImportRefreshRetainedHead(sqlite3 *db,
         while (*p != '\0' && isspace((unsigned char)*p))
             p++;
         if (*p != '#') {
-            ls_syslog(LOG_INFO, "retained_head_header_invalid file=%s",
+            ls_syslog(LOG_INFO,
+                    "retention_refresh_retry reason=header_invalid file=%s",
                     plan->path);
             result = LOADER_STEP_STALE_REPLAN;
             goto done;
@@ -2397,8 +2374,8 @@ loaderImportRefreshRetainedHead(sqlite3 *db,
     headerEnd = (long long)ftello(fp);
     if (headerEnd <= 0 || headerEnd > plan->payloadStartOff) {
         ls_syslog(LOG_INFO,
-                "retained_head_boundary_stale file=%s header_end=%lld "
-                "payload_start=%lld",
+                "retention_refresh_retry reason=boundary_stale file=%s "
+                "header_end=%lld payload_start=%lld",
                 plan->path, headerEnd, plan->payloadStartOff);
         result = LOADER_STEP_STALE_REPLAN;
         goto done;
@@ -2408,18 +2385,15 @@ loaderImportRefreshRetainedHead(sqlite3 *db,
     if (loaderStoreBegin(db) != 0)
         goto done;
     inTransaction = 1;
-    transactionStarted = time(NULL);
 
     if (loaderStoreLoadExpiredEventTables(
             db, floorDay, &dropTables, &dropCount) != 0)
         goto done;
 
     ls_syslog(LOG_INFO,
-            "retained_head_refresh_start file=%s source_id=%lld "
-            "previous_source_id=%lld cutoff_day=%s floor_day=%s "
+            "retention_refresh_start file=%s cutoff_day=%s floor_day=%s "
             "expired_tables=%zu",
-            plan->path, plan->sourceId, retainedSourceId,
-            cutoffDay, floorDay, dropCount);
+            plan->path, cutoffDay, floorDay, dropCount);
 
     if (loaderStoreDropExpiredEventTables(
             db, floorDay, dropTables, dropCount) != 0)
@@ -2441,19 +2415,19 @@ loaderImportRefreshRetainedHead(sqlite3 *db,
                 savedErrno = errno;
                 if (isStaleHandleError(savedErrno)) {
                     ls_syslog(LOG_INFO,
-                            "read retained head stale file=%s: %m",
+                            "retention_refresh_retry file=%s: %m",
                             plan->path);
                     result = LOADER_STEP_STALE_REPLAN;
                 } else {
                     ls_syslog(LOG_ERR,
-                            "read retained head failed file=%s: %m",
+                            "retention_refresh_failed file=%s: %m",
                             plan->path);
                     result = LOADER_STEP_FATAL;
                 }
             } else {
                 ls_syslog(LOG_INFO,
-                        "retained_head_ended_early file=%s offset=%lld "
-                        "end=%lld",
+                        "retention_refresh_retry reason=ended_early "
+                        "file=%s offset=%lld end=%lld",
                         plan->path, physicalOffset,
                         plan->payloadStartOff);
                 result = LOADER_STEP_STALE_REPLAN;
@@ -2463,14 +2437,14 @@ loaderImportRefreshRetainedHead(sqlite3 *db,
         physicalOffset = (long long)ftello(fp);
         if (physicalOffset < 0) {
             ls_syslog(LOG_ERR,
-                    "tell retained head event file failed file=%s: %m",
+                    "retention_refresh_failed file=%s: %m",
                     plan->path);
             goto done;
         }
         if (physicalOffset > plan->payloadStartOff) {
             ls_syslog(LOG_INFO,
-                    "retained_head_line_crossed_boundary file=%s "
-                    "line_end=%lld payload_start=%lld",
+                    "retention_refresh_retry reason=line_crossed_boundary "
+                    "file=%s line_end=%lld payload_start=%lld",
                     plan->path, physicalOffset,
                     plan->payloadStartOff);
             result = LOADER_STEP_STALE_REPLAN;
@@ -2485,7 +2459,9 @@ loaderImportRefreshRetainedHead(sqlite3 *db,
         parseRc = loaderExtractEventFromLine(line, &jobId, &times);
         if (parseRc == LOADER_EVENT_OK) {
             if (!times.hasEventTime) {
-                ls_syslog(LOG_ERR, "retained head event missing event time");
+                ls_syslog(LOG_ERR,
+                        "retention_refresh_failed reason=event_time_missing "
+                        "file=%s", plan->path);
                 goto done;
             }
             if (times.eventTime < (long long)floorEpoch) {
@@ -2513,11 +2489,9 @@ loaderImportRefreshRetainedHead(sqlite3 *db,
     }
 
     ls_syslog(LOG_INFO,
-            "retained_head_scan_done file=%s source_id=%lld "
-            "header_end=%lld payload_start=%lld scanned_lines=%lld "
+            "retention_scan_done file=%s scanned_lines=%lld "
             "scanned_bytes=%lld inserted=%lld filtered=%lld skipped=%lld",
-            plan->path, plan->sourceId, headerEnd,
-            plan->payloadStartOff, scannedLines, scannedBytes,
+            plan->path, scannedLines, scannedBytes,
             inserted, filteredRows, skipped);
 
     if (writerOpen) {
@@ -2532,12 +2506,9 @@ loaderImportRefreshRetainedHead(sqlite3 *db,
         goto done;
     inTransaction = 0;
     ls_syslog(LOG_INFO,
-            "retained_head_refresh_done file=%s source_id=%lld "
-            "floor_day=%s inserted=%lld filtered=%lld skipped=%lld "
-            "dropped_tables=%zu transaction_sec=%ld elapsed_sec=%ld",
-            plan->path, plan->sourceId, floorDay, inserted, filteredRows,
-            skipped, dropCount,
-            (long)(time(NULL) - transactionStarted),
+            "retention_refresh_done file=%s floor_day=%s "
+            "inserted=%lld filtered=%lld dropped_tables=%zu elapsed_sec=%ld",
+            plan->path, floorDay, inserted, filteredRows, dropCount,
             (long)(time(NULL) - refreshStarted));
     result = LOADER_STEP_COMMITTED;
 
@@ -2546,10 +2517,9 @@ done:
         loaderStoreEventWriterClose(&writer);
     if (inTransaction) {
         ls_syslog(LOG_ERR,
-                "retained_head_refresh_rollback file=%s source_id=%lld "
+                "retention_refresh_rolled_back file=%s "
                 "scanned_lines=%lld inserted=%lld result=%d",
                 plan != NULL ? plan->path : "none",
-                plan != NULL ? plan->sourceId : 0,
                 scannedLines, inserted, (int)result);
         loaderStoreRollback(db);
     }
@@ -2571,9 +2541,6 @@ prepareImportStats(const struct loaderSourcePlan *plan,
                    struct loaderImportStats *stats)
 {
     memset(stats, 0, sizeof(*stats));
-    stats->sourceId = plan->sourceId;
-    stats->batchStartOffset = plan->currentOffset;
-    stats->batchEndOffset = plan->currentOffset;
     stats->currentOffset = plan->currentOffset;
     snprintf(stats->file, sizeof(stats->file), "%s",
              pathBasename(plan->path));
@@ -2680,8 +2647,6 @@ importEventsUntilEof(sqlite3 *db,
         lineNextOffset = logicalOffset + rawLen;
         textLen = (size_t)rawLen;
         stripTrailingNewlines(line, &textLen);
-        if (stats->inputLines == 0)
-            stats->batchStartOffset = logicalOffset;
 
         if (beginChunk(db, plan, &inTransaction,
                        &remapped) != 0)
@@ -2708,9 +2673,6 @@ importEventsUntilEof(sqlite3 *db,
                 if (commitRc > 0) {
                     goto fatalNoRollback;
                 }
-                logChunkCommit(
-                    plan, stats, "day_change", activeDay, txLines,
-                    txRawBytes, logicalOffset, inserted, skipped);
                 txLines = 0;
                 txRawBytes = 0;
                 activeDay[0] = '\0';
@@ -2736,7 +2698,6 @@ importEventsUntilEof(sqlite3 *db,
         }
 
         stats->inputLines += 1;
-        stats->batchEndOffset = lineNextOffset;
         stats->currentOffset = lineNextOffset;
         nextOffset = lineNextOffset;
         txLines += 1;
@@ -2744,10 +2705,7 @@ importEventsUntilEof(sqlite3 *db,
         if (txLines >= loaderImportTxMaxLines ||
             txRawBytes >= loaderImportTxMaxRawBytes) {
             int commitRc;
-            const char *chunkReason;
 
-            chunkReason = txLines >= loaderImportTxMaxLines ?
-                "chunk_lines" : "chunk_bytes";
             commitRc = commitChunk(
                 db, &writer, &writerOpen,
                 &inTransaction, plan->sourceId, nextOffset,
@@ -2756,9 +2714,6 @@ importEventsUntilEof(sqlite3 *db,
                 goto fatal;
             if (commitRc > 0)
                 goto fatalNoRollback;
-            logChunkCommit(
-                plan, stats, chunkReason, activeDay, txLines,
-                txRawBytes, nextOffset, inserted, skipped);
             txLines = 0;
             txRawBytes = 0;
             activeDay[0] = '\0';
@@ -2801,7 +2756,6 @@ importEventsUntilEof(sqlite3 *db,
 
     stats->insertedRows = inserted;
     stats->skippedLines = skipped;
-    stats->batchEndOffset = nextOffset;
     stats->currentOffset = nextOffset;
 
     if (inTransaction) {
@@ -2815,9 +2769,6 @@ importEventsUntilEof(sqlite3 *db,
             goto fatal;
         if (commitRc > 0)
             goto fatalNoRollback;
-        logChunkCommit(
-            plan, stats, "source_eof", activeDay, txLines,
-            txRawBytes, nextOffset, inserted, skipped);
         txLines = 0;
         txRawBytes = 0;
         activeDay[0] = '\0';
@@ -3012,9 +2963,6 @@ loaderImportLiveUntilEof(sqlite3 *db,
     }
 
     memset(stats, 0, sizeof(*stats));
-    stats->sourceId = plan->sourceId;
-    stats->batchStartOffset = plan->currentOffset;
-    stats->batchEndOffset = plan->currentOffset;
     stats->currentOffset = plan->currentOffset;
     snprintf(stats->file, sizeof(stats->file), "%s",
              pathBasename(plan->path));
@@ -3073,10 +3021,10 @@ loaderImportLiveUntilEof(sqlite3 *db,
         if (strcmp(currentIno, live->fileIno) == 0) {
             if (currentSize < live->payloadStartOff + live->currentOffset) {
                 ls_syslog(LOG_ERR,
-                          "live_event_file_size_regressed "
-                          "source_id=%lld inode=%s size=%lld "
-                          "committed_position=%lld",
-                          live->sourceId, currentIno, currentSize,
+                          "event_file_shrunk file=%s size=%lld "
+                          "committed_position=%lld; "
+                          "run bhist-speedup-loader rebuild",
+                          live->path, currentSize,
                           live->payloadStartOff + live->currentOffset);
                 return LOADER_STEP_REBUILD_REQUIRED;
             }
@@ -3085,12 +3033,8 @@ loaderImportLiveUntilEof(sqlite3 *db,
             return LOADER_STEP_IDLE;
         }
         ls_syslog(LOG_INFO,
-                  "live_rotate_detected source_id=%lld file=%s "
-                  "old_ino=%s new_ino=%s "
-                  "offset=%lld eof_count=%d",
-                  live->sourceId, live->path,
-                  live->fileIno, currentIno,
-                  live->currentOffset, live->eofCount);
+                  "event_file_rotated file=%s; completing current file",
+                  live->path);
         if (loaderStoreBegin(db) != 0)
             return LOADER_STEP_FATAL;
         if (loaderStoreFinishCurrentSource(db) != 0) {
@@ -3100,7 +3044,7 @@ loaderImportLiveUntilEof(sqlite3 *db,
         if (loaderStoreCommit(db) != 0)
             return LOADER_STEP_FATAL;
         snprintf(stats->reason, sizeof(stats->reason), "%s",
-                 "live_rotated_fd_eof");
+                 "event_file_rotated");
         loaderLiveHandleClose(live);
         return LOADER_STEP_SOURCE_DONE;
     }

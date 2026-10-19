@@ -1,5 +1,5 @@
-#ifndef LOADER_H
-#define LOADER_H
+#ifndef BHIST_LOADER_H
+#define BHIST_LOADER_H
 
 #include <stddef.h>
 #include <stdio.h>
@@ -279,12 +279,9 @@ struct loaderLiveHandle {
 
 /* Accumulates source and transaction counters used by loader diagnostics. */
 struct loaderImportStats {
-    long long sourceId;
     long long inputLines;
     long long insertedRows;
     long long skippedLines;
-    long long batchStartOffset;
-    long long batchEndOffset;
     long long currentOffset;
     char file[LOADER_PATH_MAX];
     char reason[32];

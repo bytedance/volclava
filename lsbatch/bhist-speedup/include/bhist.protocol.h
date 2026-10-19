@@ -1,5 +1,5 @@
-#ifndef PROTOCOL_H
-#define PROTOCOL_H
+#ifndef BHIST_PROTOCOL_H
+#define BHIST_PROTOCOL_H
 
 #include <stdint.h>
 

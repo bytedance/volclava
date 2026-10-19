@@ -1,7 +1,7 @@
-#ifndef SERVER_H
-#define SERVER_H
+#ifndef BHIST_SERVER_H
+#define BHIST_SERVER_H
 
-#include "protocol.h"
+#include "bhist.protocol.h"
 
 #include <stddef.h>
 #include <stdio.h>

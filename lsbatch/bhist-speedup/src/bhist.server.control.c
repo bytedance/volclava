@@ -1,5 +1,6 @@
-#include "server.h"
-#include "network.h"
+#include "bhist.server.h"
+#include "bhist.network.h"
+#include "bhist.util.h"
 
 #include <arpa/inet.h>
 #include <errno.h>
@@ -22,25 +23,6 @@
     "------------------------------------------------------------------------------"
 
 /*
- * Format a management-command error when an output buffer is available.
- * @param[out] error: Optional buffer receiving the formatted message.
- * @param[in] errorSize: Size of error.
- * @param[in] format: printf-style message format followed by its arguments.
- * @return: None.
- */
-static void
-setError(char *error, size_t errorSize, const char *format, ...)
-{
-    va_list arguments;
-
-    if (error == NULL || errorSize == 0)
-        return;
-    va_start(arguments, format);
-    (void)vsnprintf(error, errorSize, format, arguments);
-    va_end(arguments);
-}
-
-/*
  * Decode one 32-bit integer from a management response payload.
  * @param[in] payload: Four-byte network-order source.
  * @return: Host-order value.
@@ -52,19 +34,6 @@ readU32(const unsigned char *payload)
 
     memcpy(&value, payload, sizeof(value));
     return ntohl(value);
-}
-
-/*
- * Encode one 32-bit integer into a management request payload.
- * @param[out] payload: Four-byte destination.
- * @param[in] value: Host-order value.
- * @return: None.
- */
-static void
-writeU32(unsigned char *payload, uint32_t value)
-{
-    value = htonl(value);
-    memcpy(payload, &value, sizeof(value));
 }
 
 /*

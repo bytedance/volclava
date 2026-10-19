@@ -1,4 +1,4 @@
-#include "loader.h"
+#include "bhist.loader.h"
 #include "lproto.h"
 
 #include <sqlite3.h>
@@ -330,7 +330,8 @@ createIndexesForTable(sqlite3 *db,
         startedAt = time(NULL);
         ls_syslog(LOG_INFO, "index_create_start name=%s", indexName);
         if (execSql(db, sql) != 0) {
-            ls_syslog(LOG_ERR, "index_create_failed name=%s", indexName);
+            ls_syslog(LOG_ERR, "index_create_failed name=%s error=%s",
+                      indexName, sqlite3_errmsg(db));
             return -1;
         }
         ls_syslog(LOG_INFO, "index_create_done name=%s elapsed_sec=%ld",
@@ -386,21 +387,21 @@ ensureEventTable(sqlite3 *db,
         " VALUES (?, ?)",
         -1, &stmt, NULL);
     if (rc != SQLITE_OK) {
-        ls_syslog(LOG_ERR, "prepare loader_event_tables insert failed %s",
+        ls_syslog(LOG_ERR, "register_event_table_failed error=%s",
                   sqlite3_errmsg(db));
         return -1;
     }
     rc = bindText(stmt, 1, dayKey);
     rc = rc == SQLITE_OK ? bindText(stmt, 2, tableName) : rc;
     if (rc != SQLITE_OK) {
-        ls_syslog(LOG_ERR, "bind loader_event_tables insert failed %s",
+        ls_syslog(LOG_ERR, "register_event_table_failed error=%s",
                   sqlite3_errmsg(db));
         sqlite3_finalize(stmt);
         return -1;
     }
     rc = sqlite3_step(stmt);
     if (rc != SQLITE_DONE) {
-        ls_syslog(LOG_ERR, "insert loader_event_tables failed %s",
+        ls_syslog(LOG_ERR, "register_event_table_failed error=%s",
                   sqlite3_errmsg(db));
         sqlite3_finalize(stmt);
         return -1;
@@ -489,7 +490,7 @@ loaderStoreOpen(const char *dbPath, int busyTimeoutMs,
  */
 int
 loaderStoreOpenReadonly(const char *dbPath, int busyTimeoutMs,
-                           sqlite3 **outDb)
+                          sqlite3 **outDb)
 {
     sqlite3 *db;
     int rc;
@@ -503,7 +504,8 @@ loaderStoreOpenReadonly(const char *dbPath, int busyTimeoutMs,
     db = NULL;
     rc = sqlite3_open_v2(dbPath, &db, SQLITE_OPEN_READONLY, NULL);
     if (rc != SQLITE_OK) {
-        ls_syslog(LOG_ERR, "sqlite open failed %s", db ? sqlite3_errmsg(db) : dbPath);
+        ls_syslog(LOG_ERR, "sqlite open failed db=%s: %s",
+                 dbPath, db ? sqlite3_errmsg(db) : "unknown error");
         if (db != NULL)
             sqlite3_close(db);
         return -1;
@@ -657,7 +659,7 @@ loaderStoreCreateIndexes(sqlite3 *db)
         "SELECT table_name FROM loader_event_tables ORDER BY day_key",
         -1, &stmt, NULL);
     if (rc != SQLITE_OK) {
-        ls_syslog(LOG_ERR, "prepare loader_event_tables scan failed %s",
+        ls_syslog(LOG_ERR, "event_table_registry_read_failed error=%s",
                   sqlite3_errmsg(db));
         return -1;
     }
@@ -678,7 +680,8 @@ loaderStoreCreateIndexes(sqlite3 *db)
             newTables = realloc(
                 tables, newCapacity * sizeof(*tables));
             if (newTables == NULL) {
-                ls_syslog(LOG_ERR, "allocate event table list failed");
+                ls_syslog(LOG_ERR, "event_table_registry_read_failed "
+                          "reason=out_of_memory");
                 sqlite3_finalize(stmt);
                 free(tables);
                 return -1;
@@ -691,7 +694,7 @@ loaderStoreCreateIndexes(sqlite3 *db)
         tableCount += 1;
     }
     if (rc != SQLITE_DONE) {
-        ls_syslog(LOG_ERR, "scan loader_event_tables failed %s",
+        ls_syslog(LOG_ERR, "event_table_registry_read_failed error=%s",
                   sqlite3_errmsg(db));
         sqlite3_finalize(stmt);
         free(tables);
@@ -725,7 +728,7 @@ loaderStoreAnalyze(sqlite3 *db)
     startedAt = time(NULL);
     ls_syslog(LOG_INFO, "analyze_start");
     if (execSql(db, "ANALYZE") != 0) {
-        ls_syslog(LOG_ERR, "analyze_failed");
+        ls_syslog(LOG_ERR, "analyze_failed error=%s", sqlite3_errmsg(db));
         return -1;
     }
     ls_syslog(LOG_INFO, "analyze_done elapsed_sec=%ld",
@@ -857,9 +860,8 @@ loaderStoreValidateSchema(const char *dbPath, int busyTimeoutMs)
 
     db = NULL;
     if (loaderStoreOpenReadonly(dbPath, busyTimeoutMs, &db) != 0) {
-        ls_syslog(LOG_ERR,
-                "schema_check_open_failed db=%s; run "
-                "bhist-speedup-loader rebuild", dbPath);
+        ls_syslog(LOG_ERR, "schema_check_open_failed db=%s; run "
+                 "bhist-speedup-loader rebuild", dbPath);
         return -1;
     }
     statement = NULL;
@@ -873,23 +875,23 @@ loaderStoreValidateSchema(const char *dbPath, int busyTimeoutMs)
             strcmp((const char *)actual, expected) == 0;
     }
     if (!compatible) {
-        ls_syslog(LOG_ERR,
-                "schema_incompatible db=%s expected=%s actual=%s; "
-                "run bhist-speedup-loader rebuild",
-                dbPath, expected,
-                actual != NULL ? (const char *)actual : "missing");
+        ls_syslog(LOG_ERR, "schema_incompatible db=%s expected=%s "
+                 "actual=%s; run bhist-speedup-loader rebuild",
+                 dbPath, expected,
+                 actual != NULL ? (const char *)actual : "missing");
     }
     if (statement != NULL)
         sqlite3_finalize(statement);
     if (compatible &&
-        loaderStoreGetDbStatus(db, dbStatus, sizeof(dbStatus)) != 0)
+        loaderStoreGetDbStatus(db, dbStatus, sizeof(dbStatus)) != 0) {
+        ls_syslog(LOG_ERR, "read_db_status_failed db=%s; run "
+                 "bhist-speedup-loader rebuild", dbPath);
         compatible = 0;
+    }
     if (compatible &&
         strcmp(dbStatus, LOADER_DB_STATUS_REBUILD_REQUIRED) == 0) {
-        ls_syslog(LOG_ERR,
-                "database_rebuild_required db=%s; run "
-                "bhist-speedup-loader rebuild",
-                dbPath);
+        ls_syslog(LOG_ERR, "database_rebuild_required db=%s; run "
+                 "bhist-speedup-loader rebuild", dbPath);
         compatible = 0;
     }
     loaderStoreClose(db);

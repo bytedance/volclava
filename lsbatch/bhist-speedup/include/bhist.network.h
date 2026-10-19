@@ -1,5 +1,5 @@
-#ifndef NETWORK_H
-#define NETWORK_H
+#ifndef BHIST_NETWORK_H
+#define BHIST_NETWORK_H
 
 #include <stddef.h>
 

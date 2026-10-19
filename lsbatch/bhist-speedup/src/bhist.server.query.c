@@ -22,9 +22,9 @@
  *   streams, and warns when already emitted output may be incomplete.
  */
 
-#include "server.h"
-#include "daemon.h"
-#include "version.h"
+#include "bhist.server.h"
+#include "bhist.daemon.h"
+#include "bhist.version.h"
 #include "lproto.h"
 #include "lib.table.h"
 
@@ -1332,7 +1332,7 @@ static int
 invalidArguments(void)
 {
     fputs("bhist speed up: invalid query arguments; "
-          "run bhist-speedup -h for usage\n", stderr);
+          "run bhist-fast -h for usage\n", stderr);
     return -1;
 }
 

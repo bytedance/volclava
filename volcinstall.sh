@@ -75,40 +75,17 @@ SCRIPT_PATH="$(realpath "$0")"
 #######################################
 function usage() {
     echo "Usage: volcinstall.sh [--help]"
-    echo "                      [--setup=pre [--uid=number] [--enable-bhist-speedup=Y|N]]"
-    echo "                      [--setup=install [--type=code|rpm|deb] [--prefix=/opt/volclava] [--hosts=\"master server1 ...\"|/path/file] [--file=/path/install.conf] [--enable-bhist-speedup=Y|N]]"
+    echo "                      [--setup=pre [--uid=number] [--file=/path/install.conf]]"
+    echo "                      [--setup=install [--type=code|rpm|deb] [--prefix=/opt/volclava] [--hosts=\"master server1 ...\"|/path/file] [--file=/path/install.conf]]"
     echo "                      [--setup=post [--env=/volclava_top] [--startup=Y|y|N|n]]"
-    echo "                      [--type=code|rpm|deb|server] [--prefix=/opt/volclava] [--hosts=\"master server1 ...\"|/path/file] [--uid=number] [--startup=Y|y|N|n] [--file=/path/install.conf] [--enable-bhist-speedup=Y|N]"
+    echo "                      [--type=code|rpm|deb|server] [--prefix=/opt/volclava] [--hosts=\"master server1 ...\"|/path/file] [--uid=number] [--startup=Y|y|N|n] [--file=/path/install.conf]"
 }
 
-function set_bhist_speedup_cli() {
-    local requested=$1
-
-    case "$requested" in
-        Y|y)
-            requested=Y
-            ;;
-        N|n)
-            requested=N
-            ;;
-        *)
-            echo "Error: --enable-bhist-speedup should be Y or N."
-            usage
-            exit 1
-            ;;
-    esac
-
-    if [[ -n "$ENABLE_BHIST_SPEEDUP" && "$ENABLE_BHIST_SPEEDUP" != "$requested" ]]; then
-        echo "Error: conflicting --enable-bhist-speedup values."
-        usage
-        exit 1
-    fi
-
-    ENABLE_BHIST_SPEEDUP=$requested
-}
-
+# VOLC_BHIST_SPEEDUP comes only from install.conf (or the environment),
+# like VOLC_ADMIN and VOLC_PREFIX. The configure flag --enable-bhist-speedup
+# belongs to the build tools (bootstrap.sh/rpm.sh/dpkg-buildpackage) only.
 function configure_bhist_speedup_mode() {
-    case "${ENABLE_BHIST_SPEEDUP:-${VOLC_BHIST_SPEEDUP:-N}}" in
+    case "${VOLC_BHIST_SPEEDUP:-N}" in
         Y|y)
             ENABLE_BHIST_SPEEDUP=Y
             ;;
@@ -179,16 +156,17 @@ function register_bhist_speedup_service() (
         return 0
     fi
 
-    unset LSF_ENVDIR LSF_BINDIR
+    unset LSF_ENVDIR LSF_BINDIR LSF_SERVERDIR
     source /etc/profile.d/volclava.sh || return 1
-    if [[ "$LSF_ENVDIR" != /* || "$LSF_BINDIR" != /* ]] ||
-        [ ! -d "$LSF_ENVDIR" ] || [ ! -d "$LSF_BINDIR" ]; then
-        echo "Cannot register bhist-speedup: invalid LSF_ENVDIR or LSF_BINDIR." >&2
+    if [[ "$LSF_ENVDIR" != /* || "$LSF_BINDIR" != /* || "$LSF_SERVERDIR" != /* ]] ||
+        [ ! -d "$LSF_ENVDIR" ] || [ ! -d "$LSF_BINDIR" ] ||
+        [ ! -d "$LSF_SERVERDIR" ]; then
+        echo "Cannot register bhist-speedup: invalid LSF_ENVDIR, LSF_BINDIR or LSF_SERVERDIR." >&2
         return 1
     fi
     if [ ! -x "$LSF_ENVDIR/bhist-speedup" ] ||
-        [ ! -x "$LSF_BINDIR/bhist-speedup-loader" ] ||
-        [ ! -x "$LSF_BINDIR/bhist-speedup-server" ]; then
+        [ ! -x "$LSF_SERVERDIR/bhist-speedup-loader" ] ||
+        [ ! -x "$LSF_SERVERDIR/bhist-speedup-server" ]; then
         if [[ "$PHASE" == "post" || "$PHASE" == "pre-post" ]]; then
             echo "Skipping bhist-speedup service registration: management script or binaries are not installed."
             return 0
@@ -546,9 +524,6 @@ while [ $# -gt 0 ]; do
                 usage
                 exit 1
             fi
-            ;;
-        --enable-bhist-speedup=*)
-            set_bhist_speedup_cli "${1#*=}"
             ;;
         --help)
             usage

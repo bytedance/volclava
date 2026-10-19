@@ -1,7 +1,7 @@
 #!/bin/sh
 
 # Route the bhist subset supported by bhist speed up to the accelerated client.
-# Unsupported syntax always remains the responsibility of bhist_original.
+# Unsupported syntax always remains the responsibility of bhist-standard.
 
 FALLBACK_SAFE_STATUS=125
 
@@ -154,8 +154,8 @@ bindir=$(resolve_bindir) || {
     echo "bhist speed up: cannot resolve the bhist installation directory" >&2
     exit 127
 }
-speedup_path=$bindir/bhist-speedup
-original_path=$bindir/bhist_original
+speedup_path=$bindir/bhist-fast
+original_path=$bindir/bhist-standard
 PATH=$bindir${PATH:+:$PATH}
 export PATH
 
@@ -164,7 +164,7 @@ if ! arguments_are_supported "$@"; then
         echo "bhist speed up: original bhist is not executable: $original_path" >&2
         exit 127
     fi
-    exec bhist_original "$@"
+    exec bhist-standard "$@"
 fi
 
 if environment_requires_native; then
@@ -173,7 +173,7 @@ elif [ ! -x "$speedup_path" ]; then
     echo "bhist speed up: accelerated client is not executable: $speedup_path" >&2
     speedup_status=$FALLBACK_SAFE_STATUS
 else
-    bhist-speedup "$@"
+    bhist-fast "$@"
     speedup_status=$?
 fi
 
@@ -186,4 +186,4 @@ if [ ! -x "$original_path" ]; then
     echo "bhist speed up: original bhist is not executable: $original_path" >&2
     exit 127
 fi
-exec bhist_original "$@"
+exec bhist-standard "$@"

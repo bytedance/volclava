@@ -1,4 +1,5 @@
-#include "protocol.h"
+#include "bhist.protocol.h"
+#include "bhist.util.h"
 
 #include <arpa/inet.h>
 #include <errno.h>
@@ -13,7 +14,6 @@
  */
 static int receiveExact(int fd, void *buffer, size_t length);
 static int sendAllSocket(int fd, const void *data, size_t length);
-static void writeU32(unsigned char *buffer, uint32_t value);
 static uint32_t readU32(const unsigned char *buffer);
 
 /*
@@ -79,21 +79,6 @@ receiveExact(int fd, void *buffer, size_t length)
         received += (size_t)rc;
     }
     return 0;
-}
-
-/*
- * Encode one 32-bit integer in network byte order.
- * @param[out] buffer: Four-byte destination.
- * @param[in] value: Host-order value.
- * @return: None.
- */
-static void
-writeU32(unsigned char *buffer, uint32_t value)
-{
-    uint32_t networkValue;
-
-    networkValue = htonl(value);
-    memcpy(buffer, &networkValue, sizeof(networkValue));
 }
 
 /*

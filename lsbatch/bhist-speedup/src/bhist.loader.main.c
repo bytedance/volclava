@@ -1,7 +1,8 @@
-#include "loader.h"
-#include "daemon.h"
+#include "bhist.loader.h"
+#include "bhist.daemon.h"
 #include "bhist.config.h"
-#include "version.h"
+#include "bhist.version.h"
+#include "bhist.util.h"
 #include "lproto.h"
 
 #include <errno.h>
@@ -60,28 +61,6 @@ static int loaderLiveSizeRegressed;
 
 static int initLoaderConfig(const struct config *shared,
                             struct loaderConfig *config);
-
-/*
- * Sleep for a millisecond interval while retrying interrupted nanosleep calls.
- * @param[in] milliseconds: Requested delay.
- * @return: 0 on success, otherwise -1.
- */
-static int
-sleepMs(int milliseconds)
-{
-    struct timespec request;
-
-    if (milliseconds <= 0)
-        return 0;
-    request.tv_sec = milliseconds / 1000;
-    request.tv_nsec = (long)(milliseconds % 1000) * 1000000L;
-    while (nanosleep(&request, &request) != 0) {
-        if (errno == EINTR)
-            continue;
-        return -1;
-    }
-    return 0;
-}
 
 /*
  * Count a stale snapshot and delay before another bounded retry.
@@ -161,7 +140,7 @@ startLiveSizeWatch(const struct loaderSourcePlan *plan)
     }
     context = calloc(1, sizeof(*context));
     if (context == NULL) {
-        ls_syslog(LOG_ERR, "live_size_watch_alloc_failed: %m");
+        ls_syslog(LOG_ERR, "event_file_monitor_start_failed: %m");
         return -1;
     }
     snprintf(context->path, sizeof(context->path), "%s", plan->path);
@@ -169,14 +148,14 @@ startLiveSizeWatch(const struct loaderSourcePlan *plan)
     context->lastSize = st.st_size;
     rc = pthread_create(&thread, NULL, watchLiveSize, context);
     if (rc != 0) {
-        ls_syslog(LOG_ERR, "live_size_watch_start_failed error=%s",
+        ls_syslog(LOG_ERR, "event_file_monitor_start_failed error=%s",
                 strerror(rc));
         free(context);
         return -1;
     }
     rc = pthread_detach(thread);
     if (rc != 0) {
-        ls_syslog(LOG_ERR, "live_size_watch_detach_failed error=%s",
+        ls_syslog(LOG_ERR, "event_file_monitor_start_failed error=%s",
                 strerror(rc));
         return -1;
     }
@@ -241,16 +220,9 @@ static void
 configureSqliteForBulkImport(const struct loaderConfig *config)
 {
     loaderStoreConfigureSqlite(
-        "OFF", "OFF", "EXCLUSIVE", "MEMORY",
+        "DELETE", "OFF", "OFF", "EXCLUSIVE",
         LOADER_SQLITE_PAGE_SIZE_BYTES,
         config->importCacheSizeKib, 0);
-    ls_syslog(LOG_INFO,
-              "sqlite_tuning_mode mode=bulk_import journal_mode=OFF "
-              "synchronous=OFF locking_mode=EXCLUSIVE "
-              "temp_store=MEMORY page_size=%d cache_size_kib=%d "
-              "wal_autocheckpoint=0",
-              LOADER_SQLITE_PAGE_SIZE_BYTES,
-              config->importCacheSizeKib);
 }
 
 /*
@@ -264,11 +236,6 @@ configureSqliteForLiveImport(const struct loaderConfig *config)
     loaderStoreConfigureSqlite(
         "WAL", "NORMAL", "", "", 0, config->importCacheSizeKib,
         1000);
-    ls_syslog(LOG_INFO,
-              "sqlite_tuning_mode mode=live_safe journal_mode=WAL "
-              "synchronous=NORMAL locking_mode=default "
-              "cache_size_kib=%d wal_autocheckpoint=1000",
-              config->importCacheSizeKib);
 }
 
 /*
@@ -284,7 +251,7 @@ publishWorkDb(const char *workDbPath,
     if (removeDbFiles(dbPath) != 0)
         return -1;
     if (rename(workDbPath, dbPath) != 0) {
-        ls_syslog(LOG_ERR, "publish_db_rename_failed src=%s dst=%s: %m",
+        ls_syslog(LOG_ERR, "database_replace_failed from=%s to=%s: %m",
                   workDbPath, dbPath);
         return -1;
     }
@@ -305,24 +272,24 @@ buildWorkDbIndexes(const char *workDbPath,
     time_t startedAt;
 
     startedAt = time(NULL);
-    ls_syslog(LOG_INFO, "index_build_start db=%s", workDbPath);
+    ls_syslog(LOG_INFO, "index_build_start db=%s", config->dbPath);
 
     db = NULL;
     if (loaderStoreOpen(workDbPath, config->dbBusyTimeoutMs,
                           &db) != 0) {
-        ls_syslog(LOG_ERR, "index_build_open_failed db=%s", workDbPath);
+        ls_syslog(LOG_ERR, "index_build_open_failed db=%s", config->dbPath);
         return -1;
     }
     if (loaderStoreCreateIndexes(db) != 0 ||
         loaderStoreAnalyze(db) != 0) {
         loaderStoreClose(db);
-        ls_syslog(LOG_ERR, "index_build_failed db=%s", workDbPath);
+        ls_syslog(LOG_ERR, "index_build_failed db=%s", config->dbPath);
         return -1;
     }
     loaderStoreClose(db);
 
     ls_syslog(LOG_INFO, "index_build_done db=%s elapsed_sec=%ld",
-              workDbPath, (long)(time(NULL) - startedAt));
+              config->dbPath, (long)(time(NULL) - startedAt));
     return 0;
 }
 
@@ -420,7 +387,7 @@ runImportLoop(const char *logdir,
         if (__atomic_load_n(&loaderLiveSizeRegressed,
                             __ATOMIC_ACQUIRE) != 0) {
             ls_syslog(LOG_ERR,
-                    "live_event_file_size_regressed action=rebuild_required");
+                  "event_file_shrunk; run bhist-speedup-loader rebuild");
             goto rebuildRequired;
         }
 
@@ -429,14 +396,12 @@ runImportLoop(const char *logdir,
                 db, &livePlan, &live, &stats);
             if (stats.inputLines > 0 || stepRc == LOADER_STEP_SOURCE_DONE)
                 ls_syslog(LOG_INFO,
-                          "live_eof_commit source_id=%lld file=%s reason=%s "
-                          "lines=%lld inserted=%lld skipped=%lld "
-                          "start_offset=%lld end_offset=%lld",
-                          stats.sourceId, stats.file,
+                          "live_eof_commit file=%s reason=%s "
+                          "lines=%lld inserted=%lld skipped=%lld",
+                          stats.file,
                           stats.reason[0] ? stats.reason : "none",
                           stats.inputLines, stats.insertedRows,
-                          stats.skippedLines, stats.batchStartOffset,
-                          stats.batchEndOffset);
+                          stats.skippedLines);
             if (stepRc == LOADER_STEP_COMMITTED) {
                 staleRetries = 0;
                 livePlan.currentOffset = live.currentOffset;
@@ -451,13 +416,6 @@ runImportLoop(const char *logdir,
             }
             if (stepRc == LOADER_STEP_IDLE) {
                 staleRetries = 0;
-                if (stats.inputLines == 0 && stats.sourceId > 0)
-                    ls_syslog(LOG_INFO,
-                              "live_eof_wait source_id=%lld file=%s "
-                              "reason=%s eof_count=%d offset=%lld",
-                              stats.sourceId, stats.file,
-                              stats.reason[0] ? stats.reason : "none",
-                              live.eofCount, live.currentOffset);
                 sleepMs(config->pollIntervalMs);
                 continue;
             }
@@ -484,14 +442,12 @@ runImportLoop(const char *logdir,
                 db, &plan, &stats);
             if (stats.inputLines > 0 || stepRc == LOADER_STEP_SOURCE_DONE)
                 ls_syslog(LOG_INFO,
-                          "archive_source_commit source_id=%lld file=%s reason=%s "
-                          "lines=%lld inserted=%lld skipped=%lld "
-                          "start_offset=%lld end_offset=%lld",
-                          stats.sourceId, stats.file,
+                          "archive_source_commit file=%s reason=%s "
+                          "lines=%lld inserted=%lld skipped=%lld",
+                          stats.file,
                           stats.reason[0] ? stats.reason : "none",
                           stats.inputLines, stats.insertedRows,
-                          stats.skippedLines, stats.batchStartOffset,
-                          stats.batchEndOffset);
+                          stats.skippedLines);
             if (stepRc == LOADER_STEP_COMMITTED ||
                 stepRc == LOADER_STEP_SOURCE_DONE) {
                 staleRetries = 0;
@@ -582,14 +538,12 @@ runImportLoop(const char *logdir,
                 db, &plan, &stats);
             if (stats.inputLines > 0 || stepRc == LOADER_STEP_SOURCE_DONE)
                 ls_syslog(LOG_INFO,
-                          "archive_source_commit source_id=%lld file=%s reason=%s "
-                          "lines=%lld inserted=%lld skipped=%lld "
-                          "start_offset=%lld end_offset=%lld",
-                          stats.sourceId, stats.file,
+                          "archive_source_commit file=%s reason=%s "
+                          "lines=%lld inserted=%lld skipped=%lld",
+                          stats.file,
                           stats.reason[0] ? stats.reason : "none",
                           stats.inputLines, stats.insertedRows,
-                          stats.skippedLines, stats.batchStartOffset,
-                          stats.batchEndOffset);
+                          stats.skippedLines);
         } else if (plan.kind == LOADER_SOURCE_LIVE_CURRENT) {
             if (watchedLiveSourceId != plan.sourceId) {
                 int watchRc;
@@ -606,14 +560,12 @@ runImportLoop(const char *logdir,
                 db, &livePlan, &live, &stats);
             if (stats.inputLines > 0 || stepRc == LOADER_STEP_SOURCE_DONE)
                 ls_syslog(LOG_INFO,
-                          "live_eof_commit source_id=%lld file=%s reason=%s "
-                          "lines=%lld inserted=%lld skipped=%lld "
-                          "start_offset=%lld end_offset=%lld",
-                          stats.sourceId, stats.file,
+                          "live_eof_commit file=%s reason=%s "
+                          "lines=%lld inserted=%lld skipped=%lld",
+                          stats.file,
                           stats.reason[0] ? stats.reason : "none",
                           stats.inputLines, stats.insertedRows,
-                          stats.skippedLines, stats.batchStartOffset,
-                          stats.batchEndOffset);
+                          stats.skippedLines);
         } else {
             stepRc = LOADER_STEP_IDLE;
         }
@@ -636,14 +588,6 @@ runImportLoop(const char *logdir,
         }
         if (stepRc == LOADER_STEP_IDLE) {
             staleRetries = 0;
-            if (plan.kind == LOADER_SOURCE_LIVE_CURRENT &&
-                stats.inputLines == 0 && stats.sourceId > 0)
-                ls_syslog(LOG_INFO,
-                          "live_eof_wait source_id=%lld file=%s reason=%s "
-                          "eof_count=%d offset=%lld",
-                          stats.sourceId, stats.file,
-                          stats.reason[0] ? stats.reason : "none",
-                          live.eofCount, live.currentOffset);
             sleepMs(config->pollIntervalMs);
             continue;
         }
@@ -683,38 +627,39 @@ static int
 buildAndFollow(const struct loaderConfig *config)
 {
     char workDbPath[LOADER_PATH_MAX];
-    char message[LOADER_PATH_MAX * 3 + 512];
 
     configureSqliteForBulkImport(config);
     if (!buildWorkDbPath(config->dbPath, workDbPath,
                          sizeof(workDbPath))) {
-        ls_syslog(LOG_ERR, "work_db_path_failed %s", config->dbPath);
+        ls_syslog(LOG_ERR, "database_build_prepare_failed db=%s",
+                  config->dbPath);
         return 1;
     }
     if (removeDbFiles(workDbPath) != 0) {
-        ls_syslog(LOG_ERR, "remove_work_db_failed");
+        ls_syslog(LOG_ERR, "database_build_prepare_failed db=%s",
+                  config->dbPath);
         return 1;
     }
     if (createDb(workDbPath, config) != 0) {
-        ls_syslog(LOG_ERR, "build_db_init_failed");
+        ls_syslog(LOG_ERR, "database_build_init_failed db=%s",
+                  config->dbPath);
         return 1;
     }
     if (loaderStoreValidateSchema(workDbPath,
-                               config->dbBusyTimeoutMs) != 0)
+                                  config->dbBusyTimeoutMs) != 0)
         return 1;
-    snprintf(message, sizeof(message),
-             "loader_v2_initial_build_start db=%s work_db=%s logdir=%s",
-             config->dbPath, workDbPath, config->logdir);
-    ls_syslog(LOG_INFO, "%s", message);
+    ls_syslog(LOG_INFO, "database_build_start db=%s logdir=%s",
+              config->dbPath, config->logdir);
     if (runImportLoop(config->logdir, workDbPath, config, 1) != 0)
         return 1;
     if (buildWorkDbIndexes(workDbPath, config) != 0)
         return 1;
     if (publishWorkDb(workDbPath, config->dbPath) != 0) {
-        ls_syslog(LOG_ERR, "publish_db_failed");
+        ls_syslog(LOG_ERR, "database_build_publish_failed db=%s",
+                  config->dbPath);
         return 1;
     }
-    ls_syslog(LOG_INFO, "loader_v2_initial_build_publish_done");
+    ls_syslog(LOG_INFO, "database_build_done db=%s", config->dbPath);
     configureSqliteForLiveImport(config);
     return runImportLoop(config->logdir, config->dbPath, config, 0);
 }
@@ -731,7 +676,7 @@ startImport(const struct loaderConfig *config, int replaceExisting)
     /* Normal start reuses a compatible final database. */
     if (!replaceExisting && access(config->dbPath, F_OK) == 0) {
         if (loaderStoreValidateSchema(config->dbPath,
-                                   config->dbBusyTimeoutMs) != 0)
+                                      config->dbBusyTimeoutMs) != 0)
             return 1;
         configureSqliteForLiveImport(config);
         return runImportLoop(config->logdir, config->dbPath, config, 0);
@@ -764,16 +709,17 @@ validateStartDatabase(const struct config *sharedConfig)
                  config.logMask);
     if (access(config.dbPath, F_OK) == 0)
         return loaderStoreValidateSchema(config.dbPath,
-                                      config.dbBusyTimeoutMs) == 0 ?
+                                          config.dbBusyTimeoutMs) == 0 ?
             0 : 1;
     if (errno != ENOENT) {
         ls_syslog(LOG_ERR, "schema_check_access_failed db=%s: %m",
-                config.dbPath);
+                 config.dbPath);
         return 1;
     }
     if (!buildWorkDbPath(config.dbPath, workDbPath,
                          sizeof(workDbPath))) {
-        ls_syslog(LOG_ERR, "work_db_path_failed %s", config.dbPath);
+        ls_syslog(LOG_ERR, "database_build_prepare_failed db=%s",
+                  config.dbPath);
         return 1;
     }
     return 0;
@@ -791,31 +737,37 @@ printDbStatus(const struct loaderConfig *config)
     sqlite3 *db;
     struct loaderProgressRow progress;
 
-    printf("db=%s\n", config->dbPath);
-    printf("eventsdir=%s\n", config->logdir);
+    fprintf(stdout, "db=%s\n", config->dbPath);
+    fprintf(stdout, "eventsdir=%s\n", config->logdir);
     if (access(config->dbPath, F_OK) != 0) {
-        printf("db_status=missing\n");
+        fprintf(stdout, "db_status=missing\n");
         return 0;
     }
     db = NULL;
     if (loaderStoreOpenReadonly(config->dbPath,
                                    config->dbBusyTimeoutMs,
                                    &db) != 0) {
-        printf("db_status=error\n");
+        fprintf(stdout, "db_status=error\n");
+        fprintf(stderr, "bhist-speedup-loader: cannot open database %s\n",
+                config->dbPath);
         return 1;
     }
     if (loaderStoreLoadProgress(db, &progress) != 0) {
-        printf("db_status=error\n");
+        fprintf(stdout, "db_status=error\n");
+        fprintf(stderr, "bhist-speedup-loader: cannot read progress from %s\n",
+                config->dbPath);
         loaderStoreClose(db);
         return 1;
     }
     if (loaderStoreGetDbStatus(db, dbStatus, sizeof(dbStatus)) != 0) {
-        printf("db_status=error\n");
+        fprintf(stdout, "db_status=error\n");
+        fprintf(stderr, "bhist-speedup-loader: cannot read status from %s\n",
+                config->dbPath);
         loaderStoreClose(db);
         return 1;
     }
-    printf("db_status=%s\n", dbStatus);
-    printf("event_rows_tracked=%lld\n", progress.totalSeenRowCount);
+    fprintf(stdout, "db_status=%s\n", dbStatus);
+    fprintf(stdout, "event_rows_tracked=%lld\n", progress.totalSeenRowCount);
     loaderStoreClose(db);
     return 0;
 }
@@ -850,7 +802,7 @@ initLoaderConfig(const struct config *shared,
             (int)sizeof(config->runtimeLogdir) ||
         snprintf(config->logMask, sizeof(config->logMask), "%s",
                  shared->logMask) >= (int)sizeof(config->logMask)) {
-        fprintf(stderr, "bhist-speedup-loader: configured path is too long\n");
+        ls_syslog(LOG_ERR, "configured path is too long");
         return -1;
     }
     loaderImportConfigureChunkLimits(config->importTxMaxLines,
@@ -987,7 +939,8 @@ validateStartDirectories(const struct config *config,
     if (stat(databaseDirectory, &st) != 0 || !S_ISDIR(st.st_mode) ||
         access(databaseDirectory, W_OK | X_OK) != 0) {
         snprintf(error, errorSize,
-                 "database directory is not writable: %.400s",
+                 "database directory is not writable: %.400s; "
+                 "run once as root to create paths and fix ownership",
                  databaseDirectory);
         return -1;
     }
@@ -1019,22 +972,21 @@ doStart(struct loaderDaemonContext *context, int rebuild,
 
     result = pidFileStatus(pidPath, &pid, error, sizeof(error));
     if (result < 0) {
-        fprintf(stderr, "bhist-speedup-loader: %s\n", error);
+        ls_syslog(LOG_ERR, "%s", error);
         return 1;
     }
     if (result > 0) {
         if (rebuild) {
-            fprintf(stderr,
-                    "bhist-speedup-loader: loader is running (pid=%ld); "
-                    "stop it before rebuild\n", (long)pid);
+            ls_syslog(LOG_ERR, "already_running pid=%ld; "
+                     "stop it before rebuild", (long)pid);
             return 1;
         }
-        printf("bhist-speedup-loader: already running pid=%ld\n", (long)pid);
+        fprintf(stdout, "already running pid=%ld\n", (long)pid);
         return 0;
     }
     if (validateStartDirectories(&context->config,
                                    error, sizeof(error)) != 0) {
-        fprintf(stderr, "bhist-speedup-loader: %s\n", error);
+        ls_syslog(LOG_ERR, "%s", error);
         return 1;
     }
     if (!rebuild && validateStartDatabase(&context->config) != 0)
@@ -1043,21 +995,20 @@ doStart(struct loaderDaemonContext *context, int rebuild,
     result = daemonStart(pidPath, logPath, runDaemon,
                               context, &pid, error, sizeof(error));
     if (result < 0) {
-        fprintf(stderr, "bhist-speedup-loader: %s\n", error);
+        ls_syslog(LOG_ERR, "%s", error);
         return 1;
     }
     if (result > 0) {
         if (rebuild) {
-            fprintf(stderr,
-                    "bhist-speedup-loader: loader is running (pid=%ld); "
-                    "stop it before rebuild\n", (long)pid);
+            ls_syslog(LOG_ERR, "already_running pid=%ld; "
+                     "stop it before rebuild", (long)pid);
             return 1;
         }
-        printf("bhist-speedup-loader: already running pid=%ld\n", (long)pid);
+        fprintf(stdout, "already running pid=%ld\n", (long)pid);
         return 0;
     }
-    printf("bhist-speedup-loader: started pid=%ld db=%s log=%s\n",
-           (long)pid, context->config.dbPath, logPath);
+    fprintf(stdout, "started pid=%ld db=%s log=%s\n",
+            (long)pid, context->config.dbPath, logPath);
     return 0;
 }
 
@@ -1075,13 +1026,13 @@ doStop(const char *pidPath)
 
     if (daemonStop(pidPath, 10000, &pid, &wasRunning,
                         error, sizeof(error)) != 0) {
-        fprintf(stderr, "bhist-speedup-loader: %s\n", error);
+        ls_syslog(LOG_ERR, "%s", error);
         return 1;
     }
     if (wasRunning)
-        printf("bhist-speedup-loader: stopped pid=%ld\n", (long)pid);
+        fprintf(stdout, "stopped pid=%ld\n", (long)pid);
     else
-        puts("bhist-speedup-loader: not running");
+        fprintf(stdout, "not running\n");
     return 0;
 }
 
@@ -1101,14 +1052,14 @@ doStatus(const struct config *config, const char *pidPath)
 
     result = pidFileStatus(pidPath, &pid, error, sizeof(error));
     if (result < 0) {
-        fprintf(stderr, "bhist-speedup-loader: %s\n", error);
+        ls_syslog(LOG_ERR, "%s", error);
         return 1;
     }
     if (result > 0) {
-        puts("state=running");
-        printf("pid=%ld\n", (long)pid);
+        fprintf(stdout, "state=running\n");
+        fprintf(stdout, "pid=%ld\n", (long)pid);
     } else {
-        puts("state=stopped");
+        fprintf(stdout, "state=stopped\n");
         (void)pidFileRemoveStale(pidPath, error, sizeof(error));
     }
     metadataResult = printStatus(config);
@@ -1132,6 +1083,13 @@ main(int argc, char **argv)
     uid_t callerUid = getuid();
     int result = 1;
 
+    /*
+     * Terminal fallback until configuration provides the runtime log
+     * directory and mask. Every stage before ls_openlog() reconfiguration
+     * reports errors through ls_syslog() on stderr.
+     */
+    ls_openlog("bhist-speedup-loader", NULL, 1, "LOG_NOTICE");
+
     if (argc == 2 && (strcmp(argv[1], "-h") == 0 ||
                       strcmp(argv[1], "--help") == 0)) {
         usage(stdout);
@@ -1154,11 +1112,16 @@ main(int argc, char **argv)
         usage(stderr);
         return 2;
     }
+    /* Only database-touching commands need the SQLite feature level. */
+    if ((strcmp(command, "start") == 0 ||
+         strcmp(command, "rebuild") == 0) &&
+        checkSqliteRuntime() != 0)
+        return 1;
 
     memset(&context, 0, sizeof(context));
     if (configLoad(CONFIG_ROLE_LOADER, &context.config,
                         error, sizeof(error)) != 0) {
-        fprintf(stderr, "bhist-speedup-loader: %s\n", error);
+        ls_syslog(LOG_ERR, "%s", error);
         goto done;
     }
     if (configLoadAdmins(&context.config, error, sizeof(error)) != 0 ||
@@ -1166,14 +1129,7 @@ main(int argc, char **argv)
                        error, sizeof(error)) != 0 ||
         configRequireServiceHost(&context.config,
                                  error, sizeof(error)) != 0) {
-        fprintf(stderr, "bhist-speedup-loader: %s\n", error);
-        goto done;
-    }
-    /* Keep root for inspection and stopping services owned by any admin. */
-    if (callerUid == 0 && strcmp(command, "stop") != 0 &&
-        strcmp(command, "status") != 0 &&
-        switchServiceUser(context.config.admins[0], error, sizeof(error)) != 0) {
-        fprintf(stderr, "bhist-speedup-loader: %s\n", error);
+        ls_syslog(LOG_ERR, "%s", error);
         goto done;
     }
     if (pidPathForConfig(&context.config, pidPath, sizeof(pidPath),
@@ -1181,7 +1137,27 @@ main(int argc, char **argv)
         configLogPath(&context.config, "bhist-speedup-loader",
                             logPath, sizeof(logPath),
                             error, sizeof(error)) != 0) {
-        fprintf(stderr, "bhist-speedup-loader: %s\n", error);
+        ls_syslog(LOG_ERR, "%s", error);
+        goto done;
+    }
+    /*
+     * While still root, create the database directory and log file, and
+     * hand root-owned leftovers to the service administrator, so the
+     * switched daemon never fails on paths it cannot write.
+     */
+    if (callerUid == 0 && (strcmp(command, "start") == 0 ||
+                           strcmp(command, "rebuild") == 0) &&
+        prepareServicePaths(context.config.dbPath, logPath, pidPath,
+                            context.config.admins[0],
+                            error, sizeof(error)) != 0) {
+        ls_syslog(LOG_ERR, "%s", error);
+        goto done;
+    }
+    /* Keep root for inspection and stopping services owned by any admin. */
+    if (callerUid == 0 && strcmp(command, "stop") != 0 &&
+        strcmp(command, "status") != 0 &&
+        switchServiceUser(context.config.admins[0], error, sizeof(error)) != 0) {
+        ls_syslog(LOG_ERR, "%s", error);
         goto done;
     }
 
