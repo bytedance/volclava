@@ -307,13 +307,13 @@ planArchiveFromScan(sqlite3 *db,
     if (archiveIndex <= 0) {
         ls_syslog(LOG_ERR,
                   "event_archive_progress_inconsistent; "
-                  "run bhist-speedup-loader rebuild");
+                  "run bhist-admin loader clean");
         return LOADER_STEP_REBUILD_REQUIRED;
     }
     if (archiveIndex > maxArchiveIndex) {
         ls_syslog(LOG_ERR,
                   "event_archive_out_of_range index=%ld available=%ld; "
-                  "run bhist-speedup-loader rebuild",
+                  "run bhist-admin loader clean",
                   archiveIndex, maxArchiveIndex);
         return LOADER_STEP_REBUILD_REQUIRED;
     }
@@ -322,7 +322,7 @@ planArchiveFromScan(sqlite3 *db,
     if (archive == NULL) {
         ls_syslog(LOG_ERR,
                   "event_archive_missing index=%ld; "
-                  "run bhist-speedup-loader rebuild",
+                  "run bhist-admin loader clean",
                   archiveIndex);
         return LOADER_STEP_REBUILD_REQUIRED;
     }
@@ -335,7 +335,7 @@ planArchiveFromScan(sqlite3 *db,
         strcmp(archive->fileIno, progress->currentFileIno) != 0) {
         ls_syslog(LOG_ERR,
                   "event_archive_replaced index=%ld; "
-                  "run bhist-speedup-loader rebuild",
+                  "run bhist-admin loader clean",
                   archiveIndex);
         return LOADER_STEP_REBUILD_REQUIRED;
     }
@@ -414,7 +414,7 @@ loaderPlanArchiveQueue(const char *logdir,
         ls_syslog(LOG_ERR,
                   "event_archive_progress_inconsistent "
                   "imported=%lld available=%ld; "
-                  "run bhist-speedup-loader rebuild",
+                  "run bhist-admin loader clean",
                   progress.completedSources, maxArchiveIndex);
         freeGenerations(generations);
         return LOADER_STEP_REBUILD_REQUIRED;
@@ -444,7 +444,7 @@ loaderPlanArchiveQueue(const char *logdir,
             freeGenerations(generations);
             ls_syslog(LOG_ERR,
                       "event_archive_missing index=%ld; "
-                      "run bhist-speedup-loader rebuild",
+                      "run bhist-admin loader clean",
                       archiveIndex);
             return LOADER_STEP_REBUILD_REQUIRED;
         }
@@ -519,7 +519,7 @@ loaderPlanNextSource(const char *logdir,
                 ls_syslog(LOG_ERR,
                           "event_file_shrunk file=%s size=%lld "
                           "committed_position=%lld; "
-                          "run bhist-speedup-loader rebuild",
+                          "run bhist-admin loader clean",
                           currentPath, currentSize,
                           progress.currentPayloadStartOff +
                           progress.currentOffset);
@@ -591,7 +591,7 @@ loaderPlanNextSource(const char *logdir,
         strcmp(progress.currentKind, "none") != 0 &&
         progress.currentKind[0] != '\0') {
         ls_syslog(LOG_ERR, "database_progress_invalid state=%s kind=%s; "
-                  "run bhist-speedup-loader rebuild",
+                  "run bhist-admin loader clean",
                   progress.currentState, progress.currentKind);
         freeGenerations(generations);
         return LOADER_STEP_FATAL;
@@ -612,7 +612,7 @@ loaderPlanNextSource(const char *logdir,
             ls_syslog(LOG_ERR,
                       "event_archive_progress_inconsistent "
                       "imported=%lld available=%ld; "
-                      "run bhist-speedup-loader rebuild",
+                      "run bhist-admin loader clean",
                       progress.completedSources, maxArchiveIndex);
             freeGenerations(generations);
             return LOADER_STEP_REBUILD_REQUIRED;
@@ -2271,7 +2271,7 @@ loaderImportRefreshRetainedHead(sqlite3 *db,
     if (retainedSourceId > plan->sourceId) {
         ls_syslog(LOG_ERR,
                 "retention_floor_inconsistent floor_source=%lld "
-                "current_source=%lld; run bhist-speedup-loader rebuild",
+                "current_source=%lld; run bhist-admin loader clean",
                 retainedSourceId, plan->sourceId);
         result = LOADER_STEP_REBUILD_REQUIRED;
         goto done;
@@ -3023,7 +3023,7 @@ loaderImportLiveUntilEof(sqlite3 *db,
                 ls_syslog(LOG_ERR,
                           "event_file_shrunk file=%s size=%lld "
                           "committed_position=%lld; "
-                          "run bhist-speedup-loader rebuild",
+                          "run bhist-admin loader clean",
                           live->path, currentSize,
                           live->payloadStartOff + live->currentOffset);
                 return LOADER_STEP_REBUILD_REQUIRED;

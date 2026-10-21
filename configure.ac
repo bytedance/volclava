@@ -151,8 +151,4 @@ AC_CONFIG_FILES([
   config/volclava.sh
 ])
 
-AS_IF([test "x$enable_bhist_speedup" = "xyes"], [
-  AC_CONFIG_FILES([config/bhist-speedup])
-])
-
 AC_OUTPUT

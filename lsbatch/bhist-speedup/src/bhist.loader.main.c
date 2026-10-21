@@ -1,5 +1,5 @@
 #include "bhist.loader.h"
-#include "bhist.daemon.h"
+#include "bhist.service.h"
 #include "bhist.config.h"
 #include "bhist.version.h"
 #include "bhist.util.h"
@@ -178,16 +178,19 @@ unlinkIfExists(const char *path)
 }
 
 /*
- * Remove a database and its WAL and shared-memory sidecars.
+ * Remove a database and its rollback-journal, WAL and shared-memory sidecars.
  * @param[in] dbPath: Main SQLite database path.
  * @return: 0 on success, otherwise -1.
  */
 static int
 removeDbFiles(const char *dbPath)
 {
-    char sidecar[LOADER_PATH_MAX + 8];
+    char sidecar[LOADER_PATH_MAX + 16];
 
     if (unlinkIfExists(dbPath) != 0)
+        return -1;
+    snprintf(sidecar, sizeof(sidecar), "%s-journal", dbPath);
+    if (unlinkIfExists(sidecar) != 0)
         return -1;
     snprintf(sidecar, sizeof(sidecar), "%s-wal", dbPath);
     if (unlinkIfExists(sidecar) != 0)
@@ -345,7 +348,9 @@ createDb(const char *dbPath, const struct loaderConfig *config)
  * @param[in] dbPath: SQLite database receiving imported events.
  * @param[in] config: Loader polling, retention, and SQLite settings.
  * @param[in] stopAfterLiveOpen: Nonzero to stop once bootstrap reaches live.
- * @return: 0 on the requested bootstrap boundary, otherwise nonzero.
+ * @return: 0 on the requested bootstrap boundary,
+ *          SERVICE_EXIT_CLEAN_REQUIRED when the database must be rebuilt,
+ *          otherwise SERVICE_EXIT_FAILURE.
  */
 static int
 runImportLoop(const char *logdir,
@@ -359,8 +364,10 @@ runImportLoop(const char *logdir,
     struct loaderArchiveQueue archiveQueue;
     int staleRetries;
     int haveLivePlan;
+    int exitStatus;
     long long watchedLiveSourceId;
 
+    exitStatus = SERVICE_EXIT_FAILURE;
     db = NULL;
     memset(&live, 0, sizeof(live));
     memset(&livePlan, 0, sizeof(livePlan));
@@ -389,7 +396,7 @@ runImportLoop(const char *logdir,
         if (__atomic_load_n(&loaderLiveSizeRegressed,
                             __ATOMIC_ACQUIRE) != 0) {
             ls_syslog(LOG_ERR,
-                  "event_file_shrunk; run bhist-speedup-loader rebuild");
+                  "event_file_shrunk; run bhist-admin loader clean");
             goto rebuildRequired;
         }
 
@@ -612,12 +619,13 @@ rebuildRequired:
         ls_syslog(LOG_ERR, "persist_rebuild_required_failed");
     else
         ls_syslog(LOG_ERR, "database_status_changed status=rebuild_required");
+    exitStatus = SERVICE_EXIT_CLEAN_REQUIRED;
 fail:
     ls_syslog(LOG_ERR, "loader_failed");
     loaderPlanFreeArchiveQueue(&archiveQueue);
     loaderLiveHandleClose(&live);
     loaderStoreClose(db);
-    return 1;
+    return exitStatus;
 }
 
 /*
@@ -629,6 +637,7 @@ static int
 buildAndFollow(const struct loaderConfig *config)
 {
     char workDbPath[LOADER_PATH_MAX];
+    int result;
 
     configureSqliteForBulkImport(config);
     if (!buildWorkDbPath(config->dbPath, workDbPath,
@@ -652,8 +661,9 @@ buildAndFollow(const struct loaderConfig *config)
         return 1;
     ls_syslog(LOG_INFO, "database_build_start db=%s logdir=%s",
               config->dbPath, config->logdir);
-    if (runImportLoop(config->logdir, workDbPath, config, 1) != 0)
-        return 1;
+    result = runImportLoop(config->logdir, workDbPath, config, 1);
+    if (result != 0)
+        return result;
     if (buildWorkDbIndexes(workDbPath, config) != 0)
         return 1;
     if (publishWorkDb(workDbPath, config->dbPath) != 0) {
@@ -667,35 +677,27 @@ buildAndFollow(const struct loaderConfig *config)
 }
 
 /*
- * Start the loader with normal-start or rebuild semantics.
+ * Resume a compatible final database, or build one when none exists.
+ * An existing database is never deleted here; that is the clean command.
  * @param[in] config: Loader runtime configuration.
- * @param[in] replaceExisting: Nonzero for an explicit rebuild.
- * @return: 0 on success, otherwise nonzero.
+ * @return: 0 on success, otherwise a SERVICE_EXIT_* status.
  */
 static int
-startImport(const struct loaderConfig *config, int replaceExisting)
+startImport(const struct loaderConfig *config)
 {
-    /* Normal start reuses a compatible final database. */
-    if (!replaceExisting && access(config->dbPath, F_OK) == 0) {
+    if (access(config->dbPath, F_OK) == 0) {
         if (loaderStoreValidateSchema(config->dbPath,
                                       config->dbBusyTimeoutMs) != 0)
-            return 1;
+            return SERVICE_EXIT_CLEAN_REQUIRED;
         configureSqliteForLiveImport(config);
         return runImportLoop(config->logdir, config->dbPath, config, 0);
     }
     /* First start always rebuilds the unpublished bootstrap database. */
-    if (!replaceExisting)
-        return buildAndFollow(config);
-    /* Only explicit rebuild may delete the final database and sidecars. */
-    if (removeDbFiles(config->dbPath) != 0) {
-        ls_syslog(LOG_ERR, "remove_db_failed");
-        return 1;
-    }
     return buildAndFollow(config);
 }
 
 /*
- * Validate the final database schema and bootstrap path before daemonizing.
+ * Validate the final database schema and bootstrap path before starting.
  * @param[in] sharedConfig: Loaded loader configuration.
  * @return: 0 when valid, otherwise nonzero.
  */
@@ -832,21 +834,43 @@ initLoaderConfig(const struct config *shared,
 }
 
 /*
- * Execute the loader import loop.
+ * Switch to file logging, report readiness, and run the import loop.
  * @param[in] sharedConfig: Loaded loader configuration.
- * @param[in] rebuild: Whether to rebuild the database.
- * @return: 0 on success, otherwise nonzero.
+ * @param[in] logPath: Runtime log file path.
+ * @return: 0 on success, otherwise a SERVICE_EXIT_* status.
  */
 static int
-runImport(const struct config *sharedConfig, int rebuild)
+runImport(const struct config *sharedConfig, const char *logPath)
 {
     struct loaderConfig config;
+    int result;
 
     if (initLoaderConfig(sharedConfig, &config) != 0)
-        return 1;
+        return SERVICE_EXIT_CONFIG;
+    /* Everything after this goes to the log file, so say where it is. */
+    fprintf(stdout, "bhist-speedup-loader: running (pid %ld); log: %s\n",
+            (long)getpid(), logPath);
+    (void)fflush(stdout);
     ls_openlog("bhist-speedup-loader", config.runtimeLogdir, 0,
                  config.logMask);
-    return startImport(&config, rebuild ? 1 : 0);
+    /*
+     * Ready once configuration and the database are validated; an initial
+     * import can take far longer than any reasonable start timeout.
+     */
+    serviceNotify("READY=1");
+    result = startImport(&config);
+    /*
+     * Details are in the log file. Repeat the outcome on standard error so
+     * it also appears in systemctl status or on the terminal.
+     */
+    if (result == SERVICE_EXIT_CLEAN_REQUIRED)
+        fprintf(stderr, "bhist-speedup-loader: the history database must be "
+                "rebuilt; run: bhist-admin loader clean, then bhist-admin "
+                "loader start\n");
+    else if (result != 0)
+        fprintf(stderr, "bhist-speedup-loader: stopped after an error; "
+                "see %s\n", logPath);
+    return result;
 }
 
 /*
@@ -866,63 +890,20 @@ printStatus(const struct config *sharedConfig)
     return printDbStatus(&config);
 }
 
-/* Loader management command implementation. */
-
-struct loaderDaemonContext {
-    struct config config;
-    int rebuild;
-};
+/* Loader command implementation. */
 
 /*
- * Print loader management command syntax.
+ * Print loader command syntax.
  * @param[out] stream: Destination stream.
  * @return: None.
  */
 static void
 usage(FILE *stream)
 {
-    fputs("Usage: bhist-speedup-loader {start|rebuild|stop|status}\n", stream);
-}
-
-/*
- * Execute the loader state machine in the daemon child.
- * @param[in] opaque: Pointer to loaderDaemonContext.
- * @return: Loader execution result.
- */
-static int
-runDaemon(void *opaque)
-{
-    struct loaderDaemonContext *context;
-
-    context = (struct loaderDaemonContext *)opaque;
-    return runImport(&context->config, context->rebuild);
-}
-
-/*
- * Build the loader PID-file path beside the configured database.
- * @param[in] config: Loader configuration.
- * @param[out] path: Buffer receiving the PID-file path.
- * @param[in] pathSize: Size of path.
- * @param[out] error: Buffer receiving an error message.
- * @param[in] errorSize: Size of error.
- * @return: 0 on success, otherwise -1.
- */
-static int
-pidPathForConfig(const struct config *config,
-                    char *path, size_t pathSize,
-                    char *error, size_t errorSize)
-{
-    char directory[CONFIG_PATH_MAX];
-
-    if (parentDirectory(config->dbPath, directory,
-                             sizeof(directory), error, errorSize) != 0)
-        return -1;
-    if (snprintf(path, pathSize, "%s/bhist-speedup-loader.pid", directory) >=
-        (int)pathSize) {
-        snprintf(error, errorSize, "loader pid path is too long");
-        return -1;
-    }
-    return 0;
+    fputs("Usage: bhist-speedup-loader            run the loader in the foreground\n"
+          "       bhist-speedup-loader status     show loader state and database progress\n"
+          "       bhist-admin loader clean      remove the database while the loader is stopped\n",
+          stream);
 }
 
 /*
@@ -961,7 +942,8 @@ validateStartDirectories(const struct config *config,
         access(databaseDirectory, W_OK | X_OK) != 0) {
         snprintf(error, errorSize,
                  "database directory is not writable: %.400s; "
-                 "run once as root to create paths and fix ownership",
+                 "start the loader once as root to create paths and fix "
+                 "ownership",
                  databaseDirectory);
         return -1;
     }
@@ -976,102 +958,73 @@ validateStartDirectories(const struct config *config,
 }
 
 /*
- * Start the loader daemon with normal-start or rebuild semantics.
- * @param[in] context: Daemon startup context.
- * @param[in] rebuild: Nonzero for rebuild.
- * @param[in] pidPath: PID file path.
- * @param[in] logPath: Daemon log path.
- * @return: 0 when started or normal start finds it running, otherwise 1.
+ * Run the loader service in the foreground until it fails or is signaled.
+ * @param[in] config: Loader configuration.
+ * @param[in] callerUid: Real UID saved at program entry.
+ * @param[in] logPath: Runtime log file path.
+ * @return: SERVICE_EXIT_* status.
  */
 static int
-doStart(struct loaderDaemonContext *context, int rebuild,
-         const char *pidPath, const char *logPath)
+runLoader(const struct config *config, uid_t callerUid, const char *logPath)
 {
     char error[512];
     pid_t pid;
     int result;
 
-    result = pidFileStatus(pidPath, &pid, error, sizeof(error));
+    result = findServiceProcess("bhist-speedup-loader", &pid,
+                                error, sizeof(error));
     if (result < 0) {
         ls_syslog(LOG_ERR, "%s", error);
-        return 1;
+        return SERVICE_EXIT_FAILURE;
     }
     if (result > 0) {
-        if (rebuild) {
-            ls_syslog(LOG_ERR, "already_running pid=%ld; "
-                     "stop it before rebuild", (long)pid);
-            return 1;
-        }
-        fprintf(stdout, "already running pid=%ld\n", (long)pid);
-        return 0;
+        ls_syslog(LOG_ERR, "the loader is already running (pid %ld)",
+                  (long)pid);
+        return SERVICE_EXIT_RUNNING;
     }
-    if (validateStartDirectories(&context->config,
-                                   error, sizeof(error)) != 0) {
+    (void)umask(022);
+    if (chdir("/") != 0) {
+        ls_syslog(LOG_ERR, "cannot change directory to /: %m");
+        return SERVICE_EXIT_FAILURE;
+    }
+    /*
+     * While still root, create the database directory and log file, and
+     * hand root-owned leftovers to the service administrator, so the
+     * switched process never fails on paths it cannot write.
+     */
+    if (callerUid == 0 &&
+        prepareServicePaths(config->dbPath, logPath, config->admins[0],
+                            error, sizeof(error)) != 0) {
         ls_syslog(LOG_ERR, "%s", error);
-        return 1;
+        return SERVICE_EXIT_CONFIG;
     }
-    if (!rebuild && validateStartDatabase(&context->config) != 0)
-        return 1;
-    context->rebuild = rebuild;
-    result = daemonStart(pidPath, logPath, runDaemon,
-                              context, &pid, error, sizeof(error));
-    if (result < 0) {
+    /* The service always runs as the first administrator. */
+    if (switchServiceUser(config->admins[0], error, sizeof(error)) != 0 ||
+        validateStartDirectories(config, error, sizeof(error)) != 0) {
         ls_syslog(LOG_ERR, "%s", error);
-        return 1;
+        return SERVICE_EXIT_CONFIG;
     }
-    if (result > 0) {
-        if (rebuild) {
-            ls_syslog(LOG_ERR, "already_running pid=%ld; "
-                     "stop it before rebuild", (long)pid);
-            return 1;
-        }
-        fprintf(stdout, "already running pid=%ld\n", (long)pid);
-        return 0;
-    }
-    fprintf(stdout, "started pid=%ld db=%s log=%s\n",
-            (long)pid, context->config.dbPath, logPath);
-    return 0;
+    if (validateStartDatabase(config) != 0)
+        return SERVICE_EXIT_CLEAN_REQUIRED;
+    return runImport(config, logPath);
 }
 
 /*
- * Stop the loader daemon.
- * @param[in] pidPath: PID file path.
- * @return: 0 when stopped or already stopped, otherwise 1.
- */
-static int
-doStop(const char *pidPath)
-{
-    char error[512];
-    pid_t pid;
-    int wasRunning;
-
-    if (daemonStop(pidPath, 10000, &pid, &wasRunning,
-                        error, sizeof(error)) != 0) {
-        ls_syslog(LOG_ERR, "%s", error);
-        return 1;
-    }
-    if (wasRunning)
-        fprintf(stdout, "stopped pid=%ld\n", (long)pid);
-    else
-        fprintf(stdout, "not running\n");
-    return 0;
-}
-
-/*
- * Print loader process state and database import progress.
+ * Print loader process state, log file, and database import progress.
  * @param[in] config: Loader configuration.
- * @param[in] pidPath: PID file path.
+ * @param[in] logPath: Runtime log file path.
  * @return: Database status result when running, otherwise 1.
  */
 static int
-doStatus(const struct config *config, const char *pidPath)
+showStatus(const struct config *config, const char *logPath)
 {
     char error[512];
     pid_t pid;
     int result;
     int metadataResult;
 
-    result = pidFileStatus(pidPath, &pid, error, sizeof(error));
+    result = findServiceProcess("bhist-speedup-loader", &pid,
+                                error, sizeof(error));
     if (result < 0) {
         ls_syslog(LOG_ERR, "%s", error);
         return 1;
@@ -1081,28 +1034,68 @@ doStatus(const struct config *config, const char *pidPath)
         fprintf(stdout, "pid=%ld\n", (long)pid);
     } else {
         fprintf(stdout, "state=stopped\n");
-        (void)pidFileRemoveStale(pidPath, error, sizeof(error));
     }
+    fprintf(stdout, "log=%s\n", logPath);
     metadataResult = printStatus(config);
     return result > 0 ? metadataResult : 1;
 }
 
 /*
- * Parse and dispatch loader start, rebuild, stop, and status commands.
+ * Remove the final and bootstrap databases so the next start rebuilds them
+ * from the retained event files.
+ * @param[in] sharedConfig: Loaded loader configuration.
+ * @return: 0 on success, otherwise a SERVICE_EXIT_* status.
+ */
+static int
+cleanDatabase(const struct config *sharedConfig)
+{
+    struct loaderConfig config;
+    char workDbPath[LOADER_PATH_MAX];
+    char error[512];
+    pid_t pid;
+    int result;
+
+    result = findServiceProcess("bhist-speedup-loader", &pid,
+                                error, sizeof(error));
+    if (result < 0) {
+        ls_syslog(LOG_ERR, "%s", error);
+        return SERVICE_EXIT_FAILURE;
+    }
+    if (result > 0) {
+        ls_syslog(LOG_ERR, "the loader is running (pid %ld); stop it "
+                  "first with: bhist-admin loader stop", (long)pid);
+        return SERVICE_EXIT_RUNNING;
+    }
+    if (initLoaderConfig(sharedConfig, &config) != 0)
+        return SERVICE_EXIT_CONFIG;
+    if (!buildWorkDbPath(config.dbPath, workDbPath, sizeof(workDbPath))) {
+        ls_syslog(LOG_ERR, "database path is too long: %s", config.dbPath);
+        return SERVICE_EXIT_CONFIG;
+    }
+    if (removeDbFiles(config.dbPath) != 0 ||
+        removeDbFiles(workDbPath) != 0) {
+        ls_syslog(LOG_ERR, "cannot remove the database %s", config.dbPath);
+        return SERVICE_EXIT_FAILURE;
+    }
+    fprintf(stdout, "cleaned db=%s\n", config.dbPath);
+    return 0;
+}
+
+/*
+ * Run the loader, or dispatch the status and clean commands.
  * @param[in] argc: Number of command-line arguments.
  * @param[in] argv: Command-line argument vector.
- * @return: 0 on success, 2 for invalid arguments, otherwise 1.
+ * @return: 0 on success, otherwise a SERVICE_EXIT_* status.
  */
 int
 main(int argc, char **argv)
 {
-    struct loaderDaemonContext context;
+    struct config config;
     char error[512];
     char logPath[CONFIG_PATH_MAX];
-    char pidPath[CONFIG_PATH_MAX];
     const char *command;
     uid_t callerUid = getuid();
-    int result = 1;
+    int result = SERVICE_EXIT_CONFIG;
 
     /*
      * Terminal fallback until configuration provides the runtime log
@@ -1121,77 +1114,52 @@ main(int argc, char **argv)
         fputs(PROGRAM_VERSION, stdout);
         return 0;
     }
-    if (argc != 2) {
+    /* No argument runs the service; the service lookup relies on that. */
+    command = NULL;
+    if (argc == 2 && (strcmp(argv[1], "status") == 0 ||
+                      strcmp(argv[1], "clean") == 0)) {
+        command = argv[1];
+    } else if (argc != 1) {
         usage(stderr);
-        return 2;
+        return SERVICE_EXIT_USAGE;
     }
-    command = argv[1];
-    if (strcmp(command, "start") != 0 &&
-        strcmp(command, "rebuild") != 0 &&
-        strcmp(command, "stop") != 0 &&
-        strcmp(command, "status") != 0) {
-        usage(stderr);
-        return 2;
-    }
-    /* Only database-touching commands need the SQLite feature level. */
-    if ((strcmp(command, "start") == 0 ||
-         strcmp(command, "rebuild") == 0) &&
-        checkSqliteRuntime() != 0)
-        return 1;
+    /* Only the service writes the database and needs the SQLite level. */
+    if (command == NULL && checkSqliteRuntime() != 0)
+        return SERVICE_EXIT_CONFIG;
 
-    memset(&context, 0, sizeof(context));
-    if (configLoad(CONFIG_ROLE_LOADER, &context.config,
+    memset(&config, 0, sizeof(config));
+    if (configLoad(CONFIG_ROLE_LOADER, &config,
                         error, sizeof(error)) != 0) {
         ls_syslog(LOG_ERR, "%s", error);
         goto done;
     }
-    if (configLoadAdmins(&context.config, error, sizeof(error)) != 0 ||
-        checkAdminUser(&context.config, callerUid,
+    if (configLoadAdmins(&config, error, sizeof(error)) != 0 ||
+        checkAdminUser(&config, callerUid,
                        error, sizeof(error)) != 0 ||
-        configRequireServiceHost(&context.config,
-                                 error, sizeof(error)) != 0) {
-        ls_syslog(LOG_ERR, "%s", error);
-        goto done;
-    }
-    if (pidPathForConfig(&context.config, pidPath, sizeof(pidPath),
-                            error, sizeof(error)) != 0 ||
-        configLogPath(&context.config, "bhist-speedup-loader",
+        configRequireServiceHost(&config,
+                                 error, sizeof(error)) != 0 ||
+        configLogPath(&config, "bhist-speedup-loader",
                             logPath, sizeof(logPath),
                             error, sizeof(error)) != 0) {
         ls_syslog(LOG_ERR, "%s", error);
         goto done;
     }
-    /*
-     * While still root, create the database directory and log file, and
-     * hand root-owned leftovers to the service administrator, so the
-     * switched daemon never fails on paths it cannot write.
-     */
-    if (callerUid == 0 && (strcmp(command, "start") == 0 ||
-                           strcmp(command, "rebuild") == 0) &&
-        prepareServicePaths(context.config.dbPath, logPath, pidPath,
-                            context.config.admins[0],
-                            error, sizeof(error)) != 0) {
-        ls_syslog(LOG_ERR, "%s", error);
-        goto done;
-    }
-    /* Keep root for inspection and stopping services owned by any admin. */
-    if (callerUid == 0 && strcmp(command, "stop") != 0 &&
-        strcmp(command, "status") != 0 &&
-        switchServiceUser(context.config.admins[0], error, sizeof(error)) != 0) {
-        ls_syslog(LOG_ERR, "%s", error);
-        goto done;
-    }
 
-    if (strcmp(command, "start") == 0)
-        result = doStart(&context, 0, pidPath, logPath);
-    else if (strcmp(command, "rebuild") == 0)
-        result = doStart(&context, 1, pidPath, logPath);
-    else if (strcmp(command, "stop") == 0)
-        result = doStop(pidPath);
-    else
-        result = doStatus(&context.config, pidPath);
+    if (command == NULL) {
+        result = runLoader(&config, callerUid, logPath);
+    } else if (strcmp(command, "clean") == 0) {
+        /* Database files belong to the first administrator. */
+        if (switchServiceUser(config.admins[0],
+                              error, sizeof(error)) != 0) {
+            ls_syslog(LOG_ERR, "%s", error);
+            goto done;
+        }
+        result = cleanDatabase(&config);
+    } else {
+        result = showStatus(&config, logPath);
+    }
 
 done:
-    configFree(&context.config);
+    configFree(&config);
     return result;
 }

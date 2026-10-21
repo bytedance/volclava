@@ -8,13 +8,13 @@
 # is recommended; do not place the database on a shared NFS installation.
 # There is no cluster-independent default. Set this before starting the server
 # or loader. When changing this path, stop the loader first: a running loader
-# keeps writing to the path it was started with, and later start/rebuild
+# keeps writing to the path it was started with, and later start/clean
 # operations expect the data to be there.
 # LSB_BHIST_DB_PATH=/var/lib/bhist-speedup/bhist-speedup.sqlite
 
 # Absolute directory containing lsb.events and its rotated archives. LSF and
 # Volclava installations can place this directory differently, so there is no
-# default. Set it explicitly before starting or rebuilding bhist-speedup-loader.
+# default. Set it explicitly before starting bhist-speedup-loader.
 # LSB_BHIST_EVENT_DIR=/path/to/logdir
 
 # Milliseconds between normal event-log checks and stale snapshot retries.

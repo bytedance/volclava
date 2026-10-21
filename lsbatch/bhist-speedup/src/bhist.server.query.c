@@ -23,7 +23,7 @@
  */
 
 #include "bhist.server.h"
-#include "bhist.daemon.h"
+#include "bhist.service.h"
 #include "bhist.version.h"
 #include "lproto.h"
 #include "lib.table.h"
@@ -1557,29 +1557,21 @@ loadQuerySqliteTuning(void)
 }
 
 /*
- * Determine whether the loader PID file beside a database is locked.
- * @param[in] dbPath: Configured SQLite database path.
+ * Determine whether the loader installed beside this server is running.
  * @return: 1 when loader runs, 0 when stopped, otherwise -1.
  */
 static int
-loaderStatusForDatabase(const char *dbPath)
+loaderRunning(void)
 {
     char error[512];
-    char parent[PATH_MAX];
-    char pidPath[PATH_MAX];
     pid_t pid;
 
-    if (parentDirectory(dbPath, parent, sizeof(parent),
-                             error, sizeof(error)) != 0)
-        return -1;
-    if (snprintf(pidPath, sizeof(pidPath), "%s/bhist-speedup-loader.pid",
-                 parent) >= (int)sizeof(pidPath))
-        return -1;
-    return pidFileStatus(pidPath, &pid, error, sizeof(error));
+    return findServiceProcess("bhist-speedup-loader", &pid,
+                              error, sizeof(error));
 }
 
 /*
- * Explain a missing query database using the loader's current lock state.
+ * Explain a missing query database using the loader's current state.
  * @param[in] dbPath: Configured SQLite database path.
  * @return: None.
  */
@@ -1592,7 +1584,7 @@ reportMissingDatabase(const char *dbPath)
      * The loader diagnosis (and the fix) is administrator information; the
      * user only needs to know the history is not ready and whom to contact.
      */
-    loaderStatus = loaderStatusForDatabase(dbPath);
+    loaderStatus = loaderRunning();
     if (loaderStatus > 0) {
         reportHistoryUnavailable("path=%s loader_state=importing", dbPath);
     } else if (loaderStatus == 0) {
@@ -1731,7 +1723,7 @@ sqliteOpenQueryDb(const char *dbPath, sqlite3 **dbOut)
     }
     if (!sqliteHasReadySchema(db)) {
         reportHistoryUnavailable("schema_not_ready path=%s; "
-                                 "run bhist-speedup-loader rebuild", dbPath);
+                                 "run bhist-admin loader clean", dbPath);
         sqlite3_close(db);
         return -1;
     }

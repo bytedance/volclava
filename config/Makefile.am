@@ -16,11 +16,9 @@ config_files = volclava volclava.sh volclava.csh volclava.setup \
 
 if BUILD_BHIST_SPEEDUP
 config_files += lsb.hist
-nodist_etc_SCRIPTS = bhist-speedup
 endif
 
-EXTRA_DIST = lsf.cluster.in bhist-speedup.in
-DISTCLEANFILES = bhist-speedup
+EXTRA_DIST = lsf.cluster.in
 
 INTERACTIVE=@INTERACTIVE@
 

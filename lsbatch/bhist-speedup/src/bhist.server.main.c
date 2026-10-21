@@ -1,7 +1,7 @@
 #define _GNU_SOURCE
 
 #include "bhist.server.h"
-#include "bhist.daemon.h"
+#include "bhist.service.h"
 #include "bhist.config.h"
 #include "bhist.version.h"
 #include "bhist.protocol.h"
@@ -85,7 +85,7 @@ nowMillis(void)
 /*
  * bhist-speedup TCP service and bhist-speedup-server management commands.
  *
- * The daemon parent accepts connections, validates protocol frames, maintains
+ * The server parent accepts connections, validates protocol frames, maintains
  * the priority queue, enforces concurrency limits, and samples perfmon. Each
  * running request forks a handler, which forks the query function and encodes
  * its standard output, standard error, and exit state as protocol frames. A
@@ -109,12 +109,7 @@ nowMillis(void)
 #define SERVICE_LOG_DETAIL_MAX 3072
 #define SERVICE_LOG_LINE_MAX 4096
 
-/* Owns the copied server configuration across daemonStart's fork boundary. */
-struct daemonContext {
-    struct config config;
-};
-
-/* Borrows the endpoint and owns concurrency and timeout limits for the daemon. */
+/* Borrows the endpoint and owns concurrency and timeout limits for the server. */
 struct serviceConfig {
     const char *endpoint;
     int maxRunning;
@@ -2055,6 +2050,8 @@ runService(const struct config *sharedConfig)
                "max_scan_running=%d max_queued=%d",
                config.endpoint, config.maxRunning,
                config.maxScanRunning, config.maxQueued);
+    /* Ready only after listen succeeds, so a busy port fails the start. */
+    serviceNotify("READY=1");
     /*
      * Sampling, reaping, priority dispatch, and accept mutate global state only
      * in this loop. Handler output uses a lock-free atomic counter, so queue and
@@ -2100,6 +2097,7 @@ runService(const struct config *sharedConfig)
 
     serviceLog("service_stopping", 0,
                "running=%d queued=%d", activeCount, queuedCount);
+    serviceNotify("STOPPING=1");
     stopPerformanceMonitor();
     shutdownService(listenerFd, &queueHead, &queueTail, &queuedCount,
                     &activeHead, &activeCount);
@@ -2148,67 +2146,55 @@ configureQueryEnvironment(const struct config *config)
 }
 
 /*
- * Initialize logging and the query environment, then run the server daemon.
- * @param[in] opaque: Pointer to daemonContext.
- * @return: Service-loop exit status.
+ * Switch to file logging, prepare the query environment, and serve requests.
+ * @param[in] config: Server configuration.
+ * @param[in] logPath: Runtime log file path.
+ * @return: 0 on normal shutdown, otherwise SERVICE_EXIT_FAILURE.
  */
 static int
-runDaemon(void *opaque)
+runServer(const struct config *config, const char *logPath)
 {
-    struct daemonContext *context;
+    int result;
 
-    context = (struct daemonContext *)opaque;
-    ls_openlog("bhist-speedup-server", context->config.logDir, 0,
-               context->config.logMask);
+    /* Everything after this goes to the log file, so say where it is. */
+    fprintf(stdout, "bhist-speedup-server: running (pid %ld); log: %s\n",
+            (long)getpid(), logPath);
+    (void)fflush(stdout);
+    ls_openlog("bhist-speedup-server", config->logDir, 0,
+               (char *)config->logMask);
     parentStopRequested = 0;
     parentChildChanged = 0;
     installParentSignals();
-    if (configureQueryEnvironment(&context->config) != 0) {
+    if (configureQueryEnvironment(config) != 0) {
         serviceLog("query_environment_failed", 0, "error=%m");
-        return 1;
+        result = SERVICE_EXIT_FAILURE;
+    } else {
+        result = runService(config) == 0 ? 0 : SERVICE_EXIT_FAILURE;
     }
-    return runService(&context->config);
+    /*
+     * Details are in the log file. Repeat the outcome on standard error so
+     * it also appears in systemctl status or on the terminal.
+     */
+    if (result != 0)
+        fprintf(stderr, "bhist-speedup-server: stopped after an error; "
+                "see %s\n", logPath);
+    return result;
 }
 
-/* Server management command implementation. */
+/* Server command implementation. */
 
 /*
- * Print the public bhist-speedup-server management command syntax.
+ * Print the public bhist-speedup-server command syntax.
  * @param[out] stream: Destination stream.
  * @return: None.
  */
 static void
 usage(FILE *stream)
 {
-    fputs("Usage: bhist-speedup-server {start|stop|status|view}\n"
+    fputs("Usage: bhist-speedup-server            run the server in the foreground\n"
+          "       bhist-speedup-server {status|view}\n"
           "       bhist-speedup-server perfmon {seconds|stop}\n",
           stream);
-}
-
-/*
- * Build the server PID-file path beside the configured database.
- * @param[in] config: Server configuration.
- * @param[out] path: Buffer receiving the PID-file path.
- * @param[in] pathSize: Size of path.
- * @param[out] error: Buffer receiving an error message.
- * @param[in] errorSize: Size of error.
- * @return: 0 on success, otherwise -1.
- */
-static int
-buildPidPath(const struct config *config, char *path,
-                size_t pathSize, char *error, size_t errorSize)
-{
-    char directory[CONFIG_PATH_MAX];
-
-    if (parentDirectory(config->dbPath, directory,
-                             sizeof(directory), error, errorSize) != 0)
-        return -1;
-    if (snprintf(path, pathSize, "%s/bhist-speedup-server.pid", directory) >=
-        (int)pathSize) {
-        snprintf(error, errorSize, "server pid path is too long");
-        return -1;
-    }
-    return 0;
 }
 
 /*
@@ -2236,7 +2222,8 @@ prepareDirectories(const struct config *config,
         access(databaseDirectory, W_OK | X_OK) != 0) {
         snprintf(error, errorSize,
                  "database directory is not writable: %.400s; "
-                 "run once as root to create paths and fix ownership",
+                 "start the server once as root to create paths and fix "
+                 "ownership",
                  databaseDirectory);
         return -1;
     }
@@ -2251,90 +2238,84 @@ prepareDirectories(const struct config *config,
 }
 
 /*
- * Start the server daemon.
- * @param[in] context: Daemon startup context.
- * @param[in] pidPath: PID file path.
- * @param[in] logPath: Daemon log path.
- * @return: 0 when started or already running, otherwise 1.
+ * Run the server service in the foreground until SIGTERM or SIGINT.
+ * @param[in] config: Server configuration.
+ * @param[in] callerUid: Real UID saved at program entry.
+ * @param[in] logPath: Runtime log file path.
+ * @return: SERVICE_EXIT_* status.
  */
 static int
-startServer(struct daemonContext *context, const char *pidPath,
-             const char *logPath)
+startServer(const struct config *config, uid_t callerUid,
+            const char *logPath)
 {
     char error[512];
     pid_t pid;
     int result;
 
-    if (prepareDirectories(&context->config,
-                                    error, sizeof(error)) != 0) {
-        ls_syslog(LOG_ERR, "%s", error);
-        return 1;
-    }
-    result = daemonStart(pidPath, logPath, runDaemon,
-                              context, &pid, error, sizeof(error));
+    result = findServiceProcess("bhist-speedup-server", &pid,
+                                error, sizeof(error));
     if (result < 0) {
         ls_syslog(LOG_ERR, "%s", error);
-        return 1;
+        return SERVICE_EXIT_FAILURE;
     }
     if (result > 0) {
-        fprintf(stdout, "already running pid=%ld\n", (long)pid);
-        return 0;
+        ls_syslog(LOG_ERR, "the server is already running (pid %ld)",
+                  (long)pid);
+        return SERVICE_EXIT_RUNNING;
     }
-    fprintf(stdout, "started pid=%ld endpoint=%s log=%s\n",
-            (long)pid, context->config.endpoint, logPath);
-    return 0;
-}
-
-/*
- * Stop the server daemon.
- * @param[in] pidPath: PID file path.
- * @return: 0 when stopped or already stopped, otherwise 1.
- */
-static int
-stopServer(const char *pidPath)
-{
-    char error[512];
-    pid_t pid;
-    int wasRunning;
-
-    if (daemonStop(pidPath, 10000, &pid, &wasRunning,
-                        error, sizeof(error)) != 0) {
+    (void)umask(022);
+    if (chdir("/") != 0) {
+        ls_syslog(LOG_ERR, "cannot change directory to /: %m");
+        return SERVICE_EXIT_FAILURE;
+    }
+    /*
+     * While still root, create the database directory and log file, and
+     * hand root-owned leftovers to the service administrator, so the
+     * switched process never fails on paths it cannot write.
+     */
+    if (callerUid == 0 &&
+        prepareServicePaths(config->dbPath, logPath, config->admins[0],
+                            error, sizeof(error)) != 0) {
         ls_syslog(LOG_ERR, "%s", error);
-        return 1;
+        return SERVICE_EXIT_CONFIG;
     }
-    if (wasRunning)
-        fprintf(stdout, "stopped pid=%ld\n", (long)pid);
-    else
-        fprintf(stdout, "not running\n");
-    return 0;
+    /* The service always runs as the first administrator. */
+    if (switchServiceUser(config->admins[0], error, sizeof(error)) != 0 ||
+        prepareDirectories(config, error, sizeof(error)) != 0) {
+        ls_syslog(LOG_ERR, "%s", error);
+        return SERVICE_EXIT_CONFIG;
+    }
+    return runServer(config, logPath);
 }
 
 /*
- * Determine service state from its PID lock and a control request.
+ * Determine service state from the process table and a control request.
  * @param[in] config: Server configuration.
- * @param[in] pidPath: PID file path.
+ * @param[in] logPath: Runtime log file path.
  * @param[in] printStatus: Whether to print status fields.
  * @param[out] pidOut: Optional running PID.
  * @return: 0 when stopped, 1 while starting, 2 when running, otherwise -1.
  */
 static int
-serverStatus(const struct config *config, const char *pidPath,
-              int printStatus, pid_t *pidOut)
+serverStatus(const struct config *config, const char *logPath,
+             int printStatus, pid_t *pidOut)
 {
     struct controlStatus control;
     char error[512];
     pid_t pid;
     int result;
 
-    result = pidFileStatus(pidPath, &pid, error, sizeof(error));
+    result = findServiceProcess("bhist-speedup-server", &pid,
+                                error, sizeof(error));
     if (result < 0) {
         ls_syslog(LOG_ERR, "%s", error);
         return -1;
     }
     if (result == 0) {
-        (void)pidFileRemoveStale(pidPath, error, sizeof(error));
-        if (printStatus)
+        if (printStatus) {
             fprintf(stdout, "state=stopped\n");
+            fprintf(stdout, "log=%s\n", logPath);
+        }
         return 0;
     }
     if (pidOut != NULL)
@@ -2346,6 +2327,7 @@ serverStatus(const struct config *config, const char *pidPath,
             fprintf(stdout, "state=starting\n");
             fprintf(stdout, "endpoint=%s\n", config->endpoint);
             fprintf(stdout, "pid=%ld\n", (long)pid);
+            fprintf(stdout, "log=%s\n", logPath);
         }
         return 1;
     }
@@ -2353,6 +2335,7 @@ serverStatus(const struct config *config, const char *pidPath,
         fprintf(stdout, "state=running\n");
         fprintf(stdout, "endpoint=%s\n", config->endpoint);
         fprintf(stdout, "pid=%ld\n", (long)pid);
+        fprintf(stdout, "log=%s\n", logPath);
         fprintf(stdout, "running=%u\n", control.running);
         fprintf(stdout, "queued=%u\n", control.queued);
         fprintf(stdout, "max_running=%u\n", control.maxRunning);
@@ -2361,6 +2344,7 @@ serverStatus(const struct config *config, const char *pidPath,
     }
     return 2;
 }
+
 
 /*
  * Start or stop server-side performance sampling.
@@ -2431,26 +2415,25 @@ viewPerformance(const struct config *config)
 }
 
 /*
- * Dispatch a server management command.
+ * Run the server, or dispatch a status, view, or perfmon command.
  * @param[in] argc: Number of command-line arguments.
  * @param[in] argv: Command-line argument vector.
- * @return: 0 on success, 2 for invalid arguments, or another nonzero value
- *          on failure.
+ * @return: 0 on success, otherwise a SERVICE_EXIT_* status or command
+ *          failure value.
  */
 int
 main(int argc, char **argv)
 {
-    struct daemonContext context;
+    struct config config;
     char error[512];
     char logPath[CONFIG_PATH_MAX];
-    char pidPath[CONFIG_PATH_MAX];
     const char *command;
     uid_t callerUid = getuid();
-    int result = 1;
+    int result = SERVICE_EXIT_CONFIG;
 
     /*
      * Terminal fallback until configuration provides the runtime log
-     * directory and mask. Stages before daemon start report messages
+     * directory and mask. Stages before the service starts report messages
      * through ls_syslog() on stderr.
      */
     ls_openlog("bhist-speedup-server", NULL, 1, "LOG_NOTICE");
@@ -2465,78 +2448,59 @@ main(int argc, char **argv)
         fputs(PROGRAM_VERSION, stdout);
         return 0;
     }
-    if (!((argc == 2 &&
-           (strcmp(argv[1], "start") == 0 ||
-            strcmp(argv[1], "stop") == 0 ||
-            strcmp(argv[1], "status") == 0 ||
-            strcmp(argv[1], "view") == 0)) ||
-          (argc == 3 && strcmp(argv[1], "perfmon") == 0))) {
+    /* No argument runs the service; the service lookup relies on that. */
+    command = NULL;
+    if ((argc == 2 &&
+         (strcmp(argv[1], "status") == 0 ||
+          strcmp(argv[1], "view") == 0)) ||
+        (argc == 3 && strcmp(argv[1], "perfmon") == 0)) {
+        command = argv[1];
+    } else if (argc != 1) {
         usage(stderr);
-        return 2;
+        return SERVICE_EXIT_USAGE;
     }
-    command = argv[1];
 
-    /* Only the daemon start opens the database; stop/status/view do not. */
-    if (strcmp(command, "start") == 0 && checkSqliteRuntime() != 0)
-        return 1;
+    /* Only the service opens the database; the commands do not. */
+    if (command == NULL && checkSqliteRuntime() != 0)
+        return SERVICE_EXIT_CONFIG;
 
-    memset(&context, 0, sizeof(context));
-    if (configLoad(CONFIG_ROLE_SERVER, &context.config,
+    memset(&config, 0, sizeof(config));
+    if (configLoad(CONFIG_ROLE_SERVER, &config,
                         error, sizeof(error)) != 0) {
         ls_syslog(LOG_ERR, "%s", error);
         goto done;
     }
-    if (configLoadAdmins(&context.config, error, sizeof(error)) != 0 ||
-        checkAdminUser(&context.config, callerUid,
+    if (configLoadAdmins(&config, error, sizeof(error)) != 0 ||
+        checkAdminUser(&config, callerUid,
                        error, sizeof(error)) != 0 ||
-        configRequireServiceHost(&context.config,
-                                 error, sizeof(error)) != 0) {
-        ls_syslog(LOG_ERR, "%s", error);
-        goto done;
-    }
-    if (buildPidPath(&context.config, pidPath, sizeof(pidPath),
-                        error, sizeof(error)) != 0 ||
-        configLogPath(&context.config, "bhist-speedup-server",
+        configRequireServiceHost(&config,
+                                 error, sizeof(error)) != 0 ||
+        configLogPath(&config, "bhist-speedup-server",
                             logPath, sizeof(logPath),
                             error, sizeof(error)) != 0) {
         ls_syslog(LOG_ERR, "%s", error);
         goto done;
     }
-    /*
-     * While still root, create the database directory and log file, and
-     * hand root-owned leftovers to the service administrator, so the
-     * switched daemon never fails on paths it cannot write.
-     */
-    if (callerUid == 0 && strcmp(command, "start") == 0 &&
-        prepareServicePaths(context.config.dbPath, logPath, pidPath,
-                            context.config.admins[0],
-                            error, sizeof(error)) != 0) {
+    if (command == NULL) {
+        result = startServer(&config, callerUid, logPath);
+        goto done;
+    }
+    if (strcmp(command, "status") == 0) {
+        result = serverStatus(&config, logPath, 1, NULL) > 0 ? 0 : 1;
+        goto done;
+    }
+    /* Root runs the remaining network commands as the first administrator. */
+    if (callerUid == 0 &&
+        switchServiceUser(config.admins[0], error, sizeof(error)) != 0) {
         ls_syslog(LOG_ERR, "%s", error);
         goto done;
     }
-    /* Keep root for inspection and stopping services owned by any admin. */
-    if (callerUid == 0 && strcmp(command, "stop") != 0 &&
-        strcmp(command, "status") != 0 &&
-        switchServiceUser(context.config.admins[0], error, sizeof(error)) != 0) {
-        ls_syslog(LOG_ERR, "%s", error);
-        goto done;
-    }
-    if (strcmp(command, "perfmon") == 0) {
-        result = runPerfmonCommand(&context.config, argv[2]);
-        goto done;
-    }
-    if (strcmp(command, "view") == 0) {
-        result = viewPerformance(&context.config);
-        goto done;
-    }
-    if (strcmp(command, "start") == 0)
-        result = startServer(&context, pidPath, logPath);
-    else if (strcmp(command, "stop") == 0)
-        result = stopServer(pidPath);
+    if (strcmp(command, "perfmon") == 0)
+        result = runPerfmonCommand(&config, argv[2]);
     else
-        result = serverStatus(&context.config, pidPath, 1, NULL) > 0 ? 0 : 1;
+        result = viewPerformance(&config);
 
 done:
-    configFree(&context.config);
+    configFree(&config);
     return result;
 }

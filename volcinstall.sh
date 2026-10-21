@@ -149,73 +149,6 @@ function pre_setup() {
     fi
 }
 
-function register_bhist_speedup_service() (
-    # post/server installs reuse existing artifacts instead of a build flag.
-    if [[ "$PHASE" != "post" && "$PHASE" != "pre-post" &&
-          "$ENABLE_BHIST_SPEEDUP" != Y ]]; then
-        return 0
-    fi
-
-    unset LSF_ENVDIR LSF_BINDIR LSF_SERVERDIR
-    source /etc/profile.d/volclava.sh || return 1
-    if [[ "$LSF_ENVDIR" != /* || "$LSF_BINDIR" != /* || "$LSF_SERVERDIR" != /* ]] ||
-        [ ! -d "$LSF_ENVDIR" ] || [ ! -d "$LSF_BINDIR" ] ||
-        [ ! -d "$LSF_SERVERDIR" ]; then
-        echo "Cannot register bhist-speedup: invalid LSF_ENVDIR, LSF_BINDIR or LSF_SERVERDIR." >&2
-        return 1
-    fi
-    if [ ! -x "$LSF_ENVDIR/bhist-speedup" ] ||
-        [ ! -x "$LSF_SERVERDIR/bhist-speedup-loader" ] ||
-        [ ! -x "$LSF_SERVERDIR/bhist-speedup-server" ]; then
-        if [[ "$PHASE" == "post" || "$PHASE" == "pre-post" ]]; then
-            echo "Skipping bhist-speedup service registration: management script or binaries are not installed."
-            return 0
-        fi
-        echo "Cannot register bhist-speedup: management script or binaries are missing." >&2
-        return 1
-    fi
-    if ! command -v systemctl > /dev/null 2>&1 || [ ! -d /run/systemd/system ]; then
-        echo "Skipping bhist-speedup service registration: systemd is not running."
-        return 0
-    fi
-
-    # Stage both complete files in their destination directories before replacing.
-    local timestamp script_tmp="" unit_tmp=""
-    timestamp=$(date +%Y%m%d-%H%M%S) || return 1
-    trap 'rm -f -- "$script_tmp" "$unit_tmp"' EXIT
-    mkdir -p /etc/init.d /etc/systemd/system || return 1
-    script_tmp=$(mktemp --suffix=".$timestamp" /etc/init.d/.bhist-speedup.script.XXXXXX) || return 1
-    unit_tmp=$(mktemp --suffix=".$timestamp" /etc/systemd/system/.bhist-speedup.service.XXXXXX) || return 1
-    command install -o root -g root -m 0755 "$LSF_ENVDIR/bhist-speedup" "$script_tmp" || return 1
-    cat > "$unit_tmp" <<'EOF'
-[Unit]
-Description=bhist-speedup loader and server
-After=network.target remote-fs.target
-
-[Service]
-Type=oneshot
-RemainAfterExit=yes
-ExecStart=/etc/init.d/bhist-speedup start
-ExecStop=/etc/init.d/bhist-speedup stop
-TimeoutStartSec=5min
-TimeoutStopSec=1min
-KillMode=control-group
-Restart=no
-
-[Install]
-WantedBy=multi-user.target
-EOF
-    if [ "$?" -ne 0 ]; then
-        return 1
-    fi
-    chown root:root "$unit_tmp" && chmod 0644 "$unit_tmp" || return 1
-    mv -f "$script_tmp" /etc/init.d/bhist-speedup || return 1
-    mv -f "$unit_tmp" /etc/systemd/system/bhist-speedup.service || return 1
-    systemctl daemon-reload || return 1
-    echo "bhist-speedup service registered. Start it with: systemctl start bhist-speedup"
-    echo "To start it at boot: systemctl enable bhist-speedup"
-)
-
 function post_setup() {
     #rpm/deb way don't need post setup on master, they already setup service and shell environment
 
@@ -237,10 +170,6 @@ function post_setup() {
     # startup cluster if need
     if [[ "$STARTUP" == "Y" ]] || [[ "$STARTUP" == "y" ]]; then
         service volclava start
-    fi
-
-    if ! register_bhist_speedup_service; then
-        echo "Warning: bhist-speedup service registration is incomplete; software installation will continue." >&2
     fi
 
     source /etc/profile.d/volclava.sh

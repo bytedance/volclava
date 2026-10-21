@@ -17,27 +17,14 @@ find_volclava_top()
 VOLC_TOP=$(find_volclava_top || true)
 
 case "$1" in
-    remove|deconfigure|upgrade|failed-upgrade)
-        # Daemons live in sbin; also stop legacy copies from older installs in bin.
-        if [ -n "$VOLC_TOP" ]; then
-            if [ -x "${VOLC_TOP}/sbin/bhist-speedup-server" ]; then
-                LSF_ENVDIR="${VOLC_TOP}/etc" \
-                    "${VOLC_TOP}/sbin/bhist-speedup-server" stop \
-                    > /dev/null 2>&1 || true
-            elif [ -x "${VOLC_TOP}/bin/bhist-speedup-server" ]; then
-                LSF_ENVDIR="${VOLC_TOP}/etc" \
-                    "${VOLC_TOP}/bin/bhist-speedup-server" stop \
-                    > /dev/null 2>&1 || true
-            fi
-            if [ -x "${VOLC_TOP}/sbin/bhist-speedup-loader" ]; then
-                LSF_ENVDIR="${VOLC_TOP}/etc" \
-                    "${VOLC_TOP}/sbin/bhist-speedup-loader" stop \
-                    > /dev/null 2>&1 || true
-            elif [ -x "${VOLC_TOP}/bin/bhist-speedup-loader" ]; then
-                LSF_ENVDIR="${VOLC_TOP}/etc" \
-                    "${VOLC_TOP}/bin/bhist-speedup-loader" stop \
-                    > /dev/null 2>&1 || true
-            fi
+    remove|deconfigure)
+        # Upgrades keep the services; removal drops the units that
+        # bhist-speedup-setup generated for this installation.
+        if [ -n "$VOLC_TOP" ] &&
+            [ -x "${VOLC_TOP}/bin/bhist-speedup-setup" ]; then
+            LSF_ENVDIR="${VOLC_TOP}/etc" \
+                "${VOLC_TOP}/bin/bhist-speedup-setup" --remove \
+                > /dev/null 2>&1 || true
         fi
         ;;
 esac

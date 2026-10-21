@@ -955,7 +955,7 @@ loaderStoreValidateSchema(const char *dbPath, int busyTimeoutMs)
     db = NULL;
     if (loaderStoreOpenReadonly(dbPath, busyTimeoutMs, &db) != 0) {
         ls_syslog(LOG_ERR, "schema_check_open_failed db=%s; run "
-                 "bhist-speedup-loader rebuild", dbPath);
+                 "bhist-admin loader clean", dbPath);
         return -1;
     }
     statement = NULL;
@@ -970,7 +970,7 @@ loaderStoreValidateSchema(const char *dbPath, int busyTimeoutMs)
     }
     if (!compatible) {
         ls_syslog(LOG_ERR, "schema_incompatible db=%s expected=%s "
-                 "actual=%s; run bhist-speedup-loader rebuild",
+                 "actual=%s; run bhist-admin loader clean",
                  dbPath, expected,
                  actual != NULL ? (const char *)actual : "missing");
     }
@@ -979,13 +979,13 @@ loaderStoreValidateSchema(const char *dbPath, int busyTimeoutMs)
     if (compatible &&
         loaderStoreGetDbStatus(db, dbStatus, sizeof(dbStatus)) != 0) {
         ls_syslog(LOG_ERR, "read_db_status_failed db=%s; run "
-                 "bhist-speedup-loader rebuild", dbPath);
+                 "bhist-admin loader clean", dbPath);
         compatible = 0;
     }
     if (compatible &&
         strcmp(dbStatus, LOADER_DB_STATUS_REBUILD_REQUIRED) == 0) {
         ls_syslog(LOG_ERR, "database_rebuild_required db=%s; run "
-                 "bhist-speedup-loader rebuild", dbPath);
+                 "bhist-admin loader clean", dbPath);
         compatible = 0;
     }
     loaderStoreClose(db);

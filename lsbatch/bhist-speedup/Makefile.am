@@ -20,10 +20,10 @@ VOLCLAVA_LIBS = \
 	../../lsf/intlib/liblsfint.a
 
 CONFIG_SOURCES = src/bhist.config.c
-DAEMON_SOURCES = src/bhist.daemon.c
+SERVICE_SOURCES = src/bhist.service.c
 UTIL_SOURCES = src/bhist.util.c
 
-# bhist-fast is the user-facing client; loader and server are daemons
+# bhist-fast is the user-facing client; loader and server are services
 # managed by the administrator, so they install under sbin like mbatchd.
 bin_PROGRAMS = \
 	bhist-fast
@@ -31,6 +31,12 @@ bin_PROGRAMS = \
 sbin_PROGRAMS = \
 	bhist-speedup-server \
 	bhist-speedup-loader
+
+# bhist-admin starts, stops and queries the loader and server;
+# bhist-speedup-setup generates their systemd units.
+dist_bin_SCRIPTS = \
+	scripts/bhist-admin \
+	scripts/bhist-speedup-setup
 
 bhist_fast_SOURCES = \
 	src/bhist.client.main.c \
@@ -48,14 +54,14 @@ bhist_speedup_server_SOURCES = \
 	src/bhist.network.c \
 	src/bhist.protocol.c \
 	$(CONFIG_SOURCES) \
-	$(DAEMON_SOURCES) \
+	$(SERVICE_SOURCES) \
 	$(UTIL_SOURCES)
 bhist_speedup_server_LDFLAGS = -Wl,--as-needed
 bhist_speedup_server_LDADD = $(VOLCLAVA_LIBS) $(SQLITE3_LIBS) -lm
 
 bhist_speedup_loader_SOURCES = \
 	$(CONFIG_SOURCES) \
-	$(DAEMON_SOURCES) \
+	$(SERVICE_SOURCES) \
 	$(UTIL_SOURCES) \
 	src/bhist.loader.main.c \
 	src/bhist.loader.events.c \
@@ -72,7 +78,7 @@ noinst_HEADERS = \
 	include/bhist.loader.h \
 	include/bhist.network.h \
 	include/bhist.protocol.h \
-	include/bhist.daemon.h \
+	include/bhist.service.h \
 	include/bhist.server.h \
 	include/bhist.util.h \
 	include/bhist.version.h

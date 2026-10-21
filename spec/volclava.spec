@@ -151,6 +151,8 @@ install -m 755 ${RPM_BUILD_DIR}/%{name}-%{version}/lsbatch/cmd/busers   ${RPM_BU
 %if %{with bhist_speedup}
 install -m 755 ${RPM_BUILD_DIR}/%{name}-%{version}/lsbatch/bhist/bhist-standard ${RPM_BUILD_ROOT}%{_bindir}
 install -m 755 ${RPM_BUILD_DIR}/%{name}-%{version}/lsbatch/bhist-speedup/bhist-fast ${RPM_BUILD_ROOT}%{_bindir}
+install -m 755 ${RPM_BUILD_DIR}/%{name}-%{version}/lsbatch/bhist-speedup/scripts/bhist-admin ${RPM_BUILD_ROOT}%{_bindir}
+install -m 755 ${RPM_BUILD_DIR}/%{name}-%{version}/lsbatch/bhist-speedup/scripts/bhist-speedup-setup ${RPM_BUILD_ROOT}%{_bindir}
 %endif
 install -m 755 ${RPM_BUILD_DIR}/%{name}-%{version}/scripts/lam-mpirun ${RPM_BUILD_ROOT}%{_bindir}
 install -m 755 ${RPM_BUILD_DIR}/%{name}-%{version}/lsf/lstools/lsacct     ${RPM_BUILD_ROOT}%{_bindir}
@@ -173,7 +175,6 @@ install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/config/lsf.cluster.%{CLUSTERN
 install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/config/lsf.conf ${RPM_BUILD_ROOT}%{_etcdir}
 %if %{with bhist_speedup}
 install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/config/lsb.hist ${RPM_BUILD_ROOT}%{_etcdir}
-install -m 755 ${RPM_BUILD_DIR}/%{name}-%{version}/config/bhist-speedup ${RPM_BUILD_ROOT}%{_etcdir}
 %endif
 install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/config/lsf.task ${RPM_BUILD_ROOT}%{_etcdir}
 install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/config/lsf.shared ${RPM_BUILD_ROOT}%{_etcdir}
@@ -320,20 +321,11 @@ sed -i "s:/opt/volclava-%{version}:${_volclavatop}:g" ${_volclavatop}/etc/lsf.co
 
 %preun
 _volclavatop=${RPM_INSTALL_PREFIX}/volclava-%{version}
-# Daemons live in sbin; also stop legacy copies from older installs in bin.
-if [ -x "${_volclavatop}/sbin/bhist-speedup-server" ]; then
+# On upgrade ($1 = 1) the services keep running; on erase remove the units
+# bhist-speedup-setup generated for this installation.
+if [ "$1" = 0 ] && [ -x "${_volclavatop}/bin/bhist-speedup-setup" ]; then
     LSF_ENVDIR="${_volclavatop}/etc" \
-        "${_volclavatop}/sbin/bhist-speedup-server" stop > /dev/null 2>&1 || true
-elif [ -x "${_volclavatop}/bin/bhist-speedup-server" ]; then
-    LSF_ENVDIR="${_volclavatop}/etc" \
-        "${_volclavatop}/bin/bhist-speedup-server" stop > /dev/null 2>&1 || true
-fi
-if [ -x "${_volclavatop}/sbin/bhist-speedup-loader" ]; then
-    LSF_ENVDIR="${_volclavatop}/etc" \
-        "${_volclavatop}/sbin/bhist-speedup-loader" stop > /dev/null 2>&1 || true
-elif [ -x "${_volclavatop}/bin/bhist-speedup-loader" ]; then
-    LSF_ENVDIR="${_volclavatop}/etc" \
-        "${_volclavatop}/bin/bhist-speedup-loader" stop > /dev/null 2>&1 || true
+        "${_volclavatop}/bin/bhist-speedup-setup" --remove > /dev/null 2>&1 || true
 fi
 /sbin/service volclava stop > /dev/null 2>&1
 /sbin/chkconfig volclava off
@@ -370,7 +362,6 @@ fi
 %{_sbindir}/pim
 %{_sbindir}/nios
 %if %{with bhist_speedup}
-%attr(0755,%{VOLCADMIN},%{VOLCADMIN}) %{_etcdir}/bhist-speedup
 %{_sbindir}/bhist-speedup-server
 %{_sbindir}/bhist-speedup-loader
 %endif
@@ -381,6 +372,8 @@ fi
 %if %{with bhist_speedup}
 %{_bindir}/bhist-standard
 %{_bindir}/bhist-fast
+%{_bindir}/bhist-admin
+%{_bindir}/bhist-speedup-setup
 %endif
 %{_bindir}/bhosts
 %{_bindir}/bjobs
