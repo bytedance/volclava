@@ -737,18 +737,49 @@ loaderStoreAnalyze(sqlite3 *db)
 }
 
 /*
- * Initialize loader metadata.
+ * Insert one loader_meta key if absent.
+ * @param[in] stmt: Prepared INSERT OR REPLACE statement.
+ * @param[in] key: Metadata key.
+ * @param[in] value: Metadata value.
+ * @return: 0 on success, otherwise -1.
+ */
+static int
+insertMetaKey(sqlite3_stmt *stmt, const char *key, const char *value)
+{
+    sqlite3_reset(stmt);
+    sqlite3_clear_bindings(stmt);
+    if (bindText(stmt, 1, key) != SQLITE_OK ||
+        bindText(stmt, 2, value) != SQLITE_OK) {
+        ls_syslog(LOG_ERR, "bind loader_meta failed %s", sqlite3_errmsg(
+                  sqlite3_db_handle(stmt)));
+        return -1;
+    }
+    if (sqlite3_step(stmt) != SQLITE_DONE) {
+        ls_syslog(LOG_ERR, "insert loader_meta failed %s", sqlite3_errmsg(
+                  sqlite3_db_handle(stmt)));
+        return -1;
+    }
+    return 0;
+}
+
+/*
+ * Initialize loader metadata, including the cluster identity and the
+ * database creation time recorded once per bootstrap.
  * @param[in] db: SQLite connection.
+ * @param[in] clusterName: Cluster name from lsf.shared, or NULL.
  * @return: 0 on success, otherwise -1.
  */
 int
-loaderStoreInitMeta(sqlite3 *db)
+loaderStoreInitMeta(sqlite3 *db, const char *clusterName)
 {
     static const struct loaderMetaDefault defaults[] = {
         {"schema_version", "1"},
         {"retained_head_source_id", "0"},
         {"db_status", LOADER_DB_STATUS_READY},
     };
+    char createdAt[32];
+    struct tm *brokenDown;
+    time_t now;
     sqlite3_stmt *stmt;
     size_t i;
     int rc;
@@ -769,22 +800,85 @@ loaderStoreInitMeta(sqlite3 *db)
     }
 
     for (i = 0; i < sizeof(defaults) / sizeof(defaults[0]); i++) {
-        sqlite3_reset(stmt);
-        sqlite3_clear_bindings(stmt);
-        if (bindText(stmt, 1, defaults[i].key) != SQLITE_OK ||
-            bindText(stmt, 2, defaults[i].value) != SQLITE_OK) {
-            ls_syslog(LOG_ERR, "bind loader_meta failed %s", sqlite3_errmsg(db));
-            sqlite3_finalize(stmt);
-            return -1;
-        }
-        rc = sqlite3_step(stmt);
-        if (rc != SQLITE_DONE) {
-            ls_syslog(LOG_ERR, "insert loader_meta failed %s", sqlite3_errmsg(db));
+        if (insertMetaKey(stmt, defaults[i].key, defaults[i].value) != 0) {
             sqlite3_finalize(stmt);
             return -1;
         }
     }
+    now = time(NULL);
+    brokenDown = localtime(&now);
+    if (brokenDown == NULL ||
+        strftime(createdAt, sizeof(createdAt), "%Y-%m-%d %H:%M:%S",
+                 brokenDown) == 0) {
+        ls_syslog(LOG_ERR, "cannot format database creation time");
+        sqlite3_finalize(stmt);
+        return -1;
+    }
+    if (insertMetaKey(stmt, "created_at", createdAt) != 0 ||
+        (clusterName != NULL && clusterName[0] != '\0' &&
+         insertMetaKey(stmt, "cluster_name", clusterName) != 0)) {
+        sqlite3_finalize(stmt);
+        return -1;
+    }
 
+    sqlite3_finalize(stmt);
+    return 0;
+}
+
+/*
+ * Read one loader_meta value.
+ * @param[in] db: SQLite connection.
+ * @param[in] key: Metadata key.
+ * @param[out] value: Buffer receiving the value.
+ * @param[in] valueLen: Size of value.
+ * @return: 0 on success, 1 when the key is absent, otherwise -1.
+ */
+int
+loaderStoreGetMeta(sqlite3 *db, const char *key,
+                   char *value, size_t valueLen)
+{
+    sqlite3_stmt *stmt;
+    const unsigned char *stored;
+    int rc;
+
+    if (db == NULL || key == NULL || key[0] == '\0' ||
+        value == NULL || valueLen == 0) {
+        ls_syslog(LOG_ERR, "invalid argument");
+        return -1;
+    }
+    value[0] = '\0';
+    rc = sqlite3_prepare_v2(
+        db,
+        "SELECT meta_value FROM loader_meta WHERE meta_key=?",
+        -1, &stmt, NULL);
+    if (rc != SQLITE_OK) {
+        ls_syslog(LOG_ERR, "prepare loader_meta read failed %s",
+                sqlite3_errmsg(db));
+        return -1;
+    }
+    if (bindText(stmt, 1, key) != SQLITE_OK) {
+        ls_syslog(LOG_ERR, "bind loader_meta read failed %s",
+                sqlite3_errmsg(db));
+        sqlite3_finalize(stmt);
+        return -1;
+    }
+    rc = sqlite3_step(stmt);
+    if (rc == SQLITE_DONE) {
+        sqlite3_finalize(stmt);
+        return 1;
+    }
+    if (rc != SQLITE_ROW) {
+        ls_syslog(LOG_ERR, "read loader_meta failed %s",
+                sqlite3_errmsg(db));
+        sqlite3_finalize(stmt);
+        return -1;
+    }
+    stored = sqlite3_column_text(stmt, 0);
+    if (stored == NULL || stored[0] == '\0') {
+        sqlite3_finalize(stmt);
+        return 1;
+    }
+    snprintf(value, valueLen, "%s", (const char *)stored);
     sqlite3_finalize(stmt);
     return 0;
 }

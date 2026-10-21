@@ -329,6 +329,8 @@ The hostname is used for client connections and service-host validation;
 it does not select the server's listening interface.
 The generated template provides only a commented example.  The database path
 must be absolute and should use local SSD storage.
+When changing the database path, stop the loader first: a running loader
+keeps writing to the path it was started with.
 .B LSB_BHIST_EVENT_DIR
 must name the absolute directory containing
 .B lsb.events

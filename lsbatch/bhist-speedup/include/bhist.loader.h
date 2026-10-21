@@ -124,7 +124,10 @@ int loaderStoreCreateIndexes(sqlite3 *db);
 
 int loaderStoreAnalyze(sqlite3 *db);
 
-int loaderStoreInitMeta(sqlite3 *db);
+int loaderStoreInitMeta(sqlite3 *db, const char *clusterName);
+
+int loaderStoreGetMeta(sqlite3 *db, const char *key,
+                       char *value, size_t valueLen);
 
 int loaderStoreGetDbStatus(sqlite3 *db, char *status,
                            size_t statusLen);

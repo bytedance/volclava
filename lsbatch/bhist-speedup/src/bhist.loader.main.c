@@ -47,6 +47,7 @@ struct loaderConfig {
     char dbPath[LOADER_PATH_MAX];
     char runtimeLogdir[LOADER_PATH_MAX];
     char logMask[64];
+    char clusterName[128];
 };
 
 /* Owns the stable identity and last size observed by one live-file watcher. */
@@ -296,15 +297,16 @@ buildWorkDbIndexes(const char *workDbPath,
 /*
  * Create all loader tables, metadata, and the singleton progress row.
  * @param[in] db: Writable SQLite connection for a new database.
+ * @param[in] config: Loader runtime configuration carrying the cluster name.
  * @return: 0 on success, otherwise -1 with the transaction rolled back.
  */
 static int
-initDb(sqlite3 *db)
+initDb(sqlite3 *db, const struct loaderConfig *config)
 {
     if (loaderStoreBegin(db) != 0)
         return -1;
     if (loaderStoreInitTables(db) != 0 ||
-        loaderStoreInitMeta(db) != 0 ||
+        loaderStoreInitMeta(db, config->clusterName) != 0 ||
         loaderStoreInitProgress(db) != 0) {
         loaderStoreRollback(db);
         return -1;
@@ -329,7 +331,7 @@ createDb(const char *dbPath, const struct loaderConfig *config)
     if (loaderStoreOpen(dbPath, config->dbBusyTimeoutMs,
                           &db) != 0)
         return -1;
-    if (initDb(db) != 0) {
+    if (initDb(db, config) != 0) {
         loaderStoreClose(db);
         return -1;
     }
@@ -734,8 +736,11 @@ static int
 printDbStatus(const struct loaderConfig *config)
 {
     char dbStatus[32];
+    char clusterName[128];
+    char createdAt[32];
     sqlite3 *db;
     struct loaderProgressRow progress;
+    int metaResult;
 
     fprintf(stdout, "db=%s\n", config->dbPath);
     fprintf(stdout, "eventsdir=%s\n", config->logdir);
@@ -767,6 +772,19 @@ printDbStatus(const struct loaderConfig *config)
         return 1;
     }
     fprintf(stdout, "db_status=%s\n", dbStatus);
+    /* Databases created before these keys existed simply skip the lines. */
+    metaResult = loaderStoreGetMeta(db, "cluster_name",
+                                    clusterName, sizeof(clusterName));
+    if (metaResult == 0)
+        fprintf(stdout, "cluster=%s\n", clusterName);
+    else if (metaResult < 0)
+        fprintf(stdout, "cluster=unknown\n");
+    metaResult = loaderStoreGetMeta(db, "created_at",
+                                    createdAt, sizeof(createdAt));
+    if (metaResult == 0)
+        fprintf(stdout, "created=%s\n", createdAt);
+    else if (metaResult < 0)
+        fprintf(stdout, "created=unknown\n");
     fprintf(stdout, "event_rows_tracked=%lld\n", progress.totalSeenRowCount);
     loaderStoreClose(db);
     return 0;
@@ -801,7 +819,10 @@ initLoaderConfig(const struct config *shared,
                  "%s", shared->logDir) >=
             (int)sizeof(config->runtimeLogdir) ||
         snprintf(config->logMask, sizeof(config->logMask), "%s",
-                 shared->logMask) >= (int)sizeof(config->logMask)) {
+                 shared->logMask) >= (int)sizeof(config->logMask) ||
+        (shared->clusterName != NULL &&
+         snprintf(config->clusterName, sizeof(config->clusterName), "%s",
+                  shared->clusterName) >= (int)sizeof(config->clusterName))) {
         ls_syslog(LOG_ERR, "configured path is too long");
         return -1;
     }

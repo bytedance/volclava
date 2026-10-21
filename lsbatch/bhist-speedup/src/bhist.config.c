@@ -56,6 +56,11 @@ enum configKey {
     KEY_COUNT
 };
 
+/* Reads one liblsf-format configuration line; defined with the lsf.shared
+ * section readers below. */
+static int readConfigLine(FILE *stream, const char *path, int *lineNumber,
+                          char **line, char *error, size_t errorSize);
+
 /* Canonical spelling of every accepted lsb.hist key. */
 static const char *const keyNames[KEY_COUNT] = {
     "LSB_BHIST_ENDPOINT",
@@ -139,6 +144,10 @@ freeValues(struct configValue values[KEY_COUNT])
 
 /*
  * Parse one lsb.hist file without shell evaluation or expansion.
+ * Reading reuses the liblsf line format : comments start at
+ * an unquoted # anywhere in the line, a trailing backslash joins lines, and
+ * whitespace is normalized. Key-value splitting and validation stay strict:
+ * unknown and duplicate keys are errors.
  * @param[in] path: Absolute configuration file path.
  * @param[out] values: Parsed values indexed by configKey.
  * @param[out] error: Buffer receiving a parse or I/O error.
@@ -151,10 +160,9 @@ parseFile(const char *path, struct configValue values[KEY_COUNT],
 {
     FILE *stream;
     char *line;
-    size_t capacity;
-    ssize_t length;
     int lineNumber;
     int result;
+    int read;
 
     stream = fopen(path, "r");
     if (stream == NULL) {
@@ -162,23 +170,24 @@ parseFile(const char *path, struct configValue values[KEY_COUNT],
                   strerror(errno));
         return -1;
     }
-    line = NULL;
-    capacity = 0;
     lineNumber = 0;
     result = 0;
-    while ((length = getline(&line, &capacity, stream)) >= 0) {
+    for (;;) {
         char *equals;
         char *key;
         char *value;
         size_t valueLength;
         int index;
 
-        lineNumber++;
-        if (length > 0 && line[length - 1] == '\n')
-            line[length - 1] = '\0';
-        key = trim(line);
-        if (key[0] == '\0' || key[0] == '#')
-            continue;
+        read = readConfigLine(stream, path, &lineNumber, &line,
+                              error, errorSize);
+        if (read < 0) {
+            result = -1;
+            break;
+        }
+        if (read == 0)
+            break;
+        key = line;
         equals = strchr(key, '=');
         if (equals == NULL) {
             setError(error, errorSize, "%s:%d: expected KEY=VALUE",
@@ -234,12 +243,6 @@ parseFile(const char *path, struct configValue values[KEY_COUNT],
         }
         values[index].line = lineNumber;
     }
-    if (ferror(stream) && result == 0) {
-        setError(error, errorSize, "cannot read %s: %s", path,
-                  strerror(errno));
-        result = -1;
-    }
-    free(line);
     fclose(stream);
     return result;
 }
@@ -335,7 +338,7 @@ parseInteger(const char *name, const char *value, long long minimum,
         parsed < minimum || parsed > maximum) {
         setError(error, errorSize,
                  "invalid %s=%s; expected an integer between %lld and %lld "
-                 "(check lsb.params)",
+                 "(check lsb.hist)",
                  name, value, minimum, maximum);
         return -1;
     }

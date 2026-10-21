@@ -33,6 +33,7 @@
 #include <fcntl.h>
 #include <limits.h>
 #include <stdbool.h>
+#include <stdarg.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -358,6 +359,67 @@ static int copyBhistOutput(FILE *fp, int longFormat,
                            struct bhistOutputState *outputState);
 static int isDefaultHeaderLine(const char *line);
 
+/* Per-query terminal reporting state: the user sees at most one failure line
+ * per kind, no matter how many internal errors a query hits on its way out. */
+static int queryFailReported;
+static int queryUnavailableReported;
+static int queryIncompleteReported;
+
+/*
+ * Report a query failure that only an administrator can resolve. The detail
+ * goes to the server log (the query child inherits the daemon's ls_openlog
+ * state); the user's terminal sees one generic line per query at most.
+ * @param[in] incomplete: Nonzero when partial results were already printed.
+ * @param[in] detail: Log-only detail format string.
+ * @return: None.
+ */
+static void
+queryFailed(int incomplete, const char *detail, ...)
+{
+    va_list ap;
+    char text[512];
+
+    va_start(ap, detail);
+    vsnprintf(text, sizeof(text), detail, ap);
+    va_end(ap);
+    ls_syslog(LOG_ERR, "query_failed detail=%s", text);
+
+    if (!queryFailReported) {
+        queryFailReported = 1;
+        fprintf(stderr, "bhist speed up: history query failed; "
+                "contact your Volclava administrator\n");
+    }
+    if (incomplete && !queryIncompleteReported) {
+        queryIncompleteReported = 1;
+        fprintf(stderr, "bhist speed up: warning: results may be "
+                "incomplete\n");
+    }
+}
+
+/*
+ * Report that the job history database is missing or not ready yet. The
+ * diagnosis (loader state, rebuild hint) goes to the server log; the user's
+ * terminal sees one line telling them whom to contact.
+ * @param[in] detail: Log-only detail format string.
+ * @return: None.
+ */
+static void
+reportHistoryUnavailable(const char *detail, ...)
+{
+    va_list ap;
+    char text[512];
+
+    va_start(ap, detail);
+    vsnprintf(text, sizeof(text), detail, ap);
+    va_end(ap);
+    ls_syslog(LOG_ERR, "history_database_unavailable %s", text);
+    if (!queryUnavailableReported) {
+        queryUnavailableReported = 1;
+        fprintf(stderr, "bhist speed up: history database is not available yet; "
+                "contact your Volclava administrator\n");
+    }
+}
+
 /*
  * Create a private temporary directory for one bhist stream.
  * @param[out] path: Buffer receiving the created directory path.
@@ -369,11 +431,12 @@ makeWorkDir(char *path, size_t pathLen)
 {
     if (snprintf(path, pathLen, "/tmp/bhist-speedup-XXXXXX") >=
         (int)pathLen) {
-        fprintf(stderr, "bhist speed up: temporary path is too long\n");
+        queryFailed(0, "work path too long");
         return -1;
     }
     if (mkdtemp(path) == NULL) {
-        perror("mkdtemp");
+        queryFailed(0, "cannot create temporary directory: %s",
+                    strerror(errno));
         return -1;
     }
     return 0;
@@ -433,12 +496,13 @@ initBuckets(const char *workDir, struct bucketInfo *buckets, int bucketCount)
             snprintf(buckets[i].errorPath, sizeof(buckets[i].errorPath),
                      "%s/bhist.err.%d", workDir, i + 1) >=
             (int)sizeof(buckets[i].errorPath)) {
-            fprintf(stderr, "bhist speed up: temporary path is too long\n");
+            queryFailed(0, "work path too long");
             return -1;
         }
         buckets[i].eventFp = fopen(buckets[i].eventPath, "w");
         if (buckets[i].eventFp == NULL) {
-            perror("fopen");
+            queryFailed(0, "cannot create temporary file: %s",
+                        strerror(errno));
             return -1;
         }
     }
@@ -521,7 +585,8 @@ bucketSqliteEvent(struct bhistStream *stream,
     }
     if (fputs(rawLine, stream->buckets[bucket].eventFp) == EOF ||
         fputc('\n', stream->buckets[bucket].eventFp) == EOF) {
-        perror("fwrite");
+        queryFailed(0, "cannot write temporary event data: %s",
+                    strerror(errno));
         return -1;
     }
     stream->buckets[bucket].lines++;
@@ -576,20 +641,23 @@ startBhistWorkers(struct bucketInfo *buckets, int bucketCount,
         outFd = open(buckets[i].outputPath,
                      O_WRONLY | O_CREAT | O_TRUNC, 0600);
         if (outFd < 0) {
-            perror("open");
+            queryFailed(0, "cannot create temporary file: %s",
+                        strerror(errno));
             return -1;
         }
         errFd = open(buckets[i].errorPath,
                      O_WRONLY | O_CREAT | O_TRUNC, 0600);
         if (errFd < 0) {
-            perror("open");
+            queryFailed(0, "cannot create temporary file: %s",
+                        strerror(errno));
             close(outFd);
             return -1;
         }
 
         buckets[i].pid = fork();
         if (buckets[i].pid < 0) {
-            perror("fork");
+            queryFailed(0, "cannot start formatter process: %s",
+                        strerror(errno));
             close(outFd);
             close(errFd);
             return -1;
@@ -653,7 +721,8 @@ startBhistWorkers(struct bucketInfo *buckets, int bucketCount,
             }
             argv[argc] = NULL;
             execv(request->bhistPath, argv);
-            perror(request->bhistPath);
+            fprintf(stderr, "bhist speed up: cannot run %s: %s\n",
+                    request->bhistPath, strerror(errno));
             _exit(127);
         }
         close(outFd);
@@ -687,25 +756,42 @@ waitBhistWorkers(struct bucketInfo *buckets, int bucketCount)
         } while (waited < 0 && errno == EINTR);
         buckets[i].pid = 0;
         if (waited < 0) {
-            perror("waitpid");
+            queryFailed(0, "cannot collect formatter results: %s",
+                        strerror(errno));
             rc = -1;
             continue;
         }
         if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) {
             FILE *errFp;
             char line[512];
+            int logged;
 
             if (bucketOutputHasNoMatch(&buckets[i])) {
                 buckets[i].lines = 0;
                 continue;
             }
 
-            fprintf(stderr, "bhist speed up: bhist worker failed bucket=%d\n",
-                    i + 1);
+            /*
+             * The formatter's own error text explains the failure; it goes to
+             * the server log (capped) while the user only sees the generic
+             * query-failed line from queryFailed().
+             */
+            queryFailed(0, "formatter failed worker=%d", i + 1);
             errFp = fopen(buckets[i].errorPath, "r");
             if (errFp != NULL) {
-                while (fgets(line, sizeof(line), errFp) != NULL)
-                    fputs(line, stderr);
+                logged = 0;
+                while (fgets(line, sizeof(line), errFp) != NULL) {
+                    if (logged >= 16) {
+                        ls_syslog(LOG_ERR,
+                                  "formatter_stderr_truncated worker=%d",
+                                  i + 1);
+                        break;
+                    }
+                    line[strcspn(line, "\n")] = '\0';
+                    ls_syslog(LOG_ERR, "formatter_stderr worker=%d line=%s",
+                              i + 1, line);
+                    logged++;
+                }
                 fclose(errFp);
             }
             rc = -1;
@@ -730,7 +816,8 @@ cancelBhistWorkers(struct bucketInfo *buckets, int bucketCount)
     for (i = 0; i < bucketCount; i++) {
         if (buckets[i].pid > 0 &&
             kill(buckets[i].pid, SIGTERM) != 0 && errno != ESRCH)
-            perror("kill");
+            queryFailed(0, "cannot stop formatter process: %s",
+                        strerror(errno));
     }
     for (i = 0; i < bucketCount; i++) {
         pid_t waited;
@@ -741,7 +828,8 @@ cancelBhistWorkers(struct bucketInfo *buckets, int bucketCount)
             waited = waitpid(buckets[i].pid, NULL, 0);
         } while (waited < 0 && errno == EINTR);
         if (waited < 0 && errno != ECHILD)
-            perror("waitpid");
+            queryFailed(0, "cannot collect formatter results: %s",
+                        strerror(errno));
         buckets[i].pid = 0;
     }
 }
@@ -829,13 +917,15 @@ copyBhistOutput(FILE *fp, int longFormat,
         skippingRepeatedHeader = 0;
         if (!hasLast && outputState->hasPendingLine) {
             if (longFormat && fputs(BHIST_LONG_SEPARATOR, stdout) == EOF) {
-                perror("fputs");
+                queryFailed(1, "cannot write query output: %s",
+                            strerror(errno));
                 return -1;
             }
             outputState->hasPendingLine = 0;
         }
         if (hasLast && fputs(last, stdout) == EOF) {
-            perror("fputs");
+            queryFailed(1, "cannot write query output: %s",
+                        strerror(errno));
             return -1;
         }
         snprintf(last, sizeof(last), "%s", line);
@@ -843,7 +933,8 @@ copyBhistOutput(FILE *fp, int longFormat,
         wrote = 1;
     }
     if (ferror(fp)) {
-        perror("fgets");
+        queryFailed(0, "cannot read formatter output: %s",
+                    strerror(errno));
         return -1;
     }
     if (hasLast) {
@@ -884,7 +975,8 @@ mergeBhistOutputs(struct bucketInfo *buckets, int bucketCount,
             continue;
         fp = fopen(buckets[i].outputPath, "r");
         if (fp == NULL) {
-            perror("fopen");
+            queryFailed(0, "cannot open formatter output file: %s",
+                        strerror(errno));
             return -1;
         }
         copied = copyBhistOutput(fp, longFormat, outputState);
@@ -926,7 +1018,7 @@ bhistStreamOpen(const struct bhistRequest *request,
 
     stream = (struct bhistStream *)calloc(1, sizeof(*stream));
     if (stream == NULL) {
-        fprintf(stderr, "bhist speed up: out of memory\n");
+        queryFailed(0, "out of memory");
         return -1;
     }
     /* Request strings are borrowed until finish, collect, or abort consumes it. */
@@ -939,7 +1031,7 @@ bhistStreamOpen(const struct bhistRequest *request,
     stream->buckets = (struct bucketInfo *)calloc(
         (size_t)bucketCount, sizeof(struct bucketInfo));
     if (stream->buckets == NULL) {
-        fprintf(stderr, "bhist speed up: out of memory\n");
+        queryFailed(0, "out of memory");
         bhistStreamAbort(stream);
         return -1;
     }
@@ -1075,12 +1167,18 @@ bhistOutputFinish(
         return -1;
     if (outputState->hasPendingLine) {
         if (fputs(outputState->pendingLine, stdout) == EOF) {
-            perror("fputs");
+            queryFailed(1, "cannot write query output: %s",
+                        strerror(errno));
             return -1;
         }
         outputState->hasPendingLine = 0;
     }
-    return fflush(stdout) == 0 ? 0 : -1;
+    if (fflush(stdout) != 0) {
+        queryFailed(1, "cannot write query output: %s",
+                    strerror(errno));
+        return -1;
+    }
+    return 0;
 }
 
 /*
@@ -1379,7 +1477,13 @@ parseNonNegativeInt(const char *name, const char *value, int *out)
     parsed = strtol(value, &end, 10);
     if (errno != 0 || end == value || *end != '\0' ||
         parsed < 0 || parsed > INT_MAX) {
-        fprintf(stderr, "bhist speed up: invalid %s=%s\n", name, value);
+        /*
+         * These parameters are injected by the server from lsb.hist; an
+         * invalid value is an administrator problem, so the diagnostic goes
+         * to the server log and the user only sees the generic failure line.
+         */
+        queryFailed(0, "invalid %s=%s; expected a nonnegative integer "
+                    "(check lsb.hist)", name, value);
         return -1;
     }
     *out = (int)parsed;
@@ -1426,10 +1530,12 @@ loadQuerySqliteTuning(void)
         parsed = 0;
         if (parseNonNegativeInt(
                 "LSB_BHIST_QUERY_DB_CACHE_SIZE", value,
-                                &parsed) != 0 || parsed <= 0 ||
-            parsed > INT_MAX / 1024) {
-            fprintf(stderr, "bhist speed up: invalid %s=%s\n",
-                    "LSB_BHIST_QUERY_DB_CACHE_SIZE", value);
+                                &parsed) != 0)
+            return -1;
+        if (parsed <= 0 || parsed > INT_MAX / 1024) {
+            queryFailed(0, "invalid LSB_BHIST_QUERY_DB_CACHE_SIZE=%s; "
+                        "expected a positive integer in MB (check lsb.hist)",
+                        value);
             return -1;
         }
         querySettings.sqliteCacheSizeKib = -(parsed * 1024);
@@ -1442,11 +1548,8 @@ loadQuerySqliteTuning(void)
         parsed = 0;
         if (parseNonNegativeInt(
                 "LSB_BHIST_QUERY_DB_MMAP_SIZE", value,
-                                &parsed) != 0) {
-            fprintf(stderr, "bhist speed up: invalid %s=%s\n",
-                    "LSB_BHIST_QUERY_DB_MMAP_SIZE", value);
+                                &parsed) != 0)
             return -1;
-        }
         querySettings.sqliteMmapSizeBytes =
             (long long)parsed * 1024LL * 1024LL;
     }
@@ -1485,19 +1588,17 @@ reportMissingDatabase(const char *dbPath)
 {
     int loaderStatus;
 
+    /*
+     * The loader diagnosis (and the fix) is administrator information; the
+     * user only needs to know the history is not ready and whom to contact.
+     */
     loaderStatus = loaderStatusForDatabase(dbPath);
     if (loaderStatus > 0) {
-        fprintf(stderr,
-                "bhist speed up: database is not available; loader import is "
-                "not complete\n");
+        reportHistoryUnavailable("path=%s loader_state=importing", dbPath);
     } else if (loaderStatus == 0) {
-        fprintf(stderr,
-                "bhist speed up: database is not available and loader is not "
-                "running; run bhist-speedup-loader start\n");
+        reportHistoryUnavailable("path=%s loader_state=stopped", dbPath);
     } else {
-        fprintf(stderr,
-                "bhist speed up: database is not available and loader state "
-                "cannot be determined\n");
+        reportHistoryUnavailable("path=%s loader_state=unknown", dbPath);
     }
 }
 
@@ -1521,24 +1622,24 @@ sqliteOpenRawDb(const char *dbPath, int busyTimeoutMs, sqlite3 **dbOut)
         if (errno == ENOENT)
             reportMissingDatabase(dbPath);
         else
-            fprintf(stderr, "bhist speed up: database is not readable: %s: %s\n",
-                    dbPath, strerror(errno));
+            reportHistoryUnavailable("path=%s error=%s", dbPath,
+                                     strerror(errno));
         return -1;
     }
 
     db = NULL;
     rc = sqlite3_open_v2(dbPath, &db, SQLITE_OPEN_READONLY, NULL);
     if (rc != SQLITE_OK) {
-        fprintf(stderr, "bhist speed up: sqlite open failed: %s\n",
-                db != NULL ? sqlite3_errmsg(db) : dbPath);
+        queryFailed(0, "cannot open the history database: %s",
+                    db != NULL ? sqlite3_errmsg(db) : dbPath);
         if (db != NULL)
             sqlite3_close(db);
         return -1;
     }
     rc = sqlite3_busy_timeout(db, busyTimeoutMs);
     if (rc != SQLITE_OK) {
-        fprintf(stderr, "bhist speed up: sqlite busy_timeout failed: %s\n",
-                sqlite3_errmsg(db));
+        queryFailed(0, "cannot configure the history database: %s",
+                    sqlite3_errmsg(db));
         sqlite3_close(db);
         return -1;
     }
@@ -1570,8 +1671,8 @@ sqliteSetQueryPragmas(sqlite3 *db)
     error = NULL;
     rc = sqlite3_exec(db, sql, NULL, NULL, &error);
     if (rc != SQLITE_OK) {
-        fprintf(stderr, "bhist speed up: sqlite pragma failed: %s\n",
-                error != NULL ? error : sqlite3_errmsg(db));
+        queryFailed(0, "cannot configure the history database: %s",
+                    error != NULL ? error : sqlite3_errmsg(db));
         sqlite3_free(error);
         return -1;
     }
@@ -1629,9 +1730,8 @@ sqliteOpenQueryDb(const char *dbPath, sqlite3 **dbOut)
         return -1;
     }
     if (!sqliteHasReadySchema(db)) {
-        fprintf(stderr,
-                "bhist speed up: database schema is not ready or is obsolete; "
-                "run bhist-speedup-loader rebuild\n");
+        reportHistoryUnavailable("schema_not_ready path=%s; "
+                                 "run bhist-speedup-loader rebuild", dbPath);
         sqlite3_close(db);
         return -1;
     }
@@ -1675,8 +1775,7 @@ sqliteExecRows(sqlite3 *db, const char *sql, sqliteRowCallback callback,
         stmt = NULL;
         rc = sqlite3_prepare_v2(db, tail, -1, &stmt, &tail);
         if (rc != SQLITE_OK) {
-            fprintf(stderr, "bhist speed up: sqlite prepare failed: %s\n",
-                    sqlite3_errmsg(db));
+            queryFailed(0, "database query failed: %s", sqlite3_errmsg(db));
             return -1;
         }
         if (stmt == NULL) {
@@ -1693,15 +1792,13 @@ sqliteExecRows(sqlite3 *db, const char *sql, sqliteRowCallback callback,
             }
         }
         if (rc != SQLITE_DONE) {
-            fprintf(stderr, "bhist speed up: sqlite step failed: %s\n",
-                    sqlite3_errmsg(db));
+            queryFailed(0, "database query failed: %s", sqlite3_errmsg(db));
             sqlite3_finalize(stmt);
             return -1;
         }
         rc = sqlite3_finalize(stmt);
         if (rc != SQLITE_OK) {
-            fprintf(stderr, "bhist speed up: sqlite finalize failed: %s\n",
-                    sqlite3_errmsg(db));
+            queryFailed(0, "database query failed: %s", sqlite3_errmsg(db));
             return -1;
         }
     }
@@ -3349,8 +3446,7 @@ runQuery(int argc, char **argv)
             "LSB_BHIST_INTERNAL_REQUEST_USER");
         if (requestUserHint != NULL && requestUserHint[0] != '\0') {
             if (strlen(requestUserHint) >= sizeof(defaultUserName)) {
-                fprintf(stderr,
-                        "bhist speed up: request user hint is too long\n");
+                queryFailed(0, "internal request user is too long");
                 return -1;
             }
             snprintf(defaultUserName, sizeof(defaultUserName), "%s",
@@ -3359,8 +3455,7 @@ runQuery(int argc, char **argv)
             if (getLSFUser_(defaultUserName,
                             sizeof(defaultUserName)) != 0 ||
                 defaultUserName[0] == '\0') {
-                fprintf(stderr,
-                        "bhist speed up: cannot resolve the calling Volclava user\n");
+                queryFailed(0, "cannot resolve calling user");
                 return -1;
             }
         }
@@ -3372,13 +3467,12 @@ runQuery(int argc, char **argv)
         "LSB_BHIST_INTERNAL_BHIST_ORIGINAL_PATH");
     if (dbPath == NULL || dbPath[0] != '/' ||
         bhistPath == NULL || bhistPath[0] != '/') {
-        fprintf(stderr,
-                "bhist speed up: internal query environment is incomplete\n");
+        queryFailed(0, "internal query environment incomplete");
         return -1;
     }
     sql = malloc(QUERY_SQL_BUFFER_SIZE);
     if (sql == NULL) {
-        fprintf(stderr, "bhist speed up: out of memory\n");
+        queryFailed(0, "out of memory");
         return -1;
     }
     sql[0] = '\0';
@@ -3386,7 +3480,7 @@ runQuery(int argc, char **argv)
     if (selectorCount == 0 &&
         buildCandidateEventTableRange(&submitFilter, &completeFilter,
                                      &candidateTableRange) != 0) {
-        fprintf(stderr, "bhist speed up: failed to build event table range\n");
+        queryFailed(0, "failed to determine the history time range");
         free(sql);
         return -1;
     }
@@ -3410,17 +3504,19 @@ runQuery(int argc, char **argv)
         if (sqliteExecRows(queryDb, "BEGIN", NULL, NULL, NULL) != 0)
             goto queryFail;
         if (loadEventTables(queryDb, NULL, &eventTables) != 0) {
-            fprintf(stderr, "bhist speed up: failed to load event tables\n");
+            queryFailed(0, "failed to load job history data");
             goto queryFail;
         }
         if (parseBaseJobId(argv[optind], &baseJobId) != 0) {
             fprintf(stderr, "bhist speed up: invalid job selector: %s\n",
                     argv[optind]);
+            /* User-input error: already reported; suppress the generic line. */
+            queryFailReported = 1;
             goto queryFail;
         }
         if (buildJobIdQuery(&eventTables, baseJobId, sql,
                             QUERY_SQL_BUFFER_SIZE) != 0) {
-            fprintf(stderr, "bhist speed up: failed to build job query\n");
+            queryFailed(0, "failed to prepare the job query");
             goto queryFail;
         }
         expectedJobs = 1;
@@ -3433,14 +3529,14 @@ runQuery(int argc, char **argv)
             goto queryFail;
         if (loadEventTables(queryDb, &candidateTableRange,
                             &eventTables) != 0) {
-            fprintf(stderr, "bhist speed up: failed to load event tables\n");
+            queryFailed(0, "failed to load job history data");
             goto queryFail;
         }
         if (buildCandidateJobsQuery(
                 &submitFilter, &dispatchFilter, &completeFilter,
                 userName, queueName, &eventTables,
                 sql, QUERY_SQL_BUFFER_SIZE) != 0) {
-            fprintf(stderr, "bhist speed up: failed to build candidate query\n");
+            queryFailed(0, "failed to prepare the job query");
             goto queryFail;
         }
         if (sqliteExecRows(queryDb, sql, NULL, NULL, NULL) != 0 ||
@@ -3493,7 +3589,8 @@ runQuery(int argc, char **argv)
                     if (collectRc != 0)
                         goto queryFail;
                     if (fflush(stdout) != 0) {
-                        perror("fflush");
+                        queryFailed(1, "cannot write query output: %s",
+                                    strerror(errno));
                         goto queryFail;
                     }
                 }
@@ -3504,12 +3601,12 @@ runQuery(int argc, char **argv)
                                 completeFilter.enabled ? NULL :
                                     &candidateTableRange,
                                 &eventTables) != 0) {
-                fprintf(stderr, "bhist speed up: failed to reload event tables\n");
+                queryFailed(0, "failed to reload job history data");
                 goto queryFail;
             }
             if (buildBatchRawQuery(&eventTables, sql,
                                    QUERY_SQL_BUFFER_SIZE) != 0) {
-                fprintf(stderr, "bhist speed up: failed to build batch query\n");
+                queryFailed(0, "failed to prepare the job query");
                 goto queryFail;
             }
             request.expectedJobs = batchJobs;
@@ -3525,7 +3622,8 @@ runQuery(int argc, char **argv)
                 if (collectRc != 0)
                     goto queryFail;
                 if (fflush(stdout) != 0) {
-                    perror("fflush");
+                    queryFailed(1, "cannot write query output: %s",
+                                strerror(errno));
                     goto queryFail;
                 }
             }
@@ -3570,10 +3668,14 @@ queryFail:
     if (outputStateInitialized) {
         (void)bhistOutputFinish(&outputState);
         if (outputState.found)
-            fprintf(stderr,
-                    "bhist speed up: query failed after partial output; "
-                    "results are incomplete\n");
+            queryFailed(1, "query failed after partial output");
     }
+    /*
+     * Safety net for failure paths that return -1 without their own report;
+     * every failed query must leave one line on the user's terminal.
+     */
+    if (!queryFailReported && !queryUnavailableReported)
+        queryFailed(0, "unspecified internal failure");
     if (queryDb != NULL) {
         sqlite3_close(queryDb);
     }

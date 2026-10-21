@@ -75,9 +75,9 @@ AC_ARG_ENABLE([bhist-speedup],
                   [build and install bhist speed up support @<:@default=N@:>@])],
   [], [enable_bhist_speedup=N])
 AS_CASE([$enable_bhist_speedup],
-  [Y|y], [enable_bhist_speedup=yes],
-  [N|n], [enable_bhist_speedup=no],
-  [AC_MSG_ERROR([--enable-bhist-speedup expects Y or N])])
+  [Y|y|yes], [enable_bhist_speedup=yes],
+  [N|n|no], [enable_bhist_speedup=no],
+  [AC_MSG_ERROR([--enable-bhist-speedup expects Y or N (e.g. --enable-bhist-speedup=Y); omit the option to leave it disabled])])
 AM_CONDITIONAL([BUILD_BHIST_SPEEDUP],
                [test "x$enable_bhist_speedup" = "xyes"])
 

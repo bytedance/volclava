@@ -535,15 +535,15 @@ serviceLog(const char *event, unsigned long long requestId,
     if (requestId != 0) {
         (void)snprintf(
             line, sizeof(line),
-            "bhist_speedup_server time_ms=%lld pid=%ld event=%s "
+            "bhist_speedup_server time_ms=%lld event=%s "
             "request_id=%llu%s%s",
-            logStarted, (long)getpid(), event, requestId,
+            logStarted, event, requestId,
             detail[0] != '\0' ? " " : "", detail);
     } else {
         (void)snprintf(
             line, sizeof(line),
-            "bhist_speedup_server time_ms=%lld pid=%ld event=%s%s%s",
-            logStarted, (long)getpid(), event,
+            "bhist_speedup_server time_ms=%lld event=%s%s%s",
+            logStarted, event,
             detail[0] != '\0' ? " " : "", detail);
     }
     ls_syslog(LOG_INFO, "%s", line);
@@ -1095,8 +1095,7 @@ relayQuery(struct pendingRequest *pending,
     childStatus = 0;
     disconnected = 0;
     serviceLog("query_started", pending->requestId,
-               "peer=%s user_hint=%s argc=%d queued_ms=%lld",
-               pending->peer, pending->query.userHint, pending->query.argc,
+               "child_pid=%ld queued_ms=%lld", (long)child,
                startedAt - pending->enqueuedAt);
 
     while (!handlerStopRequested) {
@@ -1268,11 +1267,9 @@ relayQuery(struct pendingRequest *pending,
     recordQueryHistory(pending, completedAtMs, queueMs,
                        finishedAt - startedAt, exitStatus);
     serviceLog("query_finished", pending->requestId,
-               "peer=%s elapsed_ms=%lld exit_code=%u signal=%u "
-               "stdout_bytes=%lld stderr_bytes=%lld",
-               pending->peer, finishedAt - startedAt,
-               reportedExitCode, reportedSignal,
-               stdoutBytes, stderrBytes);
+               "elapsed_ms=%lld status=%d stdout_bytes=%lld%s",
+               finishedAt - startedAt, exitStatus, stdoutBytes,
+               stderrBytes > 0 ? " stderr_bytes=%lld" : "", stderrBytes);
     return rc;
 }
 
@@ -1346,10 +1343,6 @@ startRequest(struct pendingRequest *pending,
     active->next = *activeHead;
     *activeHead = active;
     *activeCount += 1;
-    serviceLog("handler_started", pending->requestId,
-               "peer=%s handler_pid=%ld queued_ms=%lld running=%d",
-               pending->peer, (long)pid,
-               monotonicMillis() - pending->enqueuedAt, *activeCount);
 
     /* The parent must close its copy so handler close produces peer-visible EOF. */
     close(pending->fd);
@@ -1662,9 +1655,11 @@ reapHandlers(struct activeHandler **activeHead, int *activeCount)
         else
             previous->next = cursor->next;
         *activeCount -= 1;
-        serviceLog("handler_reaped", cursor->requestId,
-                   "handler_pid=%ld status=%d running=%d",
-                   (long)pid, status, *activeCount);
+        /* Normal handlers exit 0 silently; anything else is the only trace
+         * of a handler that died before its query_finished. */
+        if (status != 0)
+            serviceLog("handler_reaped", cursor->requestId,
+                       "status=%d running=%d", status, *activeCount);
         munmap(cursor->metrics, sizeof(*cursor->metrics));
         free(cursor);
     }
@@ -1693,6 +1688,7 @@ receiveConnection(const struct serviceConfig *config, int listenerFd,
     unsigned char *payload;
     const char *rejectReason;
     char peer[SERVICE_PEER_MAX];
+    char *command;
     uint32_t payloadLength;
     uint8_t type;
     int acceptErrno;
@@ -1740,16 +1736,20 @@ receiveConnection(const struct serviceConfig *config, int listenerFd,
         close(fd);
         return 0;
     }
-    serviceLog("request_frame_received", 0,
-               "fd=%d peer=%s type=%u payload_bytes=%u",
-               fd, peer, (unsigned int)type, payloadLength);
+    serviceLog("connection_accepted", 0,
+               "peer=%s type=%u payload_bytes=%u",
+               peer, (unsigned int)type, payloadLength);
     samplePerformanceIfDue(*activeHead);
     if (type == FRAME_STATUS && payloadLength == 0) {
         rc = sendStatusFrame(fd, *activeCount, *queuedCount, config);
-        serviceLog("status_served", 0,
-                   "fd=%d peer=%s running=%d queued=%d send_rc=%d",
-                   fd, peer, *activeCount, *queuedCount,
-                   rc);
+        if (rc != 0)
+            serviceLog("status_served", 0,
+                       "running=%d queued=%d send_rc=%d",
+                       *activeCount, *queuedCount, rc);
+        else
+            serviceLog("status_served", 0,
+                       "running=%d queued=%d",
+                       *activeCount, *queuedCount);
         free(payload);
         close(fd);
         return 0;
@@ -1784,9 +1784,13 @@ receiveConnection(const struct serviceConfig *config, int listenerFd,
     }
     if (type == FRAME_PERFORMANCE_VIEW && payloadLength == 0) {
         rc = sendPerformanceFrame(fd);
-        serviceLog("performance_view_served", 0,
-                   "fd=%d peer=%s monitor_started=%d send_rc=%d",
-                   fd, peer, serviceMonitor.enabled, rc);
+        if (rc != 0)
+            serviceLog("performance_view_served", 0,
+                       "monitor_started=%d send_rc=%d",
+                       serviceMonitor.enabled, rc);
+        else
+            serviceLog("performance_view_served", 0,
+                       "monitor_started=%d", serviceMonitor.enabled);
         free(payload);
         close(fd);
         return 0;
@@ -1845,12 +1849,17 @@ receiveConnection(const struct serviceConfig *config, int listenerFd,
         pending->query.argc, pending->query.argv);
     metricsRecordRequest(&serviceMetrics,
                                pending->requestClass);
+    /*
+     * Log the full request identity once at admission; per-stage events below
+     * only carry incremental fields tied to the request_id.
+     */
+    command = formatQueryCommand(&pending->query);
     serviceLog("request_accepted", pending->requestId,
-               "fd=%d peer=%s user_hint=%s argc=%d payload_bytes=%u "
-               "running=%d queued=%d",
-               fd,
-               pending->peer, pending->query.userHint, pending->query.argc,
-               payloadLength, *activeCount, *queuedCount);
+               "peer=%s user_hint=%s running=%d queued=%d command=%s",
+               pending->peer, pending->query.userHint, *activeCount,
+               *queuedCount,
+               command != NULL ? command : "(unavailable)");
+    free(command);
 
     if (pending->requestClass == REQUEST_CLASS_JOB_ID &&
         *activeCount < config->maxRunning) {
@@ -2071,10 +2080,6 @@ runService(const struct config *sharedConfig)
                   queuedCount > 0 ? 0 : performancePollTimeout());
         pollErrno = errno;
         if (rc > 0 && listenerPoll.revents != 0) {
-            serviceLog("listener_ready", 0,
-                       "revents=%d running=%d queued=%d",
-                       listenerPoll.revents,
-                       activeCount, queuedCount);
             receiveRc = receiveConnection(
                 &config, listenerFd, &queueHead, &queueTail,
                 &queuedCount, &activeHead, &activeCount,
@@ -2098,7 +2103,7 @@ runService(const struct config *sharedConfig)
     stopPerformanceMonitor();
     shutdownService(listenerFd, &queueHead, &queueTail, &queuedCount,
                     &activeHead, &activeCount);
-    serviceLog("service_stopped", 0, "running=0 queued=0");
+    serviceLog("service_stopped", 0, "");
     return 0;
 }
 
