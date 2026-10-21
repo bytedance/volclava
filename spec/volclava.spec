@@ -23,6 +23,8 @@
 %define release 0
 %define build_timestamp %(date +"%Y%m%d")
 
+%bcond_with bhist_speedup
+
 %define version %{major}.%{minor}
 %define _volclavatop /opt/volclava-%{version}
 %define _libdir %{_volclavatop}/lib
@@ -62,6 +64,11 @@ Source: %{name}-%{version}.tar.gz
 Buildroot: %{_tmppath}/%{name}-%{version}-buildroot
 BuildRequires: gcc, tcl-devel, ncurses-devel
 Requires: ncurses, tcl
+%if %{with bhist_speedup}
+BuildRequires: sqlite-devel
+# Partial indexes (CREATE INDEX ... WHERE) need SQLite 3.8.0+.
+Requires: sqlite-libs >= 3.8.0
+%endif
 Requires(pre): /usr/sbin/useradd
 Requires(post): /sbin/chkconfig
 Requires(preun): /sbin/chkconfig
@@ -82,7 +89,11 @@ mkdir -p ${RPM_BUILD_ROOT}
 # BUILD
 #
 %build
-./bootstrap.sh
+%if %{with bhist_speedup}
+./bootstrap.sh --enable-bhist-speedup=Y
+%else
+./bootstrap.sh --enable-bhist-speedup=N
+%endif
 make
 
 #
@@ -137,6 +148,12 @@ install -m 755 ${RPM_BUILD_DIR}/%{name}-%{version}/lsbatch/cmd/bsub     ${RPM_BU
 install -m 755 ${RPM_BUILD_DIR}/%{name}-%{version}/lsbatch/cmd/bswitch  ${RPM_BUILD_ROOT}%{_bindir}
 install -m 755 ${RPM_BUILD_DIR}/%{name}-%{version}/lsbatch/cmd/btop     ${RPM_BUILD_ROOT}%{_bindir}
 install -m 755 ${RPM_BUILD_DIR}/%{name}-%{version}/lsbatch/cmd/busers   ${RPM_BUILD_ROOT}%{_bindir}
+%if %{with bhist_speedup}
+install -m 755 ${RPM_BUILD_DIR}/%{name}-%{version}/lsbatch/bhist/bhist-standard ${RPM_BUILD_ROOT}%{_bindir}
+install -m 755 ${RPM_BUILD_DIR}/%{name}-%{version}/lsbatch/bhist-speedup/bhist-fast ${RPM_BUILD_ROOT}%{_bindir}
+install -m 755 ${RPM_BUILD_DIR}/%{name}-%{version}/lsbatch/bhist-speedup/scripts/bhist-admin ${RPM_BUILD_ROOT}%{_bindir}
+install -m 755 ${RPM_BUILD_DIR}/%{name}-%{version}/lsbatch/bhist-speedup/scripts/bhist-speedup-setup ${RPM_BUILD_ROOT}%{_bindir}
+%endif
 install -m 755 ${RPM_BUILD_DIR}/%{name}-%{version}/scripts/lam-mpirun ${RPM_BUILD_ROOT}%{_bindir}
 install -m 755 ${RPM_BUILD_DIR}/%{name}-%{version}/lsf/lstools/lsacct     ${RPM_BUILD_ROOT}%{_bindir}
 install -m 755 ${RPM_BUILD_DIR}/%{name}-%{version}/lsf/lsadm/lsadmin    ${RPM_BUILD_ROOT}%{_bindir}
@@ -156,6 +173,9 @@ install -m 755 ${RPM_BUILD_DIR}/%{name}-%{version}/scripts/openmpi-mpirun ${RPM_
 # etc
 install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/config/lsf.cluster.%{CLUSTERNAME} ${RPM_BUILD_ROOT}%{_etcdir}
 install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/config/lsf.conf ${RPM_BUILD_ROOT}%{_etcdir}
+%if %{with bhist_speedup}
+install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/config/lsb.hist ${RPM_BUILD_ROOT}%{_etcdir}
+%endif
 install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/config/lsf.task ${RPM_BUILD_ROOT}%{_etcdir}
 install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/config/lsf.shared ${RPM_BUILD_ROOT}%{_etcdir}
 install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/config/lsb.params ${RPM_BUILD_ROOT}%{_etcdir}
@@ -184,6 +204,10 @@ install -m 755 ${RPM_BUILD_DIR}/%{name}-%{version}/lsf/res/nios  ${RPM_BUILD_ROO
 install -m 755 ${RPM_BUILD_DIR}/%{name}-%{version}/lsf/pim/pim  ${RPM_BUILD_ROOT}%{_sbindir}
 install -m 755 ${RPM_BUILD_DIR}/%{name}-%{version}/lsf/res/res ${RPM_BUILD_ROOT}%{_sbindir}
 install -m 755 ${RPM_BUILD_DIR}/%{name}-%{version}/lsbatch/daemons/sbatchd ${RPM_BUILD_ROOT}%{_sbindir}
+%if %{with bhist_speedup}
+install -m 755 ${RPM_BUILD_DIR}/%{name}-%{version}/lsbatch/bhist-speedup/bhist-speedup-server ${RPM_BUILD_ROOT}%{_sbindir}
+install -m 755 ${RPM_BUILD_DIR}/%{name}-%{version}/lsbatch/bhist-speedup/bhist-speedup-loader ${RPM_BUILD_ROOT}%{_sbindir}
+%endif
 install -m 755 ${RPM_BUILD_DIR}/%{name}-%{version}/chkpnt/echkpnt          ${RPM_BUILD_ROOT}%{_sbindir}
 install -m 755 ${RPM_BUILD_DIR}/%{name}-%{version}/chkpnt/erestart         ${RPM_BUILD_ROOT}%{_sbindir}
 
@@ -209,6 +233,9 @@ install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/lsbatch/man1/btop.1 ${RPM_BUI
 install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/lsbatch/man1/bugroup.1 ${RPM_BUILD_ROOT}%{_mandir}/man1
 install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/lsbatch/man1/busers.1 ${RPM_BUILD_ROOT}%{_mandir}/man1
 install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/lsbatch/man1/bswitch.1 ${RPM_BUILD_ROOT}%{_mandir}/man1
+%if %{with bhist_speedup}
+install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/lsbatch/man1/bhist-speedup.1 ${RPM_BUILD_ROOT}%{_mandir}/man1
+%endif
 install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/lsf/man/man1/lsacct.1 ${RPM_BUILD_ROOT}%{_mandir}/man1
 install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/lsf/man/man1/lseligible.1 ${RPM_BUILD_ROOT}%{_mandir}/man1
 install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/lsf/man/man1/lsfbase.1 ${RPM_BUILD_ROOT}%{_mandir}/man1
@@ -293,6 +320,13 @@ sed -i "s:/opt/volclava-%{version}:${_volclavatop}:g" ${_volclavatop}/etc/lsf.co
 /sbin/chkconfig volclava on
 
 %preun
+_volclavatop=${RPM_INSTALL_PREFIX}/volclava-%{version}
+# On upgrade ($1 = 1) the services keep running; on erase remove the units
+# bhist-speedup-setup generated for this installation.
+if [ "$1" = 0 ] && [ -x "${_volclavatop}/bin/bhist-speedup-setup" ]; then
+    LSF_ENVDIR="${_volclavatop}/etc" \
+        "${_volclavatop}/bin/bhist-speedup-setup" --remove > /dev/null 2>&1 || true
+fi
 /sbin/service volclava stop > /dev/null 2>&1
 /sbin/chkconfig volclava off
 /sbin/chkconfig --del volclava
@@ -327,10 +361,20 @@ fi
 %{_sbindir}/res
 %{_sbindir}/pim
 %{_sbindir}/nios
+%if %{with bhist_speedup}
+%{_sbindir}/bhist-speedup-server
+%{_sbindir}/bhist-speedup-loader
+%endif
 %{_bindir}/badmin
 %{_bindir}/lsadmin
 %{_bindir}/bbot
 %{_bindir}/bhist
+%if %{with bhist_speedup}
+%{_bindir}/bhist-standard
+%{_bindir}/bhist-fast
+%{_bindir}/bhist-admin
+%{_bindir}/bhist-speedup-setup
+%endif
 %{_bindir}/bhosts
 %{_bindir}/bjobs
 %{_bindir}/bkill
@@ -365,6 +409,9 @@ fi
 
 # Man pages
 %{_mandir}/man1/bbot.1
+%if %{with bhist_speedup}
+%{_mandir}/man1/bhist-speedup.1
+%endif
 %{_mandir}/man1/bchkpnt.1
 %{_mandir}/man1/bhosts.1
 %{_mandir}/man1/bjobs.1
@@ -445,6 +492,9 @@ fi
 %config(noreplace) %{_etcdir}/lsb.resources
 %config(noreplace) %{_etcdir}/lsf.shared
 %config(noreplace) %{_etcdir}/lsf.conf
+%if %{with bhist_speedup}
+%config(noreplace) %{_etcdir}/lsb.hist
+%endif
 %config(noreplace) %{_etcdir}/lsf.cluster.%{CLUSTERNAME}
 %config(noreplace) %{_etcdir}/lsf.task
 %config(noreplace) %{_volclavatop}/README.md

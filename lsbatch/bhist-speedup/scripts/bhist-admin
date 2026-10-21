@@ -1,0 +1,295 @@
+#!/bin/bash
+# Copyright (C) 2021-2026 Bytedance Ltd. and/or its affiliates
+#
+# Administer bhist-speedup-loader and bhist-speedup-server.
+#
+# A thin wrapper: start runs the program in the background, stop signals
+# the running instance, and every other command is passed to the program.
+# The programs themselves check the caller, prepare paths and find the
+# running instance, so this works the same whether or not the systemd
+# units from bhist-speedup-setup are installed. An instance started here
+# is not supervised by systemd.
+
+PROG=bhist-admin
+UNIT_DIR=/etc/systemd/system
+START_WAIT_SECONDS=30
+STOP_WAIT_SECONDS=30
+KILL_WAIT_SECONDS=5
+# A loader that has not failed by then has passed its startup checks.
+LOADER_SETTLE_SECONDS=3
+
+usage() {
+    cat <<EOF
+Usage: $PROG loader <command>
+       $PROG server <command>
+
+Loader commands:
+  start             Start the loader
+  stop              Stop the loader
+  restart           Restart the loader
+  status            Show loader and database status
+  clean             Delete the database so the next start rebuilds it
+
+Server commands:
+  start             Start the server
+  stop              Stop the server
+  restart           Restart the server
+  status            Show server status
+  view              Show the latest performance sample
+  perfmon <seconds> Start performance sampling every <seconds>
+  perfmon stop      Stop performance sampling
+
+A loader or server started with bhist-admin is not managed by systemd.
+EOF
+}
+
+# Point at the full help after a usage error.
+short_usage() {
+    echo "Usage: $PROG {loader|server} <command>"
+    echo "Run '$PROG -h' to list the commands."
+}
+
+die() {
+    echo "$PROG: $*" >&2
+    exit 1
+}
+
+# Load the cluster environment from LSF_ENVDIR: volclava.sh first, then
+# profile.lsf for LSF. Success is judged by the result, since a profile may
+# report a problem and still return 0. Each candidate is tried in a
+# subshell first.
+load_environment() {
+    local profile program="bhist-speedup-$TARGET"
+
+    # Profiles set many variables (volclava.sh reads /etc/os-release, which
+    # sets NAME and VERSION), so this script uses names they do not.
+
+    [[ "$LSF_ENVDIR" == /* && -d "$LSF_ENVDIR" ]] ||
+        die "LSF_ENVDIR is not set; set it to the directory holding lsf.conf"
+    for profile in "$LSF_ENVDIR/volclava.sh" "$LSF_ENVDIR/profile.lsf"; do
+        [ -r "$profile" ] || continue
+        if (source "$profile" > /dev/null 2>&1 &&
+            [[ "$LSF_SERVERDIR" == /* ]] &&
+            [ -x "$LSF_SERVERDIR/$program" ]); then
+            source "$profile" > /dev/null 2>&1
+            return 0
+        fi
+    done
+    die "cannot find bhist-speedup-$TARGET for this host through" \
+        "$LSF_ENVDIR/volclava.sh or profile.lsf; check that it is installed" \
+        "for this platform"
+}
+
+# Drop the time, pid and level fields ls_syslog() writes before a message.
+strip_log_prefix() {
+    sed -E 's/^[A-Z][a-z]{2} +[0-9]+ [0-9:]+ [0-9]+ [0-9]+ [0-9]+ //'
+}
+
+# Run the program with a command, cleaning up its error messages.
+run_program() {
+    local status
+
+    { "$BIN" "$@" 2>&1 1>&3 3>&- | strip_log_prefix >&2; } 3>&1
+    status=${PIPESTATUS[0]}
+    return "$status"
+}
+
+# Print the PID of the running instance, or nothing when it is stopped.
+# Exits with the program's message when the caller may not run it.
+running_pid() {
+    local output status
+
+    output=$("$BIN" status 2>&1)
+    status=$?
+    if [ "$status" -ge 2 ]; then
+        echo "$output" | grep -v '=' | strip_log_prefix >&2
+        exit "$status"
+    fi
+    echo "$output" | sed -n 's/^pid=//p' | head -n 1
+}
+
+# Test whether a PID still runs this program, matching it by executable
+# path the same way the programs do, so a reused PID is never mistaken
+# for the service. Other users cannot read /proc/<pid>/exe and fall back
+# to argv[0]; a zombie has neither.
+pid_alive() {
+    local exe argv0
+
+    exe=$(readlink "/proc/$1/exe" 2> /dev/null)
+    if [ -z "$exe" ]; then
+        argv0=$({ tr '\0' '\n' < "/proc/$1/cmdline"; } 2> /dev/null |
+            head -n 1)
+        [ -n "$argv0" ] || return 1
+        exe=$(realpath "$argv0" 2> /dev/null)
+    fi
+    [ "${exe% (deleted)}" = "$BIN" ]
+}
+
+# Explain an exit status the program reports for a failed start.
+start_failure_hint() {
+    case "$1" in
+        4) echo "Rebuild the database: $PROG loader clean, then $PROG loader start" ;;
+        5) ;;
+        *) echo "Fix the problem above, then run: $PROG $TARGET start" ;;
+    esac
+}
+
+# Test whether the started instance is ready to use.
+started_ready() {
+    local pid=$1 waited=$2
+
+    if [ "$TARGET" = server ]; then
+        "$BIN" status 2> /dev/null | grep -qx 'state=running'
+    else
+        [ "$waited" -ge "$((LOADER_SETTLE_SECONDS * 5))" ]
+    fi
+}
+
+# Summarize a started program from its status output.
+print_started() {
+    local pid=$1 status
+
+    echo "$TARGET started (pid $pid)."
+    status=$("$BIN" status 2> /dev/null)
+    if [ "$TARGET" = server ]; then
+        echo "$status" | grep -E '^(endpoint|log)=' | sed 's/^/  /'
+        return
+    fi
+    echo "$status" | grep -E '^(db|eventsdir|log)=' | sed 's/^/  /'
+    if echo "$status" | grep -qx 'db_status=missing'; then
+        echo "  Building the database from the event files; bhist uses the" \
+            "original command until it is ready."
+    else
+        echo "$status" | grep -E '^db_status=' | sed 's/^/  /'
+    fi
+}
+
+do_start() {
+    local pid errors status waited
+
+    pid=$(running_pid) || exit
+    if [ -n "$pid" ]; then
+        echo "$TARGET is already running (pid $pid)."
+        return 0
+    fi
+    errors=$(mktemp "${TMPDIR:-/tmp}/$PROG.XXXXXX") ||
+        die "cannot create a temporary file"
+    # Without job control setsid execs in place, so $! is the program.
+    setsid "$BIN" < /dev/null > /dev/null 2> "$errors" &
+    pid=$!
+    waited=0
+    while [ "$waited" -lt "$((START_WAIT_SECONDS * 5))" ]; do
+        if ! kill -0 "$pid" 2> /dev/null; then
+            wait "$pid"
+            status=$?
+            strip_log_prefix < "$errors" >&2
+            rm -f "$errors"
+            echo "$TARGET did not start." >&2
+            start_failure_hint "$status" >&2
+            return 1
+        fi
+        if started_ready "$pid" "$waited"; then
+            rm -f "$errors"
+            print_started "$pid"
+            return 0
+        fi
+        sleep 0.2
+        waited=$((waited + 1))
+    done
+    rm -f "$errors"
+    echo "$TARGET is still starting (pid $pid); check with: $PROG $TARGET status"
+    return 0
+}
+
+# Wait for a PID to exit, in fifths of a second.
+wait_exit() {
+    local pid=$1 limit=$2 waited=0
+
+    while [ "$waited" -lt "$limit" ]; do
+        pid_alive "$pid" || return 0
+        sleep 0.2
+        waited=$((waited + 1))
+    done
+    return 1
+}
+
+do_stop() {
+    local pid owner
+
+    pid=$(running_pid) || exit
+    if [ -z "$pid" ]; then
+        echo "$TARGET is not running."
+        return 0
+    fi
+    if ! kill -TERM "$pid" 2> /dev/null; then
+        pid_alive "$pid" || {
+            echo "$TARGET stopped."
+            return 0
+        }
+        owner=$(ps -o user= -p "$pid" 2> /dev/null)
+        die "no permission to stop $TARGET (pid $pid); run as root or ${owner:-its owner}"
+    fi
+    if ! wait_exit "$pid" "$((STOP_WAIT_SECONDS * 5))"; then
+        kill -KILL "$pid" 2> /dev/null
+        wait_exit "$pid" "$((KILL_WAIT_SECONDS * 5))" ||
+            die "$TARGET (pid $pid) did not stop"
+    fi
+    echo "$TARGET stopped."
+}
+
+do_status() {
+    local status pid main_pid
+
+    run_program status
+    status=$?
+    # Report supervision only where the systemd units are installed.
+    if [ -e "$UNIT_DIR/bhist-speedup-$TARGET.service" ] &&
+        command -v systemctl > /dev/null 2>&1 &&
+        [ -d /run/systemd/system ]; then
+        pid=$(running_pid 2> /dev/null)
+        main_pid=$(systemctl show -p MainPID "bhist-speedup-$TARGET.service" \
+            2> /dev/null | cut -d= -f2)
+        if [ -n "$pid" ] && [ "$pid" = "$main_pid" ]; then
+            echo "systemd=managed"
+        elif [ -n "$pid" ]; then
+            echo "systemd=not managed"
+        fi
+    fi
+    return "$status"
+}
+
+case "$1" in
+    -h|--help)
+        usage
+        exit 0
+        ;;
+esac
+[ "$#" -ge 2 ] || {
+    short_usage >&2
+    exit 2
+}
+TARGET=$1
+COMMAND=$2
+shift 2
+
+case "$TARGET:$COMMAND:$#" in
+    loader:start:0|loader:stop:0|loader:restart:0|loader:status:0|loader:clean:0|\
+    server:start:0|server:stop:0|server:restart:0|server:status:0|server:view:0|\
+    server:perfmon:1)
+        ;;
+    *)
+        short_usage >&2
+        exit 2
+        ;;
+esac
+
+load_environment
+BIN=$(realpath "$LSF_SERVERDIR/bhist-speedup-$TARGET")
+
+case "$COMMAND" in
+    start)   do_start ;;
+    stop)    do_stop ;;
+    restart) do_stop && do_start ;;
+    status)  do_status ;;
+    *)       run_program "$COMMAND" "$@" ;;
+esac
