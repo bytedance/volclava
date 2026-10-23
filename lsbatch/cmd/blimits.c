@@ -410,11 +410,50 @@ collectExternalResourceNames(struct rlimitEnt *limits, int numLimits,
 }
 
 /********************************************************************************
+ * limitHasBuildinRsrc
+ * Description:
+ *     Check whether the limit configures at least one buildin resource
+ *     (JOBS/SLOTS/MEM/TMP/SWP/SLOTS_PER_PROCESSOR)
+ ********************************************************************************/
+static int
+limitHasBuildinRsrc(struct rlimitEnt *ent)
+{
+    int j;
+
+    for (j = 0; j < ent->nResources; j++) {
+        if (ent->resources[j].type != RLIMIT_TYPE_RSRC) {
+            return TRUE;
+        }
+    }
+    return FALSE;
+}
+
+/********************************************************************************
+ * limitHasCustomRsrc
+ * Description:
+ *     Check whether the limit configures at least one custom resource
+ *     (RLIMIT_TYPE_RSRC, defined in lsf.shared)
+ ********************************************************************************/
+static int
+limitHasCustomRsrc(struct rlimitEnt *ent)
+{
+    int j;
+
+    for (j = 0; j < ent->nResources; j++) {
+        if (ent->resources[j].type == RLIMIT_TYPE_RSRC) {
+            return TRUE;
+        }
+    }
+    return FALSE;
+}
+
+/********************************************************************************
  * printUsageTable
  * Description:
  *     Print the usage table (blimits / blimits -a). Output is split into two
  *     regions: INTERNAL RESOURCE LIMITS (buildin resources SLOTS/MEM/TMP/SWP/
- *     JOBS) and EXTERNAL RESOURCE LIMITS (custom resources).
+ *     JOBS) and EXTERNAL RESOURCE LIMITS (custom resources). A limit is listed
+ *     in a region only if it configures a resource of that class.
  *
  *     For SLOTS column: use SLOTS resource if present, else fall back to
  *     SLOTS_PER_PROCESSOR, else "-".
@@ -426,7 +465,7 @@ collectExternalResourceNames(struct rlimitEnt *limits, int numLimits,
 static void
 printUsageTable(struct rlimitEnt *limits, int numLimits)
 {
-    int i, j, k;
+    int i, k;
     char **extNames = NULL;
     int numExt = 0;
     int haveInternal = FALSE;
@@ -436,13 +475,11 @@ printUsageTable(struct rlimitEnt *limits, int numLimits)
 
     /* determine if there are any internal/external resources to print */
     for (i = 0; i < numLimits; i++) {
-        struct rlimitEnt *ent = &limits[i];
-        for (j = 0; j < ent->nResources; j++) {
-            if (ent->resources[j].type != RLIMIT_TYPE_RSRC) {
-                haveInternal = TRUE;
-            } else {
-                haveExternal = TRUE;
-            }
+        if (limitHasBuildinRsrc(&limits[i])) {
+            haveInternal = TRUE;
+        }
+        if (limitHasCustomRsrc(&limits[i])) {
+            haveExternal = TRUE;
         }
     }
 
@@ -467,6 +504,10 @@ printUsageTable(struct rlimitEnt *limits, int numLimits)
             struct rlimitEnt *ent = &limits[i];
             struct rlimitResourceEnt *slotsR, *memR, *tmpR, *swpR, *jobsR;
             char slotsBuf[32], memBuf[32], tmpBuf[32], swpBuf[32], jobsBuf[32];
+
+            if (!limitHasBuildinRsrc(ent)) {
+                continue;
+            }
 
             slotsR = getResourceByName(ent, "SLOTS");
             if (slotsR == NULL) {
@@ -517,6 +558,10 @@ printUsageTable(struct rlimitEnt *limits, int numLimits)
 
         for (i = 0; i < numLimits; i++) {
             struct rlimitEnt *ent = &limits[i];
+
+            if (!limitHasCustomRsrc(ent)) {
+                continue;
+            }
 
             prtWord2(RL_NAME_LENGTH, ent->name ? ent->name : "", 1); putchar(' ');
             prtWord2(RL_CONS_LENGTH, getConsumerDisplay(ent, RLIMIT_CONSUMER_TYPE_USER), 1); putchar(' ');
