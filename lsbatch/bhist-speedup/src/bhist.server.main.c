@@ -1,3 +1,7 @@
+/*
+ * Copyright (C) 2021-2026 Bytedance Ltd. and/or its affiliates
+ */
+
 #define _GNU_SOURCE
 
 #include "bhist.server.h"
@@ -1076,7 +1080,8 @@ relayQuery(struct pendingRequest *pending,
         rc = runQuery(pending->query.argc + 1, childArgv);
         free(childArgv);
         (void)fflush(NULL);
-        _exit(rc);
+        /* Keep the no-match status distinct from every failure. */
+        _exit(rc == 0 || rc == PROTOCOL_EXIT_NO_MATCH ? rc : 1);
     }
 
     close(stdoutPipe[1]);
@@ -2209,29 +2214,34 @@ prepareDirectories(const struct config *config,
                             char *error, size_t errorSize)
 {
     char databaseDirectory[CONFIG_PATH_MAX];
+    char reason[512];
     struct stat st;
 
     if (parentDirectory(config->dbPath, databaseDirectory,
                              sizeof(databaseDirectory),
                              error, errorSize) != 0)
         return -1;
-    if (ensureDirectory(databaseDirectory,
-                             error, errorSize) != 0)
+    if (ensureDirectory(databaseDirectory, reason, sizeof(reason)) != 0) {
+        snprintf(error, errorSize,
+                 "%.200s: cannot create the directory of LSB_BHIST_DB_PATH "
+                 "(%.200s); start the server once as root to create it",
+                 config->configPath, reason);
         return -1;
+    }
     if (stat(databaseDirectory, &st) != 0 || !S_ISDIR(st.st_mode) ||
         access(databaseDirectory, W_OK | X_OK) != 0) {
         snprintf(error, errorSize,
-                 "database directory is not writable: %.400s; "
-                 "start the server once as root to create paths and fix "
-                 "ownership",
-                 databaseDirectory);
+                 "%.200s: the directory of LSB_BHIST_DB_PATH (%.200s) is not "
+                 "writable; start the server once as root to fix its ownership",
+                 config->configPath, databaseDirectory);
         return -1;
     }
     if (stat(config->logDir, &st) != 0 || !S_ISDIR(st.st_mode) ||
         access(config->logDir, W_OK | X_OK) != 0) {
         snprintf(error, errorSize,
-                 "runtime log directory is unavailable: %.400s",
-                 config->logDir);
+                 "%.200s/lsf.conf: LSF_LOGDIR (%.200s) is not a writable "
+                 "directory",
+                 config->envDir, config->logDir);
         return -1;
     }
     return 0;
@@ -2379,7 +2389,7 @@ runPerfmonCommand(const struct config *config, const char *argument)
                   "sample period must be an integer between %u and %u seconds",
                   PERFMON_MIN_PERIOD_SECONDS,
                   PERFMON_MAX_PERIOD_SECONDS);
-        return 2;
+        return SERVICE_EXIT_USAGE;
     }
     if (controlPerfmonStart(
             config->endpoint,

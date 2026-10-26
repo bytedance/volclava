@@ -257,6 +257,9 @@ install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/lsbatch/man5/lsb.params.5 ${R
 install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/lsbatch/man5/lsb.queues.5 ${RPM_BUILD_ROOT}%{_mandir}/man5
 install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/lsbatch/man5/lsb.users.5 ${RPM_BUILD_ROOT}%{_mandir}/man5
 install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/lsbatch/man5/lsb.resources.5 ${RPM_BUILD_ROOT}%{_mandir}/man5
+%if %{with bhist_speedup}
+install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/lsbatch/man5/lsb.hist.5 ${RPM_BUILD_ROOT}%{_mandir}/man5
+%endif
 install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/lsf/man/man5/lim.acct.5 ${RPM_BUILD_ROOT}%{_mandir}/man5
 install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/lsf/man/man5/lsf.acct.5 ${RPM_BUILD_ROOT}%{_mandir}/man5
 install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/lsf/man/man5/lsf.cluster.5 ${RPM_BUILD_ROOT}%{_mandir}/man5
@@ -453,6 +456,9 @@ fi
 %{_mandir}/man5/lsb.queues.5
 %{_mandir}/man5/lsb.resources.5
 %{_mandir}/man5/lsb.users.5
+%if %{with bhist_speedup}
+%{_mandir}/man5/lsb.hist.5
+%endif
 %{_mandir}/man8/badmin.8
 %{_mandir}/man8/brun.8
 %{_mandir}/man8/eauth.8

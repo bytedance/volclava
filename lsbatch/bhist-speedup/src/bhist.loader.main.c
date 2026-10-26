@@ -1,3 +1,7 @@
+/*
+ * Copyright (C) 2021-2026 Bytedance Ltd. and/or its affiliates
+ */
+
 #include "bhist.loader.h"
 #include "bhist.service.h"
 #include "bhist.config.h"
@@ -396,7 +400,8 @@ runImportLoop(const char *logdir,
         if (__atomic_load_n(&loaderLiveSizeRegressed,
                             __ATOMIC_ACQUIRE) != 0) {
             ls_syslog(LOG_ERR,
-                  "event_file_shrunk; run bhist-admin loader clean");
+                  "event_file_shrunk; run bhist-admin loader clean, then start "
+                  "the loader again");
             goto rebuildRequired;
         }
 
@@ -865,8 +870,8 @@ runImport(const struct config *sharedConfig, const char *logPath)
      */
     if (result == SERVICE_EXIT_CLEAN_REQUIRED)
         fprintf(stderr, "bhist-speedup-loader: the history database must be "
-                "rebuilt; run: bhist-admin loader clean, then bhist-admin "
-                "loader start\n");
+                "rebuilt; run bhist-admin loader clean, then start the "
+                "loader again\n");
     else if (result != 0)
         fprintf(stderr, "bhist-speedup-loader: stopped after an error; "
                 "see %s\n", logPath);
@@ -902,7 +907,7 @@ usage(FILE *stream)
 {
     fputs("Usage: bhist-speedup-loader            run the loader in the foreground\n"
           "       bhist-speedup-loader status     show loader state and database progress\n"
-          "       bhist-admin loader clean      remove the database while the loader is stopped\n",
+          "       bhist-speedup-loader clean      remove the database while the loader is stopped\n",
           stream);
 }
 
@@ -918,40 +923,47 @@ validateStartDirectories(const struct config *config,
                            char *error, size_t errorSize)
 {
     char databaseDirectory[CONFIG_PATH_MAX];
+    char reason[512];
     struct stat st;
 
     if (config->eventDir[0] == '\0') {
-        snprintf(error, errorSize, "LSB_BHIST_EVENT_DIR is required");
+        snprintf(error, errorSize, "%.400s: LSB_BHIST_EVENT_DIR is required",
+                 config->configPath);
         return -1;
     }
     if (stat(config->eventDir, &st) != 0 || !S_ISDIR(st.st_mode) ||
         access(config->eventDir, R_OK | X_OK) != 0) {
         snprintf(error, errorSize,
-                 "event log directory is unavailable: %.400s",
-                 config->eventDir);
+                 "%.200s: LSB_BHIST_EVENT_DIR (%.200s) is not a readable "
+                 "directory",
+                 config->configPath, config->eventDir);
         return -1;
     }
     if (parentDirectory(config->dbPath, databaseDirectory,
                              sizeof(databaseDirectory),
                              error, errorSize) != 0)
         return -1;
-    if (ensureDirectory(databaseDirectory,
-                             error, errorSize) != 0)
+    if (ensureDirectory(databaseDirectory, reason, sizeof(reason)) != 0) {
+        snprintf(error, errorSize,
+                 "%.200s: cannot create the directory of LSB_BHIST_DB_PATH "
+                 "(%.200s); start the loader once as root to create it",
+                 config->configPath, reason);
         return -1;
+    }
     if (stat(databaseDirectory, &st) != 0 || !S_ISDIR(st.st_mode) ||
         access(databaseDirectory, W_OK | X_OK) != 0) {
         snprintf(error, errorSize,
-                 "database directory is not writable: %.400s; "
-                 "start the loader once as root to create paths and fix "
-                 "ownership",
-                 databaseDirectory);
+                 "%.200s: the directory of LSB_BHIST_DB_PATH (%.200s) is not "
+                 "writable; start the loader once as root to fix its ownership",
+                 config->configPath, databaseDirectory);
         return -1;
     }
     if (stat(config->logDir, &st) != 0 || !S_ISDIR(st.st_mode) ||
         access(config->logDir, W_OK | X_OK) != 0) {
         snprintf(error, errorSize,
-                 "runtime log directory is unavailable: %.400s",
-                 config->logDir);
+                 "%.200s/lsf.conf: LSF_LOGDIR (%.200s) is not a writable "
+                 "directory",
+                 config->envDir, config->logDir);
         return -1;
     }
     return 0;
@@ -1146,6 +1158,10 @@ main(int argc, char **argv)
     }
 
     if (command == NULL) {
+        if (configResolveEventDir(&config, error, sizeof(error)) != 0) {
+            ls_syslog(LOG_ERR, "%s", error);
+            goto done;
+        }
         result = runLoader(&config, callerUid, logPath);
     } else if (strcmp(command, "clean") == 0) {
         /* Database files belong to the first administrator. */
@@ -1155,6 +1171,9 @@ main(int argc, char **argv)
             goto done;
         }
         result = cleanDatabase(&config);
+    } else if (configResolveEventDir(&config,
+                                     error, sizeof(error)) != 0) {
+        ls_syslog(LOG_ERR, "%s", error);
     } else {
         result = showStatus(&config, logPath);
     }

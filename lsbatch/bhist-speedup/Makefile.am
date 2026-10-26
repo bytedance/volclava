@@ -1,4 +1,6 @@
 #
+# Copyright (C) 2021-2026 Bytedance Ltd. and/or its affiliates
+#
 # bhist speed up is built as part of Volclava and uses the selected cluster
 # environment from LSF_ENVDIR.
 #

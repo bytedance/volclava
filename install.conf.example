@@ -27,4 +27,4 @@ VOLC_CLUSTER_NAME=volclava
 
 #Optional. Build and install bhist speed up support. Default is N.
 #Valid values are Y, y, N and n.
-VOLC_BHIST_SPEEDUP=N
+#VOLC_BHIST_SPEEDUP=Y

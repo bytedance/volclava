@@ -1,4 +1,6 @@
 /*
+ * Copyright (C) 2021-2026 Bytedance Ltd. and/or its affiliates
+ *
  * Public bhist-speedup client.
  *
  * The -h and -V options complete locally before configuration is loaded, so
@@ -114,6 +116,9 @@ receiveQueryResponse(int fd)
             exitCode = readU32(payload);
             signalNumber = readU32(payload + 4);
             free(payload);
+            /* No match is a result, like native bhist, not a failure. */
+            if (signalNumber == 0 && exitCode == PROTOCOL_EXIT_NO_MATCH)
+                return PROTOCOL_EXIT_NO_MATCH;
             if (signalNumber != 0)
                 queryStatus = signalNumber > 127 ? 255 :
                     128 + (int)signalNumber;
@@ -172,14 +177,14 @@ main(int argc, char **argv)
     if (argc >= 2 && strcmp(argv[1], "perfmon") == 0) {
         fprintf(stderr,
                 "bhist speed up: perfmon is a server command; run "
-                "bhist-speedup-server perfmon {seconds|stop} on the service "
+                "bhist-admin server perfmon {seconds|stop} on the service "
                 "host\n");
         return 2;
     }
     if (argc >= 2 && strcmp(argv[1], "view") == 0) {
         fprintf(stderr,
                 "bhist speed up: view is a server command; run "
-                "bhist-speedup-server view on the service host\n");
+                "bhist-admin server view on the service host\n");
         return 2;
     }
     if (argc - 1 > PROTOCOL_ARGC_MAX) {

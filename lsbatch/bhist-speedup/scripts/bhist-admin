@@ -128,8 +128,8 @@ pid_alive() {
 # Explain an exit status the program reports for a failed start.
 start_failure_hint() {
     case "$1" in
-        4) echo "Rebuild the database: $PROG loader clean, then $PROG loader start" ;;
-        5) ;;
+        65) echo "Rebuild the database: $PROG loader clean, then $PROG loader start" ;;
+        79) ;;
         *) echo "Fix the problem above, then run: $PROG $TARGET start" ;;
     esac
 }
@@ -157,8 +157,8 @@ print_started() {
     fi
     echo "$status" | grep -E '^(db|eventsdir|log)=' | sed 's/^/  /'
     if echo "$status" | grep -qx 'db_status=missing'; then
-        echo "  Building the database from the event files; bhist uses the" \
-            "original command until it is ready."
+        echo "  Building the database from the event files; bhist uses" \
+            "standard bhist until it is ready."
     else
         echo "$status" | grep -E '^db_status=' | sed 's/^/  /'
     fi
@@ -243,11 +243,11 @@ do_status() {
     run_program status
     status=$?
     # Report supervision only where the systemd units are installed.
-    if [ -e "$UNIT_DIR/bhist-speedup-$TARGET.service" ] &&
+    if [ -e "$UNIT_DIR/volclava-bhist-$TARGET.service" ] &&
         command -v systemctl > /dev/null 2>&1 &&
         [ -d /run/systemd/system ]; then
         pid=$(running_pid 2> /dev/null)
-        main_pid=$(systemctl show -p MainPID "bhist-speedup-$TARGET.service" \
+        main_pid=$(systemctl show -p MainPID "volclava-bhist-$TARGET.service" \
             2> /dev/null | cut -d= -f2)
         if [ -n "$pid" ] && [ "$pid" = "$main_pid" ]; then
             echo "systemd=managed"

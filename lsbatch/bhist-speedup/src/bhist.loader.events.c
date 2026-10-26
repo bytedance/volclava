@@ -1,4 +1,6 @@
 /*
+ * Copyright (C) 2021-2026 Bytedance Ltd. and/or its affiliates
+ *
  * Event-log discovery, parsing, and import pipeline for the loader.
  *
  * This module owns the lsb.events side of the loader: it snapshots current and

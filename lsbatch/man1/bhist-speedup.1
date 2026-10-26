@@ -1,418 +1,544 @@
-.TH BHIST-SPEEDUP 1 "September 11, 2026" "Volclava 2.2" "User Commands"
+.\" Copyright (C) 2021-2026 Bytedance Ltd. and/or its affiliates
+.TH BHIST-SPEEDUP 1 "October 2026" "Volclava 2.2" "User Commands"
 .SH NAME
-bhist, bhist-fast, bhist-speedup-server, bhist-speedup-loader
-\- accelerated retained job history
+bhist-speedup \- faster bhist job history queries
 .SH SYNOPSIS
 .B bhist
-.RI [ bhist-options ]
-.RI [ job_ID ]
+.RI [ options ]
+.RI [ job_ID " ...]"
 .br
-.B bhist-speedup-loader
-.BR start | rebuild | stop | status
+.B bhist-admin loader
+.BR start | stop | restart | status | clean
 .br
-.B bhist-speedup-server
-.BR start | stop | status | view
+.B bhist-admin server
+.BR start | stop | restart | status | view
 .br
-.B bhist-speedup-server
-.B perfmon
-.BR seconds | stop
+.B bhist-admin server perfmon
+.IR seconds | \fBstop\fR
 .br
-.B $LSF_ENVDIR/bhist-speedup
-.BR start | stop | status | restart | rebuild
-.br
-.B /etc/init.d/bhist-speedup
-.BR start | stop | status | restart | rebuild
+.B bhist-speedup-setup
+.RB [ \-\-remove ]
 .SH DESCRIPTION
-.B bhist
-is the public entry point.  Supported requests are sent to the accelerated
-client; unsupported requests execute
-.B bhist-standard
-directly.  The server selects retained events from SQLite and passes them to
-.B bhist-standard -f
-for native replay and formatting.
-.PP
-The accelerated subset includes
-.BR -l ,
-.BR -w ,
-.BR -a ,
-.BR -d ,
-.BR -e ,
-.BR -p ,
-.BR -s ,
-.BR -r ,
-.BR -u ,
-.BR -q ,
-.BR -m ,
-.BR -S ,
-.BR -D ,
-.BR -C ,
-and zero or one ordinary or array job selector.  A time-range query does not
-require a job identifier.  Multiple job selectors and all other options are
-handled by native bhist.
-.PP
-.B -h
-and
-.B -V
-always execute native bhist.  The wrapper also understands attached option
-values, combined short options, and
-.BR -- .
-.PP
-The wrapper checks the operating system before loading the accelerated client.
-On CentOS, it inspects the cluster markers
-.I $LSF_ENVDIR/lsf.entitlement
-and
-.IR $LSF_ENVDIR/profile.lsf .
-An existing marker identifies LSF; a dangling marker link or an invalid or
-inaccessible environment directory leaves the type unknown.  Both cases
-execute
-.B bhist-standard
-directly, with the usual fallback message.  LSF_ENVDIR must be an absolute,
-readable, searchable directory before the absence of both markers is treated
-as Volclava and acceleration is attempted.
-.PP
-These checks happen before the accelerated executable is loaded, so a missing
-client shared library cannot prevent an environment-based native route.
-Neither the operating-system file nor the markers are executed, marker
-contents are not read, and the wrapper does not invoke
-.BR lsid .
-The shell check treats failure to read or search the directory as unknown;
-it does not expose a separate result for every possible filesystem error.
-.PP
-On other or unidentified operating systems, supported requests continue to
-the accelerated client.  Only the wrapper performs environment routing.
-The C configuration code does not collect operating-system or cluster-type
-fields, and the accelerated client does not apply a platform fallback.
-.PP
-The
-.B ID
-field in
-.I /etc/os-release
-is authoritative.  A compatibility
-.I /etc/centos-release
-file is consulted only when os-release is unavailable or contains no ID, so
-Rocky Linux is not treated as CentOS.
-.SH FALLBACK
-The wrapper does not probe the service before a query.  If configuration,
-connection, transport, or query processing fails before accelerated standard
-output is emitted, it reports the failure and executes
-.B bhist-standard
-once.  After accelerated standard output has begun, a failure is reported as
-an incomplete result and native bhist is not executed, preventing duplicated
-output.  A no-match result is successful acceleration and does not fall back.
-.PP
-Direct invocation of
-.B bhist-fast
-always enters the accelerated query path, subject to its usual configuration
-and request checks.  It returns 125 for a failure that permits safe native
-fallback before query output, but does not execute native bhist itself.
-Only the wrapper performs that fallback.  Errors after accelerated standard
-output has begun return 126.  Other exit statuses, including an ELF loader's
-127, do not trigger a general fallback.  Direct client invocation still
-requires its runtime shared libraries to load successfully.
-.SH LOADER
-.TP
-.B bhist-speedup-loader start
-Start or resume loading.  A database marked
-.B rebuild_required
-is not resumed.
-.TP
-.B bhist-speedup-loader rebuild
-Build and atomically publish a new schema-version-1 database.  This command
-fails while the loader is already running.
-.TP
-.B bhist-speedup-loader stop
-Stop the loader.
-.TP
-.B bhist-speedup-loader status
-Print process state, database and event directory paths, database health,
-and tracked event rows.
-.PP
-The loader samples the current
+Standard bhist builds job history by reading the
 .B lsb.events
-size once per second.  Truncation persists
-.B db_status=rebuild_required
-and stops live import before the next iteration.
-.SH SERVER
+event files. Its queries slow down as the files grow larger and more
+numerous. By default it reads only the current
+.B lsb.events
+and ignores earlier archives, and a query that spans many archives can use
+so much memory that it runs out of memory.
+.PP
+bhist speed up keeps importing the event files into a local database in the
+background. For a query, it first selects the events of the matching jobs
+from the database, then has standard bhist format them. The output is the
+same as standard bhist, common queries are much faster, and queries can
+cover a much longer history.
+.SH USING BHIST
+Use
+.B bhist
+as before; nothing changes:
+.PP
+.RS
+.nf
+bhist \-a \-u all
+bhist \-l 12345
+bhist \-C 2026/10/01/00:00,2026/10/20/23:59 \-u alice
+.fi
+.RE
+.SS Accelerated queries
+A query is accelerated when it uses only the following:
 .TP
-.B bhist-speedup-server start
-Start the query server. Database existence is not a startup dependency.
+.BR \-l ", " \-w
+Long or wide format, not both.
 .TP
-.B bhist-speedup-server stop
-Stop the server and active query process groups.
+.BR \-a ", " \-d ", " \-e ", " \-p ", " \-s ", " \-r
+Filter by job state.
 .TP
-.B bhist-speedup-server status
-Print process state and current request load.
+.BR \-u ", " \-q ", " \-m
+Filter by user, queue, or host; each at most once.
 .TP
-.B bhist-speedup-server view
-Print the latest completed performance sample period and exit.
+.BR \-S ", " \-D ", " \-C
+Filter by submit, dispatch, or completion time.
 .TP
-.BI "bhist-speedup-server perfmon " seconds
-Start fixed, non-overlapping in-memory sample periods.
-.TP
-.B bhist-speedup-server perfmon stop
-Stop sampling and discard performance data.
-.SH SERVICE ADMINISTRATION
-Operational server and loader commands require root or a configured cluster
-administrator and must run on the host
-named by
-.BR LSB_BHIST_ENDPOINT .
-The original real user ID determines the caller; USER and LOGNAME do not grant
-administrator access.  Real and effective user IDs must match.
-Local help and version output do not require configuration or administrator
-privileges.
-.PP
-Every management command first loads the service configuration and the
-administrator list, then checks the caller and service host.  Root keeps its
-identity for the stop and status commands, allowing it to inspect and stop
-instances owned by another administrator or by root.
-.PP
-Before dispatching start, rebuild, view, or either form of perfmon, root
-switches to the first administrator in the expanded, deduplicated list.
-This includes
-.BR "perfmon stop" .
-The selected account must resolve to a nonzero user ID; root does not skip an
-invalid first account and select a later administrator.  Stop and status do not
-select a target user ID, but still require valid configuration and all caller
-and service-host checks.
-.PP
-Any non-root user in the administrator list keeps their own identity, even
-when they are not the first administrator.  No user switch is attempted for
-that caller.  Passing the administrator check does not grant access to another
-user's files or permission to stop another user's process.  A root invocation
-of start, rebuild, view, or perfmon has the first administrator's permissions
-after switching identity.
-.PP
-Configuration, administrator lookup, host-check, or identity-switch failures
-terminate the affected command before the requested operation.  Stop and status
-do not bypass damaged administrator configuration; repair the configuration
-before retrying.  The program does not change existing file ownership
-automatically.  A root status query can cause SQLite to recreate WAL/SHM
-sidecar files; their ownership follows the existing database owner, so the
-query does not leave root-owned runtime files that block later administrator
-use.
-.SS Upgrading existing root-owned services
-Keep the original service configuration until existing instances have stopped.
-Use the new stop command as root, or use the old commands, and confirm that
-the main and worker processes have exited before changing configuration and
-preparing files for the next runtime user.  The new root stop command can stop
-an old root-owned process, but still requires valid service and administrator
-configuration on the configured service host.
-.PP
-Choose the administrator that will run each service and prepare only the
-speedup component's own database directory, database and sidecar files, logs,
-and PID files for that user.  Do not recursively change the ownership of the
-shared LSF_LOGDIR, or change ownership of lsb.events and its archives.  The
-runtime user needs access to the configuration and event files.  Reuse the
-existing database after migration; this identity change does not require a
-rebuild.
-.PP
-Root selects the current first administrator for start, rebuild, view, and
-perfmon.  Root stop and status retain root.  Stop the existing instance before
-changing administrator order, removing its account, or choosing a different
-user to start it.  Existing processes and file owners do not change when the
-administrator list changes, and stopping a service does not migrate its files.
-.SS Unified service commands
-When bhist speedup support is enabled at build time, the installation includes
-.IR $LSF_ENVDIR/bhist-speedup .
-This Bash script manages both components by invoking their existing management
-commands.  Use its full path to distinguish it from the accelerated query
-client named
-.IR $LSF_BINDIR/bhist-fast .
-.PP
-The script loads the readable shell profile from
-.I /etc/profile.d/volclava.sh
+.I job_ID
+One or more job IDs, including job arrays and array elements, for example
+.BR 123 ,
+.BR 123[4] ,
 or
-.IR /etc/profile.d/lsf.sh .
-Only one of these profiles is expected to exist.  It clears inherited
-LSF_ENVDIR and LSF_BINDIR before loading the profile, then checks that the
-resulting directories and both management executables are available.
-This supplies the environment even when no login shell has run.
+.BR 123[1-10] .
+.PP
+The options mean the same as in standard bhist; see
+.BR bhist (1).
+Any other query runs standard bhist directly, for example one with another
+option
+.RB ( \-n ,
+.BR \-f ,
+.BR \-t ,
+.BR \-b ,
+.BR \-J ,
+and so on),
+.BR \-h ,
+or
+.BR \-V .
+.SS Differences from standard bhist
+.TP
+.B All kept history is searched by default.
+Standard bhist reads only the current
+.B lsb.events
+unless
+.B \-n
+is given. An accelerated query returns what
+.B "bhist \-n 0"
+would, over all history kept in the database (the last 30 days by default,
+as configured by the administrator).
+.TP
+.B New events appear with a delay.
+A job change shows up a few seconds to a few tens of seconds later.
+.SS When acceleration is unavailable
+If the query fails in the bhist speed up service, bhist runs standard bhist
+instead and prints:
+.PP
+.RS
+.nf
+bhist speed up: falling back to standard bhist
+.fi
+.RE
+.PP
+The results are still correct, only as slow as standard bhist. The usual
+causes are that the service is not running or the database is still being
+built. If this message keeps appearing, contact your cluster administrator.
+.PP
+If the query fails after part of the output has been printed, bhist does not
+run standard bhist, to avoid printing the output twice. It prints the
+following; run the query again:
+.PP
+.RS
+.nf
+bhist speed up: warning: results may be incomplete
+.fi
+.RE
+.SS LSF clusters on CentOS
+On CentOS releases earlier than 8, if
+.B lsf.entitlement
+or
+.B profile.lsf
+exists in
+.B LSF_ENVDIR
+(an LSF cluster), bhist always runs standard bhist.
+.SH ADMINISTRATION
+.SS Requirements
+.IP \(bu 2
+One host in the cluster serves as the service host. It may be a master
+candidate or a compute host, but jobs should not be dispatched to it. It needs
+a local disk (at least 200 GB is recommended) and must be reachable from all
+cluster hosts.
+.IP \(bu 2
+bhist speed up was enabled at build or install time
+.RB ( VOLC_BHIST_SPEEDUP=Y
+in
+.BR install.conf ).
+.IP \(bu 2
+SQLite on the service host is version 3.8.0 or later.
+.IP \(bu 2
+Management commands run on the service host as root or as the first cluster
+administrator (the first user of
+.B ClusterAdmins
+in
+.BR lsf.cluster. \fIcluster_name\fR).
+.SS Configuration
+Set two parameters in
+.BR $LSF_ENVDIR/lsb.hist :
+.PP
+.RS
+.nf
+LSB_BHIST_ENDPOINT=hostA:3000
+LSB_BHIST_DB_PATH=/var/lib/bhist-speedup/bhist-speedup.sqlite
+.fi
+.RE
+.TP
+.B LSB_BHIST_ENDPOINT
+Service host name and port. The server listens on this port on all IPv4
+addresses of the host; bhist connects to it by this host name.
+.TP
+.B LSB_BHIST_DB_PATH
+Absolute path of the database file, on a local disk of the service host
+(SSD recommended), not on NFS.
+.PP
+The loader finds the cluster's event directory by itself; set
+.B LSB_BHIST_EVENT_DIR
+only if the event files are elsewhere. For all parameters, see
+.BR lsb.hist (5);
+the defaults suit most hosts.
+.SS Starting and stopping
+The loader and server run on the service host named by
+.BR LSB_BHIST_ENDPOINT .
+Manage them in one of two ways.
+.PP
+.B Under systemd (recommended).
+Run
+.B bhist-speedup-setup
+once as root. It creates the
+.B volclava-bhist-loader
+and
+.B volclava-bhist-server
+systemd services and enables them at boot; systemd restarts a service that
+exits abnormally.
+.PP
+.RS
+.nf
+bhist-speedup-setup
+systemctl start volclava-bhist-loader volclava-bhist-server
+.fi
+.RE
+.PP
+.B By hand.
+.PP
+.RS
+.nf
+bhist-admin loader start
+bhist-admin server start
+.fi
+.RE
+.PP
+A service started with bhist-admin is not managed by systemd: it does not
+start at boot and is not restarted if it exits. Do not mix the two ways; once
+the systemd services are installed, start and stop with
+.BR systemctl .
+.PP
+On its first start the loader imports all existing event files, which can
+take a long time for a large cluster; until it finishes, bhist runs standard
+bhist. Check progress with
+.BR "bhist-admin loader status" ;
+.B db_status=ready
+means the database is ready.
+.SS Rebuilding the database
+When the loader log asks for a rebuild, or
+.B bhist-admin loader status
+shows
+.BR db_status=rebuild_required ,
+for example:
+.PP
+.RS
+.nf
+state=stopped
+log=/opt/volclava/log/bhist-speedup-loader.log.hostA
+db=/var/lib/bhist-speedup/bhist-speedup.sqlite
+eventsdir=/opt/volclava/work/logdir
+db_status=rebuild_required
+cluster=volclava
+created=2026-10-22 10:37:41
+event_rows_tracked=160340
+.fi
+.RE
+.PP
+rebuild the database:
+.PP
+.RS
+.nf
+bhist-admin loader stop
+bhist-admin loader clean
+bhist-admin loader start
+.fi
+.RE
+.PP
+With the systemd services installed, use
+.B "systemctl stop volclava-bhist-loader"
+and
+.B "systemctl start volclava-bhist-loader"
+for the first and last steps. bhist runs standard bhist during the rebuild;
+the server keeps running. A rebuild restores only the history in event files
+that still exist.
+.SS Changing the configuration
+.IP \(bu 2
+Restart the loader and server after editing
+.BR lsb.hist .
+.IP \(bu 2
+Stop the loader before changing
+.BR LSB_BHIST_DB_PATH ;
+otherwise it keeps writing to the old path.
+.IP \(bu 2
+Run
+.B bhist-speedup-setup
+again as root after the installation or platform directory changes.
+.SS Removing the systemd services
+.B "bhist-speedup-setup \-\-remove"
+stops and removes both services; it keeps the database and logs. Uninstalling
+Volclava does this automatically and reports the database directory, which
+must be removed by hand.
+.SH BHIST-ADMIN COMMANDS
 .TP
 .B start
-Run loader start, then server start.  A loader startup failure prevents the
-server startup command.
+Start the loader or server.
 .TP
 .B stop
-Run server stop, then loader stop.  Both stops are attempted even if one
-fails; the script reports failure if either command fails.
-.TP
-.B status
-Print both server and loader status, with component labels.
+Stop the loader or server, however it was started.
 .TP
 .B restart
-Stop both components, then run loader start and server start.
-This is an ordinary restart that reuses the existing database.
+Stop, then start.
 .TP
-.B rebuild
-Stop both components, then run loader rebuild and server start.
-The loader removes the existing database and rebuilds it from retained event
-files; the script does not delete database files itself.
+.B status
+Show the state; see STATUS OUTPUT.
+.TP
+.B clean
+Loader only. Delete the database so the next start rebuilds it from the
+event files. Stop the loader first.
+.TP
+.B view
+Server only. Show the latest performance sample.
+.TP
+.BI "perfmon " seconds
+Server only. Start sampling performance every
+.I seconds
+seconds.
+.TP
+.B perfmon stop
+Server only. Stop sampling.
 .PP
-Restart and rebuild proceed only after both stop commands succeed.  A loader
-start or rebuild failure prevents server startup.  The underlying programs
-start their daemons in the background; a successful startup command does not
-mean that the database has finished loading.  Use loader status to check
-database readiness.  No automatic retry or rollback is performed.
+With the systemd services installed, use
+.B systemctl
+for start, stop, and restart.
+.BR start ,
+.BR stop ,
+.BR restart ,
+and
+.B clean
+need root or the first cluster administrator;
+.BR status ,
+.BR view ,
+and
+.B perfmon
+accept any cluster administrator.
+.SH STATUS OUTPUT
+.B bhist-admin loader status
+prints, for example:
 .PP
-The script preserves the root and cluster-administrator policy described
-above.  Its commands return 0 on success, 1 on operation failure, or 2 for
-invalid arguments.
-.SS Systemd service
-The post stage of
-.B volcinstall.sh
-registers bhist speedup when the component is installed and systemd is
-available.  It copies the management script to
-.I /etc/init.d/bhist-speedup
-and writes a native unit at
-.IR /etc/systemd/system/bhist-speedup.service .
-Registration reloads systemd's unit definitions but does not start the service
-or enable startup at boot.  Repeating post refreshes the files without
-restarting the service or changing its enabled state.  An unavailable systemd
-causes registration to be skipped; a registration failure is reported without
-aborting the software installation.  Direct RPM or DEB installation does not
-register this bhist service; registration is performed by the installer post
-stage.
-.PP
-On the configured service host, an operator with the host's existing systemd
-management permissions can run:
-.PP
+.RS
 .nf
-systemctl start bhist-speedup
-systemctl stop bhist-speedup
-systemctl restart bhist-speedup
-systemctl enable bhist-speedup
+state=running
+pid=2686406
+log=/opt/volclava/log/bhist-speedup-loader.log.hostA
+db=/var/lib/bhist-speedup/bhist-speedup.sqlite
+eventsdir=/opt/volclava/work/logdir
+db_status=ready
+cluster=volclava
+created=2026-10-21 11:00:54
+event_rows_tracked=154118
+systemd=managed
 .fi
+.RE
+.TP
+.B state
+.B running
+or
+.BR stopped .
+.TP
+.BR pid ", " log
+Process ID and log file.
+.TP
+.BR db ", " eventsdir
+Database path and event directory.
+.TP
+.B db_status
+.B ready
+when usable;
+.B missing
+before the first import completes or before the first start;
+.B rebuild_required
+when the database must be rebuilt (see Rebuilding the database).
+.TP
+.BR cluster ", " created
+Cluster the database belongs to, and when it was created.
+.TP
+.B event_rows_tracked
+Number of events imported.
+.TP
+.B systemd
+.B managed
+when systemd runs the service,
+.B not managed
+when it was started by hand. Shown only when the systemd services are
+installed.
 .PP
-The unit maps ExecStart and ExecStop to the script's start and stop commands.
-Systemctl restart is an ordinary stop followed by start; it does not rebuild
-the database.  To request a rebuild, invoke
-.B /etc/init.d/bhist-speedup rebuild
-directly.  No reload or rebuild action is added to systemd, and no polkit or
-sudoers rules are installed.
-.PP
-The unit uses
-.B Type=oneshot
+.B bhist-admin server status
+prints
+.B state
+.RB ( running ,
+.B starting
+when the process exists but does not yet accept connections, or
+.BR stopped ),
+.BR endpoint ,
+.BR pid ,
+.BR log ,
+the queries running and queued
+.RB ( running ", " queued ),
+their limits
+.RB ( max_running ", " max_scan_running ", " max_queued ;
+see
+.BR lsb.hist (5)),
 and
-.BR RemainAfterExit=yes .
-After the launcher returns successfully, systemd normally shows
-.BR "active (exited)" .
-This describes the launcher state, not daemon health or database readiness.
-The unit does not automatically restart failed daemons.  It starts its
-management commands as root, and the binaries apply their existing
-administrator identity-switching rules.
+.BR systemd .
+.SH PERFORMANCE SAMPLING
+.RS
+.nf
+bhist-admin server perfmon 60
+bhist-admin server view
+bhist-admin server perfmon stop
+.fi
+.RE
 .PP
-Direct script commands do not synchronize the unit's state, and daemons
-started directly are not automatically placed in the unit's control group.
-Use the script's status and stop commands to inspect and stop directly
-managed instances.
+Example output of
+.B view
+after four 60-second periods:
 .PP
-.B volcuninstall.sh
-stops and disables the registered service, removes the copied script and
-unit, and reloads systemd before removing the software.  Missing registration
-files are harmless and repeated cleanup is supported.  Registration cleanup
-preserves database files, source events, and logs.
-.SH CONFIGURATION
-All speedup components read:
+.RS
+.nf
+Performance monitor start time: Wed Oct 21 16:56:18
+End time of last sample period: Wed Oct 21 17:00:18
+Sample period:                  60 Second(s)
+REQUESTS
+  Type                     Last          Max          Avg        Total
+  job_id                      0            6          3.0           12
+  time_range                  0            0          0.0            0
+  history_scan                0            0          0.0            0
+  TOTAL                       0            6          3.0           12
+OUTPUT TO CLIENT
+  Type                     Last          Max          Avg        Total
+  TOTAL                     0 B     83.2 KiB     21.3 KiB     85.3 KiB
+.fi
+.RE
 .PP
-.I $LSF_ENVDIR/lsb.hist
+.B REQUESTS
+counts queries by type:
+.B job_id
+names job IDs;
+.B time_range
+has no job ID but uses
+.BR \-S ,
+.BR \-D ,
+or
+.BR \-C ;
+.B history_scan
+has neither and searches all history.
+.B OUTPUT TO CLIENT
+is the data returned to users.
+.B Last
+is the latest period,
+.B Max
+the largest single period,
+.B Avg
+the average per period, and
+.B Total
+the sum since sampling started. In the example, 12 job ID queries were
+handled, at most 6 in one period, 3 per period on average, and none in the
+latest period.
 .PP
-The file contains literal
-.I KEY=VALUE
-assignments. Empty lines, comments, surrounding whitespace, and one pair of
-whole-value quotes are accepted. Unknown and duplicate keys are errors.
-.PP
+Before the first period ends,
+.B view
+reports how many seconds remain. Samples are kept only in memory and are lost
+when sampling stops or the server restarts.
+.SH DIAGNOSTICS
+After each of the first four messages below, bhist also prints
+.B "falling back to standard bhist"
+and runs standard bhist; the results are still correct.
+.TP
+.B history database is not available yet
+The database is not built yet, or the loader is not running. Check
+.BR "bhist-admin loader status" ;
+start the loader if it is stopped.
+.TP
+.B cannot connect to service
+The server is not running, or the network is down. Check the server state,
+.BR LSB_BHIST_ENDPOINT ,
+and the firewall.
+.TP
+.B service error: ...
+The server refused the request, for example because its queue is full.
+Occasional messages can be ignored; if frequent, raise the concurrency or
+queue limits.
+.TP
+.B history query failed
+The server failed. Check the server log.
+.TP
+.B falling back to standard bhist
+(alone) This host cannot run the accelerated client. Check that
+.B bhist-fast
+is installed.
+.TP
+.B results may be incomplete
+The query failed after printing part of its output; bhist does not run
+standard bhist. Run the query again, and check the server log if it recurs.
+.TP
+.B must run on the service host
+A management command was run on another host. Log in to the host named by
 .B LSB_BHIST_ENDPOINT
-must be set to
-.IR hostname:port .
-The server listens on all local IPv4 addresses (0.0.0.0) at the specified port.
-The hostname is used for client connections and service-host validation;
-it does not select the server's listening interface.
-The generated template provides only a commented example.  The database path
-must be absolute and should use local SSD storage.
-When changing the database path, stop the loader first: a running loader
-keeps writing to the path it was started with.
-.B LSB_BHIST_EVENT_DIR
-must name the absolute directory containing
-.B lsb.events
-and rotated archives; its generated example is also commented out.
-.PP
-Cluster-owned settings are inherited from
-.IR $LSF_ENVDIR/lsf.conf .
-.B LSF_BINDIR
-selects
-.BR bhist-standard ;
-.B LSF_LOGDIR
-and
-.B LSF_LOG_MASK
-control daemon logs.
-.PP
-.B LSF_CONFDIR
-selects the cluster configuration directory independently of LSF_ENVDIR.
-For every server or loader management command, the program reads the Cluster
-table in
-.IR $LSF_CONFDIR/lsf.shared ,
-deduplicates ClusterName values, and requires exactly one corresponding
-.I lsf.cluster.<name>
-file to exist.  Administrators are read from its ClusterAdmins/Administrators
-definition; the older ClusterManager/Manager form is accepted, with the modern
-definition taking precedence.
-.PP
-Administrator items are resolved as user names first, then Unix group names.
-Groups expand using their existing member list; duplicate user names are
-removed while preserving first occurrence order.  When a command requires an
-identity switch, root uses the first user in this resulting list, rather than a
-hard-coded account named lsfadmin.  An empty or unresolvable administrator list
-is an error for all management commands, including root stop and status.
-.PP
-The ordinary client does not read the administrator list or require service
-management privileges.  Offline configuration and route detection work without
-running cluster daemons; successful historical queries still require the
-appropriate data and query service.
+and run it there.
+.TP
+.B must be run as root or a cluster administrator
+Run the command as root or a cluster administrator.
+.TP
+.B run this command as root or the service administrator
+start and clean need root or the first cluster administrator.
+.TP
+.B the history database must be rebuilt
+The loader stopped because the event files were truncated or replaced. Rebuild
+the database (see Rebuilding the database).
+.TP
+.B already running
+The service is already running, possibly started by systemd or someone else.
+Nothing to do; use restart to restart it.
+.TP
+.B running ... log: ...
+(the only line printed by a loader or server run in a terminal) Normal; the
+rest of its output goes to the log file shown.
 .SH FILES
 .TP
-.I $LSF_BINDIR/bhist
-Public POSIX wrapper.
+.B $LSF_BINDIR/bhist
+The command users run, on any host. Accelerated queries go to the service;
+others run standard bhist.
 .TP
-.I $LSF_BINDIR/bhist-fast
-Internal accelerated client.
+.B $LSF_BINDIR/bhist-fast
+Sends queries to the service; run by bhist, not directly.
 .TP
-.I $LSF_BINDIR/bhist-standard
-Native bhist formatter and fallback command.
+.B $LSF_BINDIR/bhist-standard
+Standard bhist. bhist runs it when acceleration is not used, and the service
+uses it to format output.
 .TP
-.I $LSF_ENVDIR/bhist-speedup
-Unified loader and server management script.
+.B $LSF_SERVERDIR/bhist-speedup-loader
+Imports the event files into the database and follows new events; runs on the
+service host.
 .TP
-.I /etc/init.d/bhist-speedup
-Management script copied by the installer post stage.
+.B $LSF_SERVERDIR/bhist-speedup-server
+Answers queries from bhist; runs on the service host.
 .TP
-.I /etc/systemd/system/bhist-speedup.service
-Native systemd unit registered by the installer post stage.
+.B $LSF_BINDIR/bhist-admin
+Starts, stops, and inspects the loader and server.
 .TP
-.I $LSF_ENVDIR/lsb.hist
-Speedup configuration.
+.B $LSF_BINDIR/bhist-speedup-setup
+Installs or removes the systemd services.
 .TP
-.I $LSF_CONFDIR/lsf.shared
-Cluster names used to select the local cluster configuration.
+.B $LSF_ENVDIR/lsb.hist
+Configuration, read on all hosts; see
+.BR lsb.hist (5).
 .TP
-.I $LSF_CONFDIR/lsf.cluster.<name>
-Selected cluster administrator configuration.
+.B /etc/systemd/system/volclava-bhist-loader.service
+.PD 0
 .TP
-.I directory-of-LSB_BHIST_DB_PATH/bhist-speedup-server.pid
-Locked server PID file.
+.B /etc/systemd/system/volclava-bhist-server.service
+.PD
+The systemd services created by bhist-speedup-setup.
 .TP
-.I directory-of-LSB_BHIST_DB_PATH/bhist-speedup-loader.pid
-Locked loader PID file.
+.BI $LSF_LOGDIR/bhist-speedup-loader.log. host
+.PD 0
 .TP
-.I $LSF_LOGDIR/bhist-speedup-server.log.HOST
-Server log.
+.BI $LSF_LOGDIR/bhist-speedup-server.log. host
+.PD
+Logs.
 .TP
-.I $LSF_LOGDIR/bhist-speedup-loader.log.HOST
-Loader log.
+The file named by LSB_BHIST_DB_PATH
+The database.
 .SH SECURITY
-The TCP protocol is unauthenticated. The client-provided local username is a
-default
-.B -u
-filter hint, not a verified identity. Restrict the endpoint to a trusted
-cluster network.
+Traffic between bhist and the server is not authenticated, and the server
+does not verify who is querying: anyone who can reach the endpoint can read
+all job history. Open the port only to the trusted cluster network.
 .SH SEE ALSO
+.BR lsb.hist (5),
 .BR bhist (1)

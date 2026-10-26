@@ -1,3 +1,7 @@
+/*
+ * Copyright (C) 2021-2026 Bytedance Ltd. and/or its affiliates
+ */
+
 #include "bhist.loader.h"
 #include "lproto.h"
 
@@ -955,7 +959,8 @@ loaderStoreValidateSchema(const char *dbPath, int busyTimeoutMs)
     db = NULL;
     if (loaderStoreOpenReadonly(dbPath, busyTimeoutMs, &db) != 0) {
         ls_syslog(LOG_ERR, "schema_check_open_failed db=%s; run "
-                 "bhist-admin loader clean", dbPath);
+                 "bhist-admin loader clean, then start the loader again",
+                 dbPath);
         return -1;
     }
     statement = NULL;
@@ -970,7 +975,8 @@ loaderStoreValidateSchema(const char *dbPath, int busyTimeoutMs)
     }
     if (!compatible) {
         ls_syslog(LOG_ERR, "schema_incompatible db=%s expected=%s "
-                 "actual=%s; run bhist-admin loader clean",
+                 "actual=%s; run bhist-admin loader clean, then start the "
+                 "loader again",
                  dbPath, expected,
                  actual != NULL ? (const char *)actual : "missing");
     }
@@ -979,13 +985,15 @@ loaderStoreValidateSchema(const char *dbPath, int busyTimeoutMs)
     if (compatible &&
         loaderStoreGetDbStatus(db, dbStatus, sizeof(dbStatus)) != 0) {
         ls_syslog(LOG_ERR, "read_db_status_failed db=%s; run "
-                 "bhist-admin loader clean", dbPath);
+                 "bhist-admin loader clean, then start the loader again",
+                 dbPath);
         compatible = 0;
     }
     if (compatible &&
         strcmp(dbStatus, LOADER_DB_STATUS_REBUILD_REQUIRED) == 0) {
         ls_syslog(LOG_ERR, "database_rebuild_required db=%s; run "
-                 "bhist-admin loader clean", dbPath);
+                 "bhist-admin loader clean, then start the loader again",
+                 dbPath);
         compatible = 0;
     }
     loaderStoreClose(db);
@@ -1039,7 +1047,13 @@ loaderStoreBegin(sqlite3 *db)
         ls_syslog(LOG_ERR, "invalid database handle");
         return -1;
     }
-    return execSql(db, "BEGIN");
+    /*
+     * Take the write lock up front. A deferred transaction that reads first
+     * cannot upgrade once the server has committed its request history in
+     * WAL mode: SQLite then returns SQLITE_BUSY at once and skips the busy
+     * timeout. IMMEDIATE waits for the lock under the busy timeout instead.
+     */
+    return execSql(db, "BEGIN IMMEDIATE");
 }
 
 /*

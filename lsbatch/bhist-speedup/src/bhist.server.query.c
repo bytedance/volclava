@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2021-2025 Bytedance Ltd. and/or its affiliates
+ * Copyright (C) 2021-2026 Bytedance Ltd. and/or its affiliates
  *
  * Server query subsystem with four processing layers:
  *  1. Parse bhist-compatible arguments and map time ranges to local-day tables.
@@ -55,10 +55,14 @@
 
 #define BHIST_OUTPUT_LINE_SIZE 8192
 
+/* Upper bound of native bhist argv entries other than job selectors. */
+#define BHIST_FIXED_ARGV_MAX 32
+
 /* Describes one native bhist invocation assembled by the query backend. */
 struct bhistRequest {
     const char *bhistPath;
-    const char *selector;
+    char *const *selectors;
+    int selectorCount;
     int longFormat;
     int wideFormat;
     unsigned int stateFlags;
@@ -293,7 +297,7 @@ jobMapDestroy(struct jobMap *map)
  * workers never replay parts of the same job. Buckets are assigned by expected
  * base-job-ID count rather than by event row. A numeric job ID can be reused
  * after wraparound, so one ID may contain multiple job generations and the
- * formatter may emit more jobs than LSB_BHIST_JOBS_PER_BATCH. Each nonempty
+ * formatter may emit more jobs than one batch holds. Each nonempty
  * bucket runs one "bhist -f <event-file>" process whose output is captured
  * and merged in a deterministic order.
  *
@@ -387,7 +391,7 @@ queryFailed(int incomplete, const char *detail, ...)
     if (!queryFailReported) {
         queryFailReported = 1;
         fprintf(stderr, "bhist speed up: history query failed; "
-                "contact your Volclava administrator\n");
+                "contact your cluster administrator\n");
     }
     if (incomplete && !queryIncompleteReported) {
         queryIncompleteReported = 1;
@@ -416,7 +420,7 @@ reportHistoryUnavailable(const char *detail, ...)
     if (!queryUnavailableReported) {
         queryUnavailableReported = 1;
         fprintf(stderr, "bhist speed up: history database is not available yet; "
-                "contact your Volclava administrator\n");
+                "contact your cluster administrator\n");
     }
 }
 
@@ -664,12 +668,14 @@ startBhistWorkers(struct bucketInfo *buckets, int bucketCount,
         }
         if (buckets[i].pid == 0) {
             /*
-             * Each value-taking option below consumes two argv entries, and
-             * the terminating NULL consumes one more. Increase this array or
-             * introduce a bounds-checked builder before adding more filters.
+             * The fixed options and filters below take at most
+             * BHIST_FIXED_ARGV_MAX entries, including the terminating NULL;
+             * raise it before adding more. Job selectors are appended as
+             * given.
              */
-            char *argv[32];
+            char **argv;
             int argc;
+            int j;
 
             if (dup2(outFd, STDOUT_FILENO) < 0 ||
                 dup2(errFd, STDERR_FILENO) < 0)
@@ -677,6 +683,11 @@ startBhistWorkers(struct bucketInfo *buckets, int bucketCount,
             close(outFd);
             close(errFd);
 
+            argv = (char **)calloc((size_t)BHIST_FIXED_ARGV_MAX +
+                                   (size_t)request->selectorCount,
+                                   sizeof(char *));
+            if (argv == NULL)
+                _exit(127);
             argc = 0;
             argv[argc++] = (char *)request->bhistPath;
             argv[argc++] = "-f";
@@ -686,8 +697,9 @@ startBhistWorkers(struct bucketInfo *buckets, int bucketCount,
             if (request->wideFormat)
                 argv[argc++] = "-w";
             appendBhistStateFlags(argv, &argc, request->stateFlags);
-            if (request->selector != NULL) {
-                argv[argc++] = (char *)request->selector;
+            if (request->selectorCount > 0) {
+                for (j = 0; j < request->selectorCount; j++)
+                    argv[argc++] = request->selectors[j];
             } else {
                 /*
                  * Keep these arguments synchronized with SQLite prefilters.
@@ -1239,6 +1251,7 @@ bhistStreamAbort(struct bhistStream *stream)
 #define QUERY_TEMP_FILTERED_JOBS "temp.filtered_jobs"
 #define QUERY_TEMP_BATCH_JOBS "temp.batch_jobs"
 #define QUERY_TEMP_SELECTED_ROWIDS "temp.selected_rowids"
+#define QUERY_TEMP_REQUESTED_JOBS "temp.requested_jobs"
 
 /* Holds query-process tuning values received through the server environment. */
 struct queryTuning {
@@ -1396,8 +1409,10 @@ static int loadEventTables(sqlite3 *db,
                            const struct eventTableRange *range,
                            struct eventTableList *tables);
 static void freeEventTables(struct eventTableList *tables);
+static int loadRequestedJobs(sqlite3 *db, char *const *selectors,
+                             int selectorCount);
 static int buildJobIdQuery(const struct eventTableList *tables,
-                           long long jobId, char *sql, size_t sqlLen);
+                           char *sql, size_t sqlLen);
 static int buildCandidateJobsQuery(const struct timeFilter *submitFilter,
                                    const struct timeFilter *dispatchFilter,
                                    const struct timeFilter *completeFilter,
@@ -2919,16 +2934,67 @@ appendOrderedRawLineSelectForTableSql(char *sql, size_t sqlLen,
 }
 
 /*
- * Build an ordered raw-event query for one exact base job ID.
+ * Store the base job IDs of the requested selectors in a temporary table.
+ * Array selectors keep only their base ID: every event of the job is
+ * selected and native bhist picks the requested elements.
+ * @param[in] db: Query database connection.
+ * @param[in] selectors: Job selectors as given by the user.
+ * @param[in] selectorCount: Number of selectors.
+ * @return: 0 on success, -2 for an invalid selector (already reported),
+ *          otherwise -1.
+ */
+static int
+loadRequestedJobs(sqlite3 *db, char *const *selectors, int selectorCount)
+{
+    sqlite3_stmt *stmt;
+    long long baseJobId;
+    int rc;
+    int i;
+
+    if (sqliteExecRows(db,
+                       "CREATE TEMP TABLE " QUERY_TEMP_REQUESTED_JOBS
+                       "(job_id INTEGER PRIMARY KEY);",
+                       NULL, NULL, NULL) != 0)
+        return -1;
+    rc = sqlite3_prepare_v2(db,
+                            "INSERT OR IGNORE INTO " QUERY_TEMP_REQUESTED_JOBS
+                            "(job_id) VALUES (?);",
+                            -1, &stmt, NULL);
+    if (rc != SQLITE_OK) {
+        queryFailed(0, "database query failed: %s", sqlite3_errmsg(db));
+        return -1;
+    }
+    for (i = 0; i < selectorCount; i++) {
+        if (parseBaseJobId(selectors[i], &baseJobId) != 0) {
+            fprintf(stderr, "bhist speed up: invalid job selector: %s\n",
+                    selectors[i]);
+            /* User-input error: already reported; suppress the generic line. */
+            queryFailReported = 1;
+            sqlite3_finalize(stmt);
+            return -2;
+        }
+        sqlite3_reset(stmt);
+        if (sqlite3_bind_int64(stmt, 1, baseJobId) != SQLITE_OK ||
+            sqlite3_step(stmt) != SQLITE_DONE) {
+            queryFailed(0, "database query failed: %s", sqlite3_errmsg(db));
+            sqlite3_finalize(stmt);
+            return -1;
+        }
+    }
+    sqlite3_finalize(stmt);
+    return 0;
+}
+
+/*
+ * Build an ordered raw-event query for the jobs in the requested-jobs table.
  * @param[in] tables: Trusted daily table list.
- * @param[in] jobId: Base job ID to select.
  * @param[out] sql: Buffer receiving query SQL.
  * @param[in] sqlLen: Size of sql.
  * @return: 0 on success, otherwise -1.
  */
 static int
 buildJobIdQuery(const struct eventTableList *tables,
-                long long jobId, char *sql, size_t sqlLen)
+                char *sql, size_t sqlLen)
 {
     size_t used;
     size_t i;
@@ -2952,13 +3018,9 @@ buildJobIdQuery(const struct eventTableList *tables,
             written = snprintf(
                 sql + used, sqlLen - used,
                 "SELECT %zu AS table_seq, k.rowid AS row_id, "
-                "k.job_id, k.raw_line FROM %s AS k",
+                "k.job_id, k.raw_line FROM " QUERY_TEMP_REQUESTED_JOBS
+                " AS r JOIN %s AS k ON k.job_id = r.job_id",
                 i, tables->items[i].tableName);
-            if (written < 0 || (size_t)written >= sqlLen - used)
-                return -1;
-            used += (size_t)written;
-            written = snprintf(sql + used, sqlLen - used,
-                               " WHERE k.job_id = %lld", jobId);
             if (written < 0 || (size_t)written >= sqlLen - used)
                 return -1;
             used += (size_t)written;
@@ -3291,7 +3353,6 @@ runQuery(int argc, char **argv)
 {
     const char *dbPath;
     const char *bhistPath;
-    long long baseJobId;
     int longFormat = false;
     int wideFormat = false;
     int cc;
@@ -3423,15 +3484,12 @@ runQuery(int argc, char **argv)
         }
     }
 
-    selectorCount = argc - optind;
     /*
-     * Native bhist accepts filters together with a job selector, then gives
-     * the selector precedence and clears user/queue/host/time/state filters.
-     * The selector runner below has the same behavior, so only extra
-     * selectors are rejected here.
+     * Native bhist accepts filters together with job selectors, then gives
+     * the selectors precedence and clears user/queue/host/time/state
+     * filters. The selector runner below has the same behavior.
      */
-    if (selectorCount > 1)
-        return invalidArguments();
+    selectorCount = argc - optind;
 
     if (selectorCount == 0 && userName == NULL) {
         requestUserHint = getenv(
@@ -3481,7 +3539,8 @@ runQuery(int argc, char **argv)
 
     memset(&request, 0, sizeof(request));
     request.bhistPath = bhistPath;
-    request.selector = selectorCount == 1 ? argv[optind] : NULL;
+    request.selectors = argv + optind;
+    request.selectorCount = selectorCount;
     request.longFormat = longFormat;
     request.wideFormat = wideFormat;
     request.stateFlags = bhistStateFlags;
@@ -3492,26 +3551,27 @@ runQuery(int argc, char **argv)
     request.queueName = queueName;
     request.hostName = hostName;
     request.workers = querySettings.formattersPerQuery;
-    if (selectorCount == 1) {
+    if (selectorCount > 0) {
         if (sqliteExecRows(queryDb, "BEGIN", NULL, NULL, NULL) != 0)
             goto queryFail;
         if (loadEventTables(queryDb, NULL, &eventTables) != 0) {
             queryFailed(0, "failed to load job history data");
             goto queryFail;
         }
-        if (parseBaseJobId(argv[optind], &baseJobId) != 0) {
-            fprintf(stderr, "bhist speed up: invalid job selector: %s\n",
-                    argv[optind]);
-            /* User-input error: already reported; suppress the generic line. */
-            queryFailReported = 1;
+        if (loadRequestedJobs(queryDb, request.selectors,
+                              selectorCount) != 0)
             goto queryFail;
-        }
-        if (buildJobIdQuery(&eventTables, baseJobId, sql,
+        if (buildJobIdQuery(&eventTables, sql,
                             QUERY_SQL_BUFFER_SIZE) != 0) {
             queryFailed(0, "failed to prepare the job query");
             goto queryFail;
         }
-        expectedJobs = 1;
+        /*
+         * One native bhist process formats every requested job, so its
+         * ordering and duplicate handling apply unchanged.
+         */
+        request.workers = 1;
+        expectedJobs = selectorCount;
         request.expectedJobs = expectedJobs;
         if (sqliteRunBhistQuery(queryDb, sql, &request, NULL,
                                 &found) != 0)
@@ -3638,6 +3698,7 @@ runQuery(int argc, char **argv)
 
     if (!found) {
         fprintf(stdout, "No matching job found\n");
+        return PROTOCOL_EXIT_NO_MATCH;
     }
 
     return 0;

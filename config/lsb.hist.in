@@ -1,68 +1,85 @@
 # bhist speed up configuration.
 #
-# This file is installed as $LSF_ENVDIR/lsb.hist. Set the endpoint, database
-# path, and event directory explicitly before starting the related daemon.
+# Installed as $LSF_ENVDIR/lsb.hist. Set the two required settings, then
+# start the loader and server on the service host. Restart them after
+# changing this file.
+#
+# Optional settings are commented out and show their default; uncomment one
+# only to change it. They are listed from the most to the least often
+# changed.
+
+# ---------------------------------------------------------------------------
+# The following settings are required; the service does not start until both
+# are set.
+# ---------------------------------------------------------------------------
+
+# Service host and port. Run the loader and server on this host; bhist
+# connects to it. The server listens on this port on all IPv4 addresses.
 # LSB_BHIST_ENDPOINT=hostname:port
 
-# Keep the SQLite database on local storage of the service host. A local SSD
-# is recommended; do not place the database on a shared NFS installation.
-# There is no cluster-independent default. Set this before starting the server
-# or loader. When changing this path, stop the loader first: a running loader
-# keeps writing to the path it was started with, and later start/clean
-# operations expect the data to be there.
+# Database file, as an absolute path on a local disk of the service host.
+# Use local SSD storage, not NFS. Stop the loader before changing it.
 # LSB_BHIST_DB_PATH=/var/lib/bhist-speedup/bhist-speedup.sqlite
 
-# Absolute directory containing lsb.events and its rotated archives. LSF and
-# Volclava installations can place this directory differently, so there is no
-# default. Set it explicitly before starting bhist-speedup-loader.
-# LSB_BHIST_EVENT_DIR=/path/to/logdir
+# ---------------------------------------------------------------------------
+# The following settings control how far back and how fresh the queryable
+# history is.
+# ---------------------------------------------------------------------------
 
-# Milliseconds between normal event-log checks and stale snapshot retries.
-LSB_BHIST_EVENT_POLL_INTERVAL=5000
+# Days of job history bhist can show (1-365). More days need more disk space
+# for the database and slow queries down.
+# LSB_BHIST_HISTORY_RETENTION=30
 
-# Maximum event lines committed in one loader transaction.
-LSB_BHIST_MAX_EVENTS_PER_TRANSACTION=100000
+# How often the loader checks for new events, in seconds (1-3600). A job
+# change shows up in bhist after about this long.
+# LSB_BHIST_EVENT_POLL_INTERVAL=5
 
-# Maximum raw event MiB committed in one loader transaction.
-LSB_BHIST_MAX_RAW_SIZE_PER_TRANSACTION=64
+# ---------------------------------------------------------------------------
+# The following settings control how much memory the loader and server may
+# use. The defaults suit most hosts; lower them on hosts with little memory.
+# ---------------------------------------------------------------------------
 
-# Target history window in days (1-365, default 30). Expired day tables are
-# cleaned after an lsb.events rotation; active jobs may retain older history.
-LSB_BHIST_HISTORY_RETENTION=30
+# Memory the loader may use for its database cache, in MiB.
+# LSB_BHIST_IMPORT_CACHE_SIZE=1024
 
-# SQLite page-cache size used by both the initial import and live follow,
-# in MiB.
-LSB_BHIST_IMPORT_CACHE_SIZE=1024
+# Jobs a large query (time range or full history) hands to bhist at a time
+# (2000-50000); a job array counts as one job. bhist memory grows with this
+# number; lowering it reduces the peak memory of large queries, at the cost
+# of slower large queries.
+# LSB_BHIST_JOBS_PER_BATCH=10000
 
-# Time to wait for a busy SQLite database before failing, in milliseconds.
-LSB_BHIST_DB_BUSY_TIMEOUT=60000
+# Memory one query may use for its database cache, in MiB. Queries by job ID
+# use far less; large queries may use all of it.
+# LSB_BHIST_QUERY_DB_CACHE_SIZE=256
 
-# Per-query SQLite page-cache size, in MiB.
-LSB_BHIST_QUERY_DB_CACHE_SIZE=256
+# Part of the database file one query maps into memory, in MiB. This memory is
+# shared by queries and freed by the system when needed. 0 turns it off.
+# LSB_BHIST_QUERY_DB_MMAP_SIZE=256
 
-# Per-query SQLite mmap window, in MiB. Set to 0 to disable mmap.
-LSB_BHIST_QUERY_DB_MMAP_SIZE=256
+# ---------------------------------------------------------------------------
+# The following settings control how many queries run at once and how long
+# to wait. The defaults suit most hosts; lower the concurrency on hosts with
+# few CPUs.
+# ---------------------------------------------------------------------------
 
-# Maximum bhist formatter processes used by one query.
-LSB_BHIST_MAX_FORMATTERS_PER_QUERY=4
+# Queries the server runs at the same time (1-128).
+# LSB_BHIST_MAX_CONCURRENT_QUERIES=16
 
-# Base job IDs prepared for each SQLite/bhist pipeline batch.
-LSB_BHIST_JOBS_PER_BATCH=10000
+# Of those, how many may be large queries: time ranges or the full history
+# (1-16, at most LSB_BHIST_MAX_CONCURRENT_QUERIES).
+# LSB_BHIST_MAX_CONCURRENT_SCAN_QUERIES=4
 
-# Maximum query handlers executing at the same time, including point and scan
-# queries.
-LSB_BHIST_MAX_CONCURRENT_QUERIES=16
+# bhist processes one query may run in parallel (1-16).
+# LSB_BHIST_MAX_FORMATTERS_PER_QUERY=4
 
-# Maximum scan-query handlers within LSB_BHIST_MAX_CONCURRENT_QUERIES.
-# Time-range and full-history queries are scans; job-ID point queries do not
-# consume this limit.
-LSB_BHIST_MAX_CONCURRENT_SCAN_QUERIES=4
+# Queries that may wait while the server is busy (0-4096). Beyond this, bhist
+# uses the standard bhist.
+# LSB_BHIST_MAX_QUEUED_QUERIES=128
 
-# Maximum requests waiting in the in-memory queue.
-LSB_BHIST_MAX_QUEUED_QUERIES=128
+# Seconds bhist waits for the service before using the standard bhist
+# (1-3600).
+# LSB_BHIST_CONNECT_TIMEOUT=5
 
-# Client TCP connection timeout, in seconds.
-LSB_BHIST_CONNECT_TIMEOUT=5
-
-# Time allowed for the server to receive a complete request, in seconds.
-LSB_BHIST_RECEIVE_TIMEOUT=5
+# Seconds the server waits for a query request to arrive (1-3600). Raise it
+# on slow networks.
+# LSB_BHIST_RECEIVE_TIMEOUT=5

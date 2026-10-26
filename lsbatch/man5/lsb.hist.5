@@ -1,0 +1,282 @@
+.\" Copyright (C) 2021-2026 Bytedance Ltd. and/or its affiliates
+.TH LSB.HIST 5 "October 2026" "Volclava 2.2" "File Formats"
+.SH NAME
+lsb.hist \- bhist speed up configuration file
+.SH DESCRIPTION
+The lsb.hist file defines the parameters of bhist speed up. It is
+.BR $LSF_ENVDIR/lsb.hist .
+The installation creates a template in which the two required parameters are
+left for the administrator to set; every other parameter is commented out with
+its default, and the default applies until it is uncommented.
+.PP
+Each line sets one parameter as
+.IR KEY = VALUE .
+A misspelled or repeated parameter is an error: the loader and server do not
+start, bhist runs standard bhist, and the message names the file and the
+parameter.
+.PP
+Restart the loader and server after editing the file; bhist reads it again on
+its next query.
+.PP
+The loader and server take their log directory and log level from
+.B LSF_LOGDIR
+and
+.B LSF_LOG_MASK
+in
+.BR lsf.conf .
+.SS Contents
+.IP \(bu 2
+LSB_BHIST_CONNECT_TIMEOUT
+.PD 0
+.IP \(bu 2
+LSB_BHIST_DB_PATH (required)
+.IP \(bu 2
+LSB_BHIST_ENDPOINT (required)
+.IP \(bu 2
+LSB_BHIST_EVENT_DIR
+.IP \(bu 2
+LSB_BHIST_EVENT_POLL_INTERVAL
+.IP \(bu 2
+LSB_BHIST_HISTORY_RETENTION
+.IP \(bu 2
+LSB_BHIST_IMPORT_CACHE_SIZE
+.IP \(bu 2
+LSB_BHIST_JOBS_PER_BATCH
+.IP \(bu 2
+LSB_BHIST_MAX_CONCURRENT_QUERIES
+.IP \(bu 2
+LSB_BHIST_MAX_CONCURRENT_SCAN_QUERIES
+.IP \(bu 2
+LSB_BHIST_MAX_FORMATTERS_PER_QUERY
+.IP \(bu 2
+LSB_BHIST_MAX_QUEUED_QUERIES
+.IP \(bu 2
+LSB_BHIST_QUERY_DB_CACHE_SIZE
+.IP \(bu 2
+LSB_BHIST_QUERY_DB_MMAP_SIZE
+.IP \(bu 2
+LSB_BHIST_RECEIVE_TIMEOUT
+.PD
+.SH PARAMETERS
+LSB_BHIST_ENDPOINT and LSB_BHIST_DB_PATH are required. The others are optional
+and take their defaults when unset. The defaults suit most hosts; on a service
+host with little memory or few CPUs, lower the cache and concurrency
+parameters.
+.SH LSB_BHIST_CONNECT_TIMEOUT
+.SS Syntax
+\fBLSB_BHIST_CONNECT_TIMEOUT=\fR\fIseconds\fR
+.SS Description
+Seconds bhist waits to connect to the service.
+.SS Valid Values
+1 to 3600
+.SS Default
+5
+.SH LSB_BHIST_DB_PATH
+.SS Syntax
+\fBLSB_BHIST_DB_PATH=\fR\fIpath\fR
+.SS Description
+Absolute path of the database file. Keep it on a local disk of the service
+host, not on NFS, which is slower.
+.SS Valid Values
+An absolute path
+.SS Default
+None; required.
+.SH LSB_BHIST_ENDPOINT
+.SS Syntax
+\fBLSB_BHIST_ENDPOINT=\fR\fIhostname\fR\fB:\fR\fIport\fR
+.SS Description
+Host name and port of the service. The loader and server run on this host,
+and management commands run only there; bhist connects to the server by this
+host name. The server listens on this port on all IPv4 addresses of the host.
+.PP
+Use a host name, not an IP address.
+.SS Valid Values
+Port 1 to 65535
+.SS Default
+None; required.
+.SH LSB_BHIST_EVENT_DIR
+.SS Syntax
+\fBLSB_BHIST_EVENT_DIR=\fR\fIdirectory\fR
+.SS Description
+Absolute path of the directory that holds
+.B lsb.events
+and its archives; the loader reads events from it. Usually leave it unset:
+the loader then uses the cluster's own event directory,
+.B $LSB_SHAREDIR/logdir
+for Volclava or
+.BI $LSB_SHAREDIR/ cluster_name /logdir
+for LSF, whichever holds
+.BR lsb.events .
+Set it only if the event files are elsewhere.
+.SS Valid Values
+An absolute path
+.SS Default
+Determined from the cluster, as described above.
+.SH LSB_BHIST_EVENT_POLL_INTERVAL
+.SS Syntax
+\fBLSB_BHIST_EVENT_POLL_INTERVAL=\fR\fIseconds\fR
+.SS Description
+How often the loader checks for new events, in seconds. A job change shows
+up in bhist after about this long.
+.SS Valid Values
+1 to 3600
+.SS Default
+5
+.SH LSB_BHIST_HISTORY_RETENTION
+.SS Syntax
+\fBLSB_BHIST_HISTORY_RETENTION=\fR\fIdays\fR
+.SS Description
+Days of job history bhist can show. More days need more disk space for the
+database; make sure the disk holding LSB_BHIST_DB_PATH has room. Expired
+history is removed after
+.B lsb.events
+switches files; jobs that have not finished may keep older records.
+.PP
+The database holds only events from files still in the event directory. If
+the
+.B lsb.events
+archives are kept for less time, less history is available.
+.SS Valid Values
+1 to 365
+.SS Default
+30
+.SH LSB_BHIST_IMPORT_CACHE_SIZE
+.SS Syntax
+\fBLSB_BHIST_IMPORT_CACHE_SIZE=\fR\fIMiB\fR
+.SS Description
+Database cache memory the loader may use, in MiB, both for the first import
+and for reading new events afterwards. Lower it on a service host with little
+memory.
+.SS Valid Values
+1 or greater
+.SS Default
+1024
+.SH LSB_BHIST_JOBS_PER_BATCH
+.SS Syntax
+\fBLSB_BHIST_JOBS_PER_BATCH=\fR\fIinteger\fR
+.SS Description
+Jobs handled per batch by a large query, one that uses a time range or
+searches all history. Lower it on a service host with little memory to reduce
+the peak memory of large queries, at the cost of more batches and slightly
+slower large queries.
+.SS Valid Values
+2000 to 50000
+.SS Default
+10000
+.SS See Also
+LSB_BHIST_MAX_FORMATTERS_PER_QUERY
+.SH LSB_BHIST_MAX_CONCURRENT_QUERIES
+.SS Syntax
+\fBLSB_BHIST_MAX_CONCURRENT_QUERIES=\fR\fIinteger\fR
+.SS Description
+Queries the server runs at the same time; more wait in the queue. Raise it for
+many users; lower it to reduce the load on the service host.
+.SS Valid Values
+1 to 128
+.SS Default
+16
+.SS See Also
+LSB_BHIST_MAX_CONCURRENT_SCAN_QUERIES, LSB_BHIST_MAX_QUEUED_QUERIES
+.SH LSB_BHIST_MAX_CONCURRENT_SCAN_QUERIES
+.SS Syntax
+\fBLSB_BHIST_MAX_CONCURRENT_SCAN_QUERIES=\fR\fIinteger\fR
+.SS Description
+Of LSB_BHIST_MAX_CONCURRENT_QUERIES, how many may be large queries, which use
+a time range
+.RB ( \-S ,
+.BR \-D ,
+.BR \-C )
+or search all history. Queries by job ID are not limited by this.
+.SS Valid Values
+1 to 16, and no more than LSB_BHIST_MAX_CONCURRENT_QUERIES
+.SS Default
+4
+.SS See Also
+LSB_BHIST_MAX_CONCURRENT_QUERIES
+.SH LSB_BHIST_MAX_FORMATTERS_PER_QUERY
+.SS Syntax
+\fBLSB_BHIST_MAX_FORMATTERS_PER_QUERY=\fR\fIinteger\fR
+.SS Description
+bhist processes one query may run at the same time. A higher value can make a
+single large query faster but uses more CPU.
+.SS Valid Values
+1 to 16
+.SS Default
+4
+.SH LSB_BHIST_MAX_QUEUED_QUERIES
+.SS Syntax
+\fBLSB_BHIST_MAX_QUEUED_QUERIES=\fR\fIinteger\fR
+.SS Description
+Queries that may wait while the server is busy. When the queue is full, a new
+query runs standard bhist instead. 0 disables the queue.
+.SS Valid Values
+0 to 4096
+.SS Default
+128
+.SS See Also
+LSB_BHIST_MAX_CONCURRENT_QUERIES
+.SH LSB_BHIST_QUERY_DB_CACHE_SIZE
+.SS Syntax
+\fBLSB_BHIST_QUERY_DB_CACHE_SIZE=\fR\fIMiB\fR
+.SS Description
+Database cache memory one query may use, in MiB. It is a limit that is used
+as needed; a large query may reach it. The memory is freed when the query
+ends.
+.SS Valid Values
+1 or greater
+.SS Default
+256
+.SS See Also
+LSB_BHIST_QUERY_DB_MMAP_SIZE
+.SH LSB_BHIST_QUERY_DB_MMAP_SIZE
+.SS Syntax
+\fBLSB_BHIST_QUERY_DB_MMAP_SIZE=\fR\fIMiB\fR
+.SS Description
+Part of the database file one query maps into memory, in MiB. This is mostly
+virtual address space; the data actually read uses the system file cache,
+shared by queries. 0 turns mapping off.
+.SS Valid Values
+0 or greater
+.SS Default
+256
+.SS See Also
+LSB_BHIST_QUERY_DB_CACHE_SIZE
+.SH LSB_BHIST_RECEIVE_TIMEOUT
+.SS Syntax
+\fBLSB_BHIST_RECEIVE_TIMEOUT=\fR\fIseconds\fR
+.SS Description
+Seconds the server waits for a whole query request to arrive. Raise it on a
+slow network.
+.SS Valid Values
+1 to 3600
+.SS Default
+5
+.SH EXAMPLES
+Only the required parameters, everything else at its default:
+.PP
+.RS
+.nf
+LSB_BHIST_ENDPOINT=hostA:3000
+LSB_BHIST_DB_PATH=/var/lib/bhist-speedup/bhist-speedup.sqlite
+.fi
+.RE
+.PP
+A service host with little memory or few CPUs, with lower memory and
+concurrency settings:
+.PP
+.RS
+.nf
+LSB_BHIST_ENDPOINT=hostA:3000
+LSB_BHIST_DB_PATH=/var/lib/bhist-speedup/bhist-speedup.sqlite
+
+LSB_BHIST_IMPORT_CACHE_SIZE=256          # loader cache 1024 -> 256 MiB
+LSB_BHIST_MAX_CONCURRENT_QUERIES=8       # concurrent queries 16 -> 8
+LSB_BHIST_MAX_CONCURRENT_SCAN_QUERIES=2  # large queries 4 -> 2
+LSB_BHIST_QUERY_DB_CACHE_SIZE=64         # per-query cache 256 -> 64 MiB
+LSB_BHIST_JOBS_PER_BATCH=5000            # jobs per batch 10000 -> 5000
+.fi
+.RE
+.SH SEE ALSO
+.BR bhist-speedup (1),
+.BR bhist (1),
+.BR lsf.conf (5)

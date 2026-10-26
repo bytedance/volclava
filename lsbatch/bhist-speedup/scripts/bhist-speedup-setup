@@ -10,10 +10,13 @@
 
 PROG=bhist-speedup-setup
 UNIT_DIR=/etc/systemd/system
-SERVICES="bhist-speedup-loader bhist-speedup-server"
+TARGETS="loader server"
+# Each target runs program bhist-speedup-<target> as service
+# volclava-bhist-<target>.service.
+SERVICES="volclava-bhist-loader volclava-bhist-server"
 # Exit statuses a restart cannot fix: usage, configuration, database needs
 # clean, already running. Keep in sync with SERVICE_EXIT_* in bhist.service.h.
-NO_RESTART_STATUS="2 3 4 5"
+NO_RESTART_STATUS="64 65 78 79"
 
 usage() {
     echo "Usage: $PROG             install or update the systemd services"
@@ -68,13 +71,13 @@ strip_log_prefix() {
 # Stop with the program's own reason when it cannot start on this host.
 # Sets RUNNING_PID when an instance already runs.
 check_service() {
-    local name=$1 output status
+    local program=bhist-speedup-$1 output status
 
-    output=$("$LSF_SERVERDIR/$name" status 2>&1)
+    output=$("$LSF_SERVERDIR/$program" status 2>&1)
     status=$?
-    if [ "$status" -eq 3 ]; then
+    if [ "$status" -eq 78 ]; then
         echo "$output" | strip_log_prefix >&2
-        die "$name cannot run on this host; fix the problem above and" \
+        die "$program cannot run on this host; fix the problem above and" \
             "rerun $PROG"
     fi
     RUNNING_PID=$(echo "$output" | sed -n 's/^pid=//p' | head -n 1)
@@ -82,7 +85,8 @@ check_service() {
 
 # Write one unit, setting CHANGED when its content differs.
 write_unit() {
-    local name=$1 description=$2 file="$UNIT_DIR/$1.service" tmp
+    local name=volclava-bhist-$1 description=$2 tmp
+    local file="$UNIT_DIR/$name.service"
 
     tmp=$(mktemp "$UNIT_DIR/.$name.service.XXXXXX") || return 1
     {
@@ -101,7 +105,7 @@ write_unit() {
         if [ -n "$LSF_LIBDIR" ]; then
             echo "Environment=\"LSF_LIBDIR=$LSF_LIBDIR\""
         fi
-        echo "ExecStart=$LSF_SERVERDIR/$name"
+        echo "ExecStart=$LSF_SERVERDIR/bhist-speedup-$1"
         echo "Restart=on-failure"
         echo "RestartSec=10"
         echo "RestartPreventExitStatus=$NO_RESTART_STATUS"
@@ -122,7 +126,7 @@ write_unit() {
 }
 
 install_units() {
-    local name owner path pid main_pid active="" outside=""
+    local name target owner path pid main_pid active="" outside=""
 
     load_environment
     for path in "$LSF_ENVDIR" "$LSF_SERVERDIR" "$LSF_BINDIR" "$LSF_LIBDIR"; do
@@ -137,35 +141,35 @@ install_units() {
         fi
     done
 
-    for name in $SERVICES; do
-        check_service "$name"
-        main_pid=$(systemctl show -p MainPID "$name.service" 2> /dev/null |
-            cut -d= -f2)
+    for target in $TARGETS; do
+        check_service "$target"
+        main_pid=$(systemctl show -p MainPID \
+            "volclava-bhist-$target.service" 2> /dev/null | cut -d= -f2)
         if [ -n "$RUNNING_PID" ] && [ "$RUNNING_PID" != "$main_pid" ]; then
-            outside="$outside $name:$RUNNING_PID"
+            outside="$outside $target:$RUNNING_PID"
         fi
     done
 
     CHANGED=0
-    write_unit bhist-speedup-loader "bhist speed up loader" &&
-        write_unit bhist-speedup-server "bhist speed up server" ||
+    write_unit loader "bhist speed up loader" &&
+        write_unit server "bhist speed up server" ||
         die "cannot write the unit files in $UNIT_DIR"
     systemctl daemon-reload || die "systemctl daemon-reload failed"
     systemctl -q enable $SERVICES ||
         die "cannot enable the services; see the systemctl message above"
 
-    echo "Installed bhist-speedup-loader.service and bhist-speedup-server.service."
+    echo "Installed volclava-bhist-loader.service and volclava-bhist-server.service."
     for name in $SERVICES; do
         if systemctl -q is-active "$name.service"; then
             active="$active $name"
         fi
     done
-    for name in $outside; do
-        pid=${name#*:}
-        name=${name%%:*}
-        echo "$name is running outside systemd (pid $pid); to hand it" \
-            "to systemd: bhist-admin ${name#bhist-speedup-} stop, then" \
-            "systemctl start $name"
+    for target in $outside; do
+        pid=${target#*:}
+        target=${target%%:*}
+        echo "bhist-speedup-$target is running outside systemd (pid $pid);" \
+            "to hand it to systemd: bhist-admin $target stop, then" \
+            "systemctl start volclava-bhist-$target"
     done
     if [ -n "$active" ] && [ "$CHANGED" -eq 1 ]; then
         echo "Restart to apply the update: systemctl restart$active"

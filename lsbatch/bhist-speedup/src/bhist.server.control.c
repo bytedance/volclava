@@ -1,3 +1,7 @@
+/*
+ * Copyright (C) 2021-2026 Bytedance Ltd. and/or its affiliates
+ */
+
 #include "bhist.server.h"
 #include "bhist.network.h"
 #include "bhist.util.h"

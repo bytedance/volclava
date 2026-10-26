@@ -1,3 +1,7 @@
+/*
+ * Copyright (C) 2021-2026 Bytedance Ltd. and/or its affiliates
+ */
+
 #ifndef BHIST_CONFIG_H
 #define BHIST_CONFIG_H
 
@@ -32,9 +36,12 @@ struct config {
     char binDir[CONFIG_PATH_MAX];
     char bhistOriginalPath[CONFIG_PATH_MAX];
     char eventDir[CONFIG_PATH_MAX];
+    char shareDir[CONFIG_PATH_MAX];
     char logDir[CONFIG_PATH_MAX];
     char logMask[64];
 
+    /* Configured in seconds (LSB_BHIST_EVENT_POLL_INTERVAL), stored in ms. */
+    /* Configured in seconds (LSB_BHIST_EVENT_POLL_INTERVAL), stored in ms. */
     int eventPollIntervalMs;
     long long maxEventsPerTransaction;
     long long maxRawSizePerTransactionMib;
@@ -67,6 +74,10 @@ void configFree(struct config *config);
 
 int configRequireServiceHost(const struct config *config,
                              char *error, size_t errorSize);
+
+/* Fill in the event directory when lsb.hist leaves it unset; needs admins. */
+int configResolveEventDir(struct config *config,
+                          char *error, size_t errorSize);
 
 int configLogPath(const struct config *config, const char *name,
                   char *path, size_t pathSize,

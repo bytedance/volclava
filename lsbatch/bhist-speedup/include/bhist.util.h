@@ -1,4 +1,6 @@
 /*
+ * Copyright (C) 2021-2026 Bytedance Ltd. and/or its affiliates
+ *
  * Shared helpers used by every bhist speed up program.
  */
 #ifndef BHIST_UTIL_H

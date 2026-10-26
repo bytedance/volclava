@@ -1,3 +1,7 @@
+/*
+ * Copyright (C) 2021-2026 Bytedance Ltd. and/or its affiliates
+ */
+
 #ifndef BHIST_LOADER_H
 #define BHIST_LOADER_H
 

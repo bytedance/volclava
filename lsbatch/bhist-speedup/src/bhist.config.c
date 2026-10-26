@@ -1,3 +1,7 @@
+/*
+ * Copyright (C) 2021-2026 Bytedance Ltd. and/or its affiliates
+ */
+
 #include "bhist.config.h"
 
 #include "bhist.util.h"
@@ -39,11 +43,8 @@ enum configKey {
     KEY_DB_PATH,
     KEY_EVENT_DIR,
     KEY_EVENT_POLL_INTERVAL,
-    KEY_MAX_EVENTS_PER_TRANSACTION,
-    KEY_MAX_RAW_SIZE_PER_TRANSACTION,
     KEY_HISTORY_RETENTION,
     KEY_IMPORT_CACHE_SIZE,
-    KEY_DB_BUSY_TIMEOUT,
     KEY_QUERY_DB_CACHE_SIZE,
     KEY_QUERY_DB_MMAP_SIZE,
     KEY_MAX_FORMATTERS_PER_QUERY,
@@ -67,11 +68,8 @@ static const char *const keyNames[KEY_COUNT] = {
     "LSB_BHIST_DB_PATH",
     "LSB_BHIST_EVENT_DIR",
     "LSB_BHIST_EVENT_POLL_INTERVAL",
-    "LSB_BHIST_MAX_EVENTS_PER_TRANSACTION",
-    "LSB_BHIST_MAX_RAW_SIZE_PER_TRANSACTION",
     "LSB_BHIST_HISTORY_RETENTION",
     "LSB_BHIST_IMPORT_CACHE_SIZE",
-    "LSB_BHIST_DB_BUSY_TIMEOUT",
     "LSB_BHIST_QUERY_DB_CACHE_SIZE",
     "LSB_BHIST_QUERY_DB_MMAP_SIZE",
     "LSB_BHIST_MAX_FORMATTERS_PER_QUERY",
@@ -83,11 +81,35 @@ static const char *const keyNames[KEY_COUNT] = {
     "LSB_BHIST_RECEIVE_TIMEOUT"
 };
 
+/* Internal limits that are not worth exposing in lsb.hist. */
+#define CONFIG_MAX_EVENTS_PER_TRANSACTION 100000LL
+#define CONFIG_MAX_RAW_SIZE_PER_TRANSACTION_MIB 64LL
+#define CONFIG_DB_BUSY_TIMEOUT_MS 60000
+
 /* Owns one parsed configuration value and its source line for diagnostics. */
 struct configValue {
     char *value;
     int line;
 };
+
+/*
+ * Prefix an error with the file it concerns, so every configuration error
+ * reads "file: message".
+ * @param[in,out] error: Error message to prefix.
+ * @param[in] errorSize: Size of error.
+ * @param[in] path: Configuration file path.
+ * @return: None.
+ */
+static void
+prefixError(char *error, size_t errorSize, const char *path)
+{
+    char message[1024];
+
+    if (error == NULL || errorSize == 0 || path == NULL)
+        return;
+    snprintf(message, sizeof(message), "%s", error);
+    setError(error, errorSize, "%s: %s", path, message);
+}
 
 /*
  * Remove leading and trailing ASCII whitespace in place.
@@ -190,8 +212,8 @@ parseFile(const char *path, struct configValue values[KEY_COUNT],
         key = line;
         equals = strchr(key, '=');
         if (equals == NULL) {
-            setError(error, errorSize, "%s:%d: expected KEY=VALUE",
-                      path, lineNumber);
+            setError(error, errorSize, "%s: expected KEY=VALUE: %.200s",
+                      path, key);
             result = -1;
             break;
         }
@@ -199,22 +221,19 @@ parseFile(const char *path, struct configValue values[KEY_COUNT],
         value = trim(equals + 1);
         key = trim(key);
         if (key[0] == '\0' || strchr(value, '=') == value) {
-            setError(error, errorSize, "%s:%d: invalid assignment",
-                      path, lineNumber);
+            setError(error, errorSize, "%s: invalid assignment: %.200s",
+                      path, key);
             result = -1;
             break;
         }
         index = findKey(key);
         if (index < 0) {
-            setError(error, errorSize, "%s:%d: unknown key %s",
-                      path, lineNumber, key);
+            setError(error, errorSize, "%s: unknown key %s", path, key);
             result = -1;
             break;
         }
         if (values[index].value != NULL) {
-            setError(error, errorSize,
-                      "%s:%d: duplicate key %s (first set on line %d)",
-                      path, lineNumber, key, values[index].line);
+            setError(error, errorSize, "%s: duplicate key %s", path, key);
             result = -1;
             break;
         }
@@ -229,15 +248,14 @@ parseFile(const char *path, struct configValue values[KEY_COUNT],
                    (valueLength > 0 &&
                     (value[valueLength - 1] == '"' ||
                      value[valueLength - 1] == '\''))) {
-            setError(error, errorSize, "%s:%d: unmatched quote",
-                      path, lineNumber);
+            setError(error, errorSize, "%s: unmatched quote in %s",
+                      path, key);
             result = -1;
             break;
         }
         values[index].value = strdup(value);
         if (values[index].value == NULL) {
-            setError(error, errorSize, "%s:%d: out of memory",
-                      path, lineNumber);
+            setError(error, errorSize, "%s: out of memory", path);
             result = -1;
             break;
         }
@@ -337,8 +355,7 @@ parseInteger(const char *name, const char *value, long long minimum,
     if (errno != 0 || end == value || *end != '\0' ||
         parsed < minimum || parsed > maximum) {
         setError(error, errorSize,
-                 "invalid %s=%s; expected an integer between %lld and %lld "
-                 "(check lsb.hist)",
+                 "invalid %s=%s; expected an integer between %lld and %lld",
                  name, value, minimum, maximum);
         return -1;
     }
@@ -477,8 +494,10 @@ configRequireServiceHost(const struct config *config,
     localHost = ls_getmyhostname();
     if (localHost == NULL || !equalHost_(serviceHost, localHost)) {
         setError(error, errorSize,
-                  "this command must run on service host %s (local host is %s)",
-                  serviceHost, localHost != NULL ? localHost : "unknown");
+                  "%s: this command must run on the service host %s set by "
+                  "LSB_BHIST_ENDPOINT (local host is %s)",
+                  config->configPath, serviceHost,
+                  localHost != NULL ? localHost : "unknown");
         return -1;
     }
     return 0;
@@ -528,16 +547,25 @@ loadLsfEnvironment(const char *envdir, enum configRole role,
         { "LSF_LOGDIR", NULL },
         { "LSF_LOG_MASK", NULL },
         { "LSF_CONFDIR", NULL },
+        { "LSB_SHAREDIR", NULL },
         { NULL, NULL }
     };
+    char lsfConf[CONFIG_PATH_MAX];
+    int loaded;
     int result;
     int i;
 
+    snprintf(lsfConf, sizeof(lsfConf), "%s/lsf.conf", envdir);
+    loaded = 0;
     result = initenv_(parameters, (char *)envdir);
     if (result < 0) {
-        setError(error, errorSize, "cannot initialize %s/lsf.conf", envdir);
+        setError(error, errorSize,
+                 "%s/lsf.conf: cannot load the cluster settings; check that "
+                 "LSF_CONFDIR and LSF_SERVERDIR are set there or in the "
+                 "environment (source volclava.sh or profile.lsf)", envdir);
         goto done;
     }
+    loaded = 1;
     result = 0;
     if ((role & CONFIG_ROLE_SERVER) != 0) {
         if (copyValue(config->binDir, sizeof(config->binDir), "LSF_BINDIR",
@@ -580,6 +608,13 @@ loadLsfEnvironment(const char *envdir, enum configRole role,
             snprintf(config->logMask, sizeof(config->logMask),
                      "LOG_WARNING");
     }
+    if ((role & CONFIG_ROLE_LOADER) != 0 &&
+        copyOptional(config->shareDir, sizeof(config->shareDir),
+                     "LSB_SHAREDIR", parameters[4].paramValue,
+                     error, errorSize) != 0) {
+        result = -1;
+        goto done;
+    }
     if ((role & CONFIG_ROLE_SERVER) != 0 &&
         joinPath(config->binDir, "bhist-standard",
                   config->bhistOriginalPath,
@@ -588,6 +623,9 @@ loadLsfEnvironment(const char *envdir, enum configRole role,
         result = -1;
 
 done:
+    /* Settings read from lsf.conf are reported against that file. */
+    if (result != 0 && loaded)
+        prefixError(error, errorSize, lsfConf);
     for (i = 0; parameters[i].paramName != NULL; i++)
         free(parameters[i].paramValue);
     return result;
@@ -670,16 +708,16 @@ readConfigLine(FILE *stream, const char *path, int *lineNumber, char **line,
     for (;;) {
         *line = getNextLineD_(stream, lineNumber, TRUE);
         if (ferror(stream) || lserrno != LSE_NO_ERR) {
-            setError(error, errorSize, "%s:%d: cannot read configuration",
-                     path, *lineNumber);
+            setError(error, errorSize, "%s: cannot read configuration",
+                     path);
             return -1;
         }
         if (*line == NULL)
             return 0;
         /* getNextWord_ uses a fixed 4 * MAXLINELEN buffer. */
         if (strlen(*line) >= 4 * MAXLINELEN) {
-            setError(error, errorSize, "%s:%d: configuration line is too long",
-                     path, *lineNumber);
+            setError(error, errorSize, "%s: configuration line is too long",
+                     path);
             return -1;
         }
         *line = trim(*line);
@@ -702,8 +740,8 @@ readSectionLine(FILE *stream, const char *path, int *lineNumber,
     if (result < 0)
         return -1;
     if (result == 0) {
-        setError(error, errorSize, "%s:%d: missing End %s",
-                 path, *lineNumber, section);
+        setError(error, errorSize, "%s: missing End %s",
+                 path, section);
         return -1;
     }
     cursor = *line;
@@ -713,13 +751,13 @@ readSectionLine(FILE *stream, const char *path, int *lineNumber,
         if (word != NULL && strcasecmp(word, section) == 0 &&
             getNextWord_(&cursor) == NULL)
             return 0;
-        setError(error, errorSize, "%s:%d: expected End %s",
-                 path, *lineNumber, section);
+        setError(error, errorSize, "%s: expected End %s",
+                 path, section);
         return -1;
     }
     if (strcasecmp(word, "Begin") == 0) {
-        setError(error, errorSize, "%s:%d: nested section inside %s",
-                 path, *lineNumber, section);
+        setError(error, errorSize, "%s: nested section inside %s",
+                 path, section);
         return -1;
     }
     return 1;
@@ -741,14 +779,14 @@ nextSection(FILE *stream, const char *path, int *lineNumber,
             continue;
         word = getNextWord_(&line);
         if (word == NULL || strlen(word) >= sectionSize) {
-            setError(error, errorSize, "%s:%d: invalid section name",
-                     path, *lineNumber);
+            setError(error, errorSize, "%s: invalid section name",
+                     path);
             return -1;
         }
         memcpy(section, word, strlen(word) + 1);
         if (getNextWord_(&line) != NULL) {
-            setError(error, errorSize, "%s:%d: invalid Begin %s",
-                     path, *lineNumber, section);
+            setError(error, errorSize, "%s: invalid Begin %s",
+                     path, section);
             return -1;
         }
         return 1;
@@ -832,8 +870,8 @@ readClusterSection(FILE *stream, const char *path, int *lineNumber,
     return result;
 
 invalid:
-    setError(error, errorSize, "%s:%d: invalid Cluster table (requires ClusterName)",
-             path, *lineNumber);
+    setError(error, errorSize, "%s: invalid Cluster table (requires ClusterName)",
+             path);
     return -1;
 }
 
@@ -886,8 +924,8 @@ readAdminSection(FILE *stream, const char *path, int *lineNumber,
     int result;
 
     if (*definition != NULL) {
-        setError(error, errorSize, "%s:%d: duplicate %s section",
-                 path, *lineNumber, section);
+        setError(error, errorSize, "%s: duplicate %s section",
+                 path, section);
         return -1;
     }
     result = readSectionLine(stream, path, lineNumber, section, &line,
@@ -922,7 +960,7 @@ readAdminSection(FILE *stream, const char *path, int *lineNumber,
         goto invalid;
     *definition = strdup(value);
     if (*definition == NULL) {
-        setError(error, errorSize, "%s:%d: out of memory", path, *lineNumber);
+        setError(error, errorSize, "%s: out of memory", path);
         return -1;
     }
     result = readSectionLine(stream, path, lineNumber, section, &line,
@@ -931,8 +969,8 @@ readAdminSection(FILE *stream, const char *path, int *lineNumber,
         return result;
 
 invalid:
-    setError(error, errorSize, "%s:%d: expected one nonempty %s definition in %s",
-             path, *lineNumber, key, section);
+    setError(error, errorSize, "%s: expected one nonempty %s definition in %s",
+             path, key, section);
     return -1;
 }
 
@@ -1012,9 +1050,12 @@ readAdmins(const char *path, struct nameList *admins,
         if (modern == NULL && legacy == NULL) {
             setError(error, errorSize, "%s: missing ClusterAdmins/ClusterManager", path);
             result = -1;
-        } else
+        } else {
             result = expandAdmins(modern != NULL ? modern : legacy,
                                     admins, error, errorSize);
+            if (result != 0)
+                prefixError(error, errorSize, path);
+        }
     }
     free(modern);
     free(legacy);
@@ -1143,11 +1184,7 @@ validateAndAssign(const struct configValue values[KEY_COUNT],
                       config->dbPath);
             return -1;
         }
-        value = valueOrDefault(values, KEY_DB_BUSY_TIMEOUT, "60000");
-        if (parseInteger("LSB_BHIST_DB_BUSY_TIMEOUT", value, 0,
-                          INT_MAX, &parsed, error, errorSize) != 0)
-            return -1;
-        config->dbBusyTimeoutMs = (int)parsed;
+        config->dbBusyTimeoutMs = CONFIG_DB_BUSY_TIMEOUT_MS;
     }
     if ((role & CONFIG_ROLE_LOADER) != 0) {
         if (copyOptional(config->eventDir,
@@ -1170,22 +1207,13 @@ validateAndAssign(const struct configValue values[KEY_COUNT],
             return -1; \
         config->FIELD = (int)parsed
 
+        /* Configured in seconds; the loader sleeps in milliseconds. */
         ASSIGN_LOADER_INT(KEY_EVENT_POLL_INTERVAL,
-                          eventPollIntervalMs, "5000", 1, INT_MAX);
-        value = valueOrDefault(values, KEY_MAX_EVENTS_PER_TRANSACTION,
-                               "100000");
-        if (parseInteger(keyNames[KEY_MAX_EVENTS_PER_TRANSACTION], value, 1,
-                          LLONG_MAX - 1, &config->maxEventsPerTransaction,
-                          error, errorSize) != 0)
-            return -1;
-        value = valueOrDefault(values,
-                               KEY_MAX_RAW_SIZE_PER_TRANSACTION, "64");
-        if (parseInteger(keyNames[KEY_MAX_RAW_SIZE_PER_TRANSACTION],
-                          value, 1,
-                          LLONG_MAX / (1024LL * 1024LL),
-                          &config->maxRawSizePerTransactionMib,
-                          error, errorSize) != 0)
-            return -1;
+                          eventPollIntervalMs, "5", 1, 3600);
+        config->eventPollIntervalMs *= 1000;
+        config->maxEventsPerTransaction = CONFIG_MAX_EVENTS_PER_TRANSACTION;
+        config->maxRawSizePerTransactionMib =
+            CONFIG_MAX_RAW_SIZE_PER_TRANSACTION_MIB;
         value = valueOrDefault(values, KEY_HISTORY_RETENTION,
                                  "30");
         if (parseInteger(keyNames[KEY_HISTORY_RETENTION], value, 1, 365,
@@ -1213,8 +1241,8 @@ validateAndAssign(const struct configValue values[KEY_COUNT],
                           INT_MAX);
         ASSIGN_SERVER_INT(KEY_MAX_FORMATTERS_PER_QUERY,
                           formattersPerQuery, "4", 1, 16);
-        ASSIGN_SERVER_INT(KEY_JOBS_PER_BATCH, jobsPerBatch, "10000", 1,
-                          INT_MAX);
+        ASSIGN_SERVER_INT(KEY_JOBS_PER_BATCH, jobsPerBatch, "10000", 2000,
+                          50000);
         ASSIGN_SERVER_INT(KEY_MAX_CONCURRENT_QUERIES, maxConcurrentQueries,
                           "16", 1, 128);
         ASSIGN_SERVER_INT(KEY_MAX_CONCURRENT_SCAN_QUERIES,
@@ -1278,8 +1306,84 @@ loadFromFile(const char *envdir, const char *configPath,
     }
     result = validateAndAssign(values, role, config,
                                  error, errorSize);
+    if (result != 0)
+        prefixError(error, errorSize, configPath);
     freeValues(values);
     return result;
+}
+
+/*
+ * Test whether a directory holds an lsb.events file.
+ * @param[in] directory: Candidate event directory.
+ * @return: Nonzero when directory/lsb.events exists.
+ */
+static int
+hasEventLog(const char *directory)
+{
+    char path[CONFIG_PATH_MAX];
+
+    if (snprintf(path, sizeof(path), "%s/lsb.events", directory) >=
+        (int)sizeof(path))
+        return 0;
+    return access(path, F_OK) == 0;
+}
+
+/*
+ * Use the cluster's own event directory when LSB_BHIST_EVENT_DIR is unset.
+ * Volclava writes lsb.events to $LSB_SHAREDIR/logdir and LSF to
+ * $LSB_SHAREDIR/<cluster>/logdir; the one holding lsb.events is used.
+ * @param[in,out] config: Loader configuration with admins loaded.
+ * @param[out] error: Buffer receiving an error message.
+ * @param[in] errorSize: Size of error.
+ * @return: 0 on success, otherwise -1.
+ */
+int
+configResolveEventDir(struct config *config, char *error, size_t errorSize)
+{
+    char volclavaDir[CONFIG_PATH_MAX];
+    char lsfDir[CONFIG_PATH_MAX];
+    int volclavaFound;
+    int lsfFound;
+
+    if (config == NULL)
+        return -1;
+    if (config->eventDir[0] != '\0')
+        return 0;
+    if (config->shareDir[0] != '/' || config->clusterName == NULL) {
+        setError(error, errorSize,
+                 "%s/lsf.conf: LSB_SHAREDIR is not an absolute path; set "
+                 "LSB_BHIST_EVENT_DIR in %s",
+                 config->envDir, config->configPath);
+        return -1;
+    }
+    if (snprintf(volclavaDir, sizeof(volclavaDir), "%s/logdir",
+                 config->shareDir) >= (int)sizeof(volclavaDir) ||
+        snprintf(lsfDir, sizeof(lsfDir), "%s/%s/logdir",
+                 config->shareDir, config->clusterName) >=
+        (int)sizeof(lsfDir)) {
+        setError(error, errorSize, "%s/lsf.conf: LSB_SHAREDIR is too long",
+                 config->envDir);
+        return -1;
+    }
+    volclavaFound = hasEventLog(volclavaDir);
+    lsfFound = hasEventLog(lsfDir);
+    if (volclavaFound && lsfFound) {
+        setError(error, errorSize,
+                 "%s: both %s and %s hold lsb.events; set LSB_BHIST_EVENT_DIR "
+                 "to the one the cluster uses",
+                 config->configPath, volclavaDir, lsfDir);
+        return -1;
+    }
+    if (!volclavaFound && !lsfFound) {
+        setError(error, errorSize,
+                 "%s: cannot find lsb.events in %s or %s; set "
+                 "LSB_BHIST_EVENT_DIR",
+                 config->configPath, volclavaDir, lsfDir);
+        return -1;
+    }
+    snprintf(config->eventDir, sizeof(config->eventDir), "%s",
+             volclavaFound ? volclavaDir : lsfDir);
+    return 0;
 }
 
 /*

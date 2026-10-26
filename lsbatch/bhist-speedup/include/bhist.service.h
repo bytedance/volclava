@@ -1,3 +1,7 @@
+/*
+ * Copyright (C) 2021-2026 Bytedance Ltd. and/or its affiliates
+ */
+
 #ifndef BHIST_SERVICE_H
 #define BHIST_SERVICE_H
 
@@ -7,14 +11,16 @@
 struct config;
 
 /*
- * Exit statuses shared by the loader and server. A systemd unit lists the
- * statuses that a restart cannot fix in RestartPreventExitStatus.
+ * Exit statuses shared by the loader and server, taken from sysexits(3) so
+ * systemd names them (USAGE, DATAERR, CONFIG) instead of reusing the LSB
+ * names of 2-5. A systemd unit lists the statuses that a restart cannot
+ * fix in RestartPreventExitStatus.
  */
 #define SERVICE_EXIT_FAILURE 1
-#define SERVICE_EXIT_USAGE 2
-#define SERVICE_EXIT_CONFIG 3
-#define SERVICE_EXIT_CLEAN_REQUIRED 4
-#define SERVICE_EXIT_RUNNING 5
+#define SERVICE_EXIT_USAGE 64
+#define SERVICE_EXIT_CLEAN_REQUIRED 65
+#define SERVICE_EXIT_CONFIG 78
+#define SERVICE_EXIT_RUNNING 79
 
 int checkAdminUser(const struct config *config, uid_t callerUid,
                    char *error, size_t errorSize);

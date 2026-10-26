@@ -1,3 +1,7 @@
+/*
+ * Copyright (C) 2021-2026 Bytedance Ltd. and/or its affiliates
+ */
+
 #ifndef BHIST_PROTOCOL_H
 #define BHIST_PROTOCOL_H
 
@@ -5,11 +9,21 @@
 
 #define PROTOCOL_VERSION 5
 #define PROTOCOL_HEADER_SIZE 8
-#define PROTOCOL_REQUEST_MAX (64U * 1024U)
+/*
+ * A query carries the bhist command line, which may list many job IDs. The
+ * request limit matches a large shell command line; the argument count is
+ * bounded by it rather than by a separate small limit.
+ */
+#define PROTOCOL_REQUEST_MAX (1024U * 1024U)
 #define PROTOCOL_DATA_MAX (32U * 1024U)
-#define PROTOCOL_ARGC_MAX 64
+#define PROTOCOL_ARGC_MAX ((int)(PROTOCOL_REQUEST_MAX / 4U))
 #define PROTOCOL_ARG_MAX 4096U
 #define PROTOCOL_USER_HINT_MAX 255U
+/*
+ * Exit status of a query that matched no job, the same status native bhist
+ * returns. Any other nonzero status means the query failed.
+ */
+#define PROTOCOL_EXIT_NO_MATCH 255
 #define PERFORMANCE_PROTOCOL_VERSION 4U
 #define PERFORMANCE_REQUEST_ROWS 4
 #define PERFMON_MIN_PERIOD_SECONDS 1U
