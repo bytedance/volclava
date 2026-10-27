@@ -1,5 +1,5 @@
 #!/bin/bash
-# Copyright (C) 2021-2026 Bytedance Ltd. and/or its affiliates
+# Copyright (C) 2026 Bytedance Ltd. and/or its affiliates
 #
 # Install or remove the systemd units that run bhist-speedup-loader and
 # bhist-speedup-server for the cluster selected by LSF_ENVDIR.

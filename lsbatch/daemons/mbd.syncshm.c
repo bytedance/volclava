@@ -1,3 +1,6 @@
+/*
+ * Copyright (C) 2026 Bytedance Ltd. and/or its affiliates
+ */
 #include "mbd.h"
 #include "mbd.query.h"
 

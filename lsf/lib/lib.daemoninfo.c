@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2021-2026 Bytedance Ltd. and/or its affiliates
+ * Copyright (C) 2026 Bytedance Ltd. and/or its affiliates
  */
 #include "lib.h"
 #include "lib.daemoninfo.h"

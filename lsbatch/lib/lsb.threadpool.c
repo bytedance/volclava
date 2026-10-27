@@ -1,3 +1,6 @@
+/*
+ * Copyright (C) 2026 Bytedance Ltd. and/or its affiliates
+ */
 #include "lsb.threadpool.h"
 #include <stdlib.h> 
 #include <string.h> 

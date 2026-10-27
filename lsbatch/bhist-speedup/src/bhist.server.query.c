@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2021-2026 Bytedance Ltd. and/or its affiliates
+ * Copyright (C) 2026 Bytedance Ltd. and/or its affiliates
  *
  * Server query subsystem with four processing layers:
  *  1. Parse bhist-compatible arguments and map time ranges to local-day tables.
