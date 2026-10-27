@@ -1,5 +1,5 @@
 .\" Copyright (C) 2026 Bytedance Ltd. and/or its affiliates
-.TH BHIST-SPEEDUP 1 "October 2026" "Volclava 2.2" "User Commands"
+.TH BHIST-SPEEDUP 1 "Volclava Version 2.2.1 - Oct 2026" "User Commands"
 .SH NAME
 bhist-speedup \- faster bhist job history queries
 .SH SYNOPSIS
@@ -32,7 +32,7 @@ background. For a query, it first selects the events of the matching jobs
 from the database, then has standard bhist format them. The output is the
 same as standard bhist, common queries are much faster, and queries can
 cover a much longer history.
-.SH USING BHIST
+.SH USING ACCELERATED BHIST
 Use
 .B bhist
 as before; nothing changes:
@@ -116,15 +116,6 @@ following; run the query again:
 bhist speed up: warning: results may be incomplete
 .fi
 .RE
-.SS LSF clusters on CentOS
-On CentOS releases earlier than 8, if
-.B lsf.entitlement
-or
-.B profile.lsf
-exists in
-.B LSF_ENVDIR
-(an LSF cluster), bhist always runs standard bhist.
-.SH ADMINISTRATION
 .SS Requirements
 .IP \(bu 2
 One host in the cluster serves as the service host. It may be a master
@@ -132,10 +123,11 @@ candidate or a compute host, but jobs should not be dispatched to it. It needs
 a local disk (at least 200 GB is recommended) and must be reachable from all
 cluster hosts.
 .IP \(bu 2
-bhist speed up was enabled at build or install time
+The bhist speedup module was either enabled at build/install time
 .RB ( VOLC_BHIST_SPEEDUP=Y
 in
-.BR install.conf ).
+.BR install.conf )
+or has already been hot-deployed on the existing cluster.
 .IP \(bu 2
 SQLite on the service host is version 3.8.0 or later.
 .IP \(bu 2

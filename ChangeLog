@@ -1,8 +1,27 @@
+2026-10-30  Nan Qi <qinan.cn@bytedance.com>
+	    Yinkai Lu <luyinkai@bytedance.com>
+	    Mingze Li <limingze.jiayou@bytedance.com>
+
+	* unrelease volclava 2.2.1-beta.
+
+	* Summary of changes:
+	1. Support general resource allocation limits defined in lsb.resources with the
+	   blimits command and detailed pending reasons;
+	2. Accelerate historical job queries with bhist-speedup module, a SQLite-backed
+	   bhist;
+	3. Support bsub -cwd and bmod -cwd/-cwdn;
+	4. Support queue-level idle_factor to calculate slots/cpu usage;
+	5. Support bjobs -o exit_code/jobindex/max_mem/avg_mem fields;
+	6. Support lsadmin/badmin showconf to dump the active configuration;
+	7. Fixed daemon umask being permanently changed by umask();
+	8. Fixed an incorrect host leftRusageMem value causing jobs to stay
+	   unschedulable despite sufficient host memory;
+
 2026-09-1  Nan Qi <qinan.cn@bytedance.com>
 	   Mingze Li <limingze.jiayou@bytedance.com>
 	   Yinkai Lu <luyinkai@bytedance.com>
 
-	* release volclava 2.2.0
+	* release volclava 2.2.0.
 
 	* Summary of changes:
 	1. Fixed an issue where the interactive job working directory size could not be resized.
@@ -14,7 +33,7 @@
 	    Mingze Li <limingze.jiayou@bytedance.com>
 	    Yinkai Lu <luyinkai@bytedance.com>
 
-	* release volclava 2.2.0-beta
+	* release volclava 2.2.0-beta.
 
 	* Summary of changes:
 	1. support offloading client query requests to a dedicated query mbd subprocess with multi-threaded handling, improving query throughput and latency under high load;

@@ -1,5 +1,5 @@
 ## Description
-**volclava**, whose latest version is 2.2.0, is developed based on OpenLava 2.0 with following its license of GPL 2.0.
+**volclava**, whose latest version is 2.2.1, is developed based on OpenLava 2.0 with following its license of GPL 2.0.
 
 OpenLava is a free and open-source workload scheduler that's fully compatible with IBM LSF. It supports diverse high-performance computing and analytical applications.
 It came from an early version of LSF through open-sourcing. Its command-line and file formats are similar to most LSF functions, so both users and administrators can easily get the hang of operating it.
@@ -10,9 +10,9 @@ Everyone is welcomed to feed back via git issue.
 
 ## Latest Version
 
-**Volclava 2.2.0** - Public Release
+**Volclava 2.2.1** - Public Release
 
-This version is built from the master branch with source code tagged as `2.2.0`.
+This version is built from the master branch with source code tagged as `2.2.1`.(So far v2.2.1 is in internal beta testing, suspend to merge to master branch)
 
 For detailed release notes and updates, please visit: [Release Notes](https://github.com/bytedance/volclava/releases)
 
@@ -21,7 +21,7 @@ For detailed release notes and updates, please visit: [Release Notes](https://gi
 - Redhat/Rocky 8
 - Ubuntu 20.04
 
-The development and testing operating system for the volclava project 2.2 is CentOS Linux release 7.9.2009 (Core), which is also one of the commonly used operating system versions in IC design.
+The development and testing operating system for the volclava project 2.2.1 is Rocky Linux 8.10 (Green Obsidian), which is also one of the commonly used operating system versions in IC design.
 CentOS 6, CentOS 7, CentOS 8, as well as their corresponding Red Hat and Rocky versions should all be able to run. The main potential risk lies in that differences in system library versions may affect the operation of some components.
 
 ## Install
@@ -30,9 +30,9 @@ The following uses the setup of a 3-node cluster (master-test,cmp1-test,cmp2-tes
 1. Download the code onto the master node
 ```
 [user1@master-test install_pkg]# git clone https://github.com/bytedance/volclava.git
-(Optional) Checkout to specific version tag. For example, to use version 2.2.0:
+(Optional) Checkout to specific version tag. For example, to use version 2.2.1:
 [user1@master-test install_pkg]# cd volclava
-[user1@master-test volclava]# git checkout 2.2.0
+[user1@master-test volclava]# git checkout 2.2.1
 ```
 2. Log on master node as root, and enter the source code package directory
 ```
@@ -106,7 +106,7 @@ sbatchd pid: <5927>
 lim mbatchd: <5940>
 
 [root@master-test ~]# lsid  ##check cluster status
-volclava project 2.2, Nov 11 2025
+volclava project 2.2.1, Oct 30 2026
 
 My cluster name is volclava
 My master name is master-test

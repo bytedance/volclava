@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2021-2026 Bytedance Ltd. and/or its affiliates
+ * Copyright (C) 2026 Bytedance Ltd. and/or its affiliates
 
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of version 2 of the GNU General Public License as

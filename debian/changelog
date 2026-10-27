@@ -1,3 +1,19 @@
+volclava (2.2-1.b.20261030) UNRELEASE; urgency=medium
+
+  * Support general resource allocation limits defined in lsb.resources with
+    the blimits command and detailed pending reasons;
+  * Accelerate historical job queries with bhist-speedup module, a
+    SQLite-backed bhist;
+  * Support bsub -cwd and bmod -cwd/-cwdn;
+  * Support queue-level idle_factor to calculate slots/cpu usage;
+  * Support bjobs -o exit_code/jobindex/max_mem/avg_mem fields;
+  * Support lsadmin/badmin showconf to dump the active configuration;
+  * Fixed daemon umask being permanently changed by umask();
+  * Fixed an incorrect host leftRusageMem value causing jobs to stay
+    unschedulable despite sufficient host memory;
+
+ -- Nan Qi <qinan.cn@bytedance.com>  Mon, 27 Oct 2026 18:00:00 +0800
+
 volclava (2.2-0.20260901) RELEASED; urgency=medium
   * Fixed an issue where the interactive job working directory size could not be resized.
   * Fixed mbatchd core dump when bsub -pack jobs use -f.

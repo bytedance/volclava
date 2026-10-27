@@ -20,7 +20,7 @@
 
 %define major 2
 %define minor 2
-%define release 0
+%define release 1
 %define build_timestamp %(date +"%Y%m%d")
 
 %bcond_with bhist_speedup
@@ -54,7 +54,7 @@ Summary: volclava Distributed Batch Scheduler
 Name: volclava
 Version: %{version}
 # Release: 0.b.%{build_timestamp}
-Release: %{release}.20260901
+Release: %{release}.b.20261030
 License: GPLv2
 Group: Applications/Productivity
 Vendor: volclava foundation
@@ -520,6 +520,18 @@ fi
 %dir %attr(0755,%{VOLCADMIN},%{VOLCADMIN}) %{_volclavatop}/work/logdir
 
 %changelog
+* Fri Oct 30 2026 Releasing volclava 2.2.1-beta by Bytedance Ltd. and/or its affiliates
+- Support general resource allocation limits defined in lsb.resources with the
+  blimits command and detailed pending reasons;
+- Accelerate historical job queries with bhist-speedup module, a SQLite-backed
+  bhist;
+- Support bsub -cwd and bmod -cwd/-cwdn;
+- Support queue-level idle_factor to calculate slots/cpu usage;
+- Support bjobs -o exit_code/jobindex/max_mem/avg_mem fields;
+- Support lsadmin/badmin showconf to dump the active configuration;
+- Fixed daemon umask being permanently changed by umask();
+- Fixed an incorrect host leftRusageMem value causing jobs to stay unschedulable
+  despite sufficient host memory;
 * Tue Sep 1 2026 Releasing volclava 2.2 by Bytedance Ltd. and/or its affiliates
 - upgrade volclava to version 2.2.0
 * Tue Jun 30 2026 Releasing volclava 2.2 beta by Bytedance Ltd. and/or its affiliates
