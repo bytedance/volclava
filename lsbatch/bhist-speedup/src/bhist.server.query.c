@@ -3014,11 +3014,17 @@ buildJobIdQuery(const struct eventTableList *tables,
         for (i = 0; i < tables->count; i++) {
             if (i > 0 && appendSql(sql, sqlLen, &used, " UNION ALL ") != 0)
                 return -1;
+            /*
+             * CROSS JOIN pins the join order: the small temp table drives
+             * the loop, so each day table is probed via its job_id index.
+             * A plain JOIN may full-scan the day tables, since the temp
+             * table has no statistics for the planner.
+             */
             written = snprintf(
                 sql + used, sqlLen - used,
                 "SELECT %zu AS table_seq, k.rowid AS row_id, "
                 "k.job_id, k.raw_line FROM " QUERY_TEMP_REQUESTED_JOBS
-                " AS r JOIN %s AS k ON k.job_id = r.job_id",
+                " AS r CROSS JOIN %s AS k ON k.job_id = r.job_id",
                 i, tables->items[i].tableName);
             if (written < 0 || (size_t)written >= sqlLen - used)
                 return -1;
