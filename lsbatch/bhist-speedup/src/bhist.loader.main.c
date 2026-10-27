@@ -5,7 +5,6 @@
 #include "bhist.loader.h"
 #include "bhist.service.h"
 #include "bhist.config.h"
-#include "bhist.version.h"
 #include "bhist.util.h"
 #include "lproto.h"
 
@@ -1123,7 +1122,7 @@ main(int argc, char **argv)
     }
     if (argc == 2 && (strcmp(argv[1], "-V") == 0 ||
                       strcmp(argv[1], "--version") == 0)) {
-        fputs(PROGRAM_VERSION, stdout);
+        fputs(_LS_VERSION_, stdout);
         return 0;
     }
     /* No argument runs the service; the service lookup relies on that. */

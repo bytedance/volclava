@@ -17,10 +17,10 @@
  * success.
  */
 
+#include "lsf.h"
 #include "bhist.config.h"
 #include "bhist.protocol.h"
 #include "bhist.network.h"
-#include "bhist.version.h"
 
 #include <arpa/inet.h>
 #include <errno.h>
@@ -171,7 +171,7 @@ main(int argc, char **argv)
     }
     if (argc == 2 && (strcmp(argv[1], "-V") == 0 ||
                       strcmp(argv[1], "--version") == 0)) {
-        fputs(PROGRAM_VERSION, stdout);
+        fputs(_LS_VERSION_, stdout);
         return 0;
     }
     if (argc >= 2 && strcmp(argv[1], "perfmon") == 0) {

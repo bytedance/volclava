@@ -24,7 +24,6 @@
 
 #include "bhist.server.h"
 #include "bhist.service.h"
-#include "bhist.version.h"
 #include "lproto.h"
 #include "lib.table.h"
 
@@ -3476,7 +3475,7 @@ runQuery(int argc, char **argv)
             }
             break;
         case 'V':
-            fputs(PROGRAM_VERSION, stdout);
+            fputs(_LS_VERSION_, stdout);
             return 0;
         case 'h':
         default:

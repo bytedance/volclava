@@ -82,5 +82,4 @@ noinst_HEADERS = \
 	include/bhist.protocol.h \
 	include/bhist.service.h \
 	include/bhist.server.h \
-	include/bhist.util.h \
-	include/bhist.version.h
+	include/bhist.util.h
