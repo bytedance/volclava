@@ -1,7 +1,7 @@
 #!/bin/sh
 # Copyright (C) 2026 Bytedance Ltd. and/or its affiliates
 
-# Route the bhist subset supported by bhist speed up to the accelerated client.
+# Route the bhist subset supported by bhist speedup to the accelerated client.
 # Unsupported syntax always remains the responsibility of bhist-standard.
 
 FALLBACK_SAFE_STATUS=125
@@ -170,7 +170,7 @@ arguments_are_supported()
 }
 
 bindir=$(resolve_bindir) || {
-    echo "bhist speed up: cannot resolve the bhist installation directory" >&2
+    echo "bhist speedup: cannot resolve the bhist installation directory" >&2
     exit 127
 }
 speedup_path=$bindir/bhist-fast
@@ -179,11 +179,11 @@ PATH=$bindir${PATH:+:$PATH}
 export PATH
 
 # Run the standard bhist without a message: this request is not one that
-# bhist speed up handles, so nothing has failed.
+# bhist speedup handles, so nothing has failed.
 run_standard()
 {
     if [ ! -x "$standard_path" ]; then
-        echo "bhist speed up: standard bhist is not executable: $standard_path" >&2
+        echo "bhist speedup: standard bhist is not executable: $standard_path" >&2
         exit 127
     fi
     exec bhist-standard "$@"
@@ -194,7 +194,7 @@ if ! arguments_are_supported "$@" || environment_requires_native; then
 fi
 
 if [ ! -x "$speedup_path" ]; then
-    echo "bhist speed up: accelerated client is not executable: $speedup_path" >&2
+    echo "bhist speedup: accelerated client is not executable: $speedup_path" >&2
     speedup_status=$FALLBACK_SAFE_STATUS
 else
     bhist-fast "$@"
@@ -205,9 +205,9 @@ if [ "$speedup_status" -ne "$FALLBACK_SAFE_STATUS" ]; then
     exit "$speedup_status"
 fi
 
-echo "bhist speed up: falling back to standard bhist" >&2
+echo "bhist speedup: falling back to standard bhist" >&2
 if [ ! -x "$standard_path" ]; then
-    echo "bhist speed up: standard bhist is not executable: $standard_path" >&2
+    echo "bhist speedup: standard bhist is not executable: $standard_path" >&2
     exit 127
 fi
 exec bhist-standard "$@"

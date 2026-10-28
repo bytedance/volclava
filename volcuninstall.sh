@@ -14,10 +14,10 @@ function usage() {
     echo "                        [--env=/volclava_top]"
 }
 
-# Point at the kept bhist speed up database so it can be removed by hand.
+# Point at the kept bhist speedup database so it can be removed by hand.
 function report_bhist_speedup_data() {
     if [[ "$BHIST_DB_PATH" == /* && -e "$BHIST_DB_PATH" ]]; then
-        echo "The bhist speed up database remains in $(dirname "$BHIST_DB_PATH"); delete it if it is no longer needed."
+        echo "The bhist speedup database remains in $(dirname "$BHIST_DB_PATH"); delete it if it is no longer needed."
     fi
 }
 
@@ -79,7 +79,7 @@ if [[ -z "$LSF_ENVDIR" ]]; then
     LSF_ENVDIR="${VOLC_TOP}/etc"
 fi
 
-# The bhist speed up database lives outside the installation; it is kept
+# The bhist speedup database lives outside the installation; it is kept
 # like other application data, so read its path while lsb.hist exists.
 BHIST_DB_PATH=$(sed -n 's/^LSB_BHIST_DB_PATH=//p' "$LSF_ENVDIR/lsb.hist" \
     2> /dev/null | tail -n 1)

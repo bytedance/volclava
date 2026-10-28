@@ -1,0 +1,286 @@
+.\" Copyright (C) 2026 Bytedance Ltd. and/or its affiliates
+.ds ]W %
+.ds ]L
+.nh
+.TH bhist 1 "Volclava Version 2.2.1 - Oct 2026"
+.br
+.SH NAME
+\fBbhist\fR - displays historical information about jobs
+.SH SYNOPSIS
+\fBbhist\fR [\fB-a\fR] [\fB-d\fR] [\fB-e\fR] [\fB-p\fR] [\fB-s\fR] [\fB-r\fR]
+[\fB-b\fR | \fB-l\fR] [\fB-w\fR]
+[\fB-f\fR \fIlogfile_name\fR | \fB-n\fR \fInum_logfiles\fR |
+\fB-n\fR \fImin_logfile\fR\fB,\fR\fImax_logfile\fR]
+[\fB-C\fR \fItime0\fR\fB,\fR\fItime1\fR] [\fB-S\fR \fItime0\fR\fB,\fR\fItime1\fR]
+[\fB-D\fR \fItime0\fR\fB,\fR\fItime1\fR]
+[\fB-N\fR \fIhost_name\fR | \fB-N\fR \fIhost_model\fR | \fB-N\fR \fICPU_factor\fR]
+[\fB-P\fR \fIproject_name\fR] [\fB-q\fR \fIqueue_name\fR] [\fB-m\fR \fIhost_name\fR]
+[\fB-J\fR \fIjob_name\fR] [\fB-u\fR \fIuser_name\fR | \fB-u all\fR]
+[\fIjob_ID\fR | \fB"\fR\fIjob_ID\fR\fB[\fR\fIindex\fR\fB]"\fR ...]
+.PP
+\fBbhist\fR \fB-t\fR [\fB-f\fR \fIlogfile_name\fR] [\fB-T\fR \fItime0\fR\fB,\fR\fItime1\fR]
+.PP
+\fBbhist\fR [\fB-h\fR | \fB-V\fR]
+.SH DESCRIPTION
+Displays the history of jobs, read from the event log file lsb.events.
+To display the current state of jobs, use bjobs.
+.PP
+By default, bhist:
+.IP \(bu 2
+displays only your own jobs;
+.IP \(bu 2
+displays only unfinished jobs, that is, pending, running and suspended jobs;
+.IP \(bu 2
+reads only the current event log file, LSB_SHAREDIR/logdir/lsb.events,
+and not the archived files lsb.events.1, lsb.events.2 and so on;
+.IP \(bu 2
+displays how long each job spent in each state (see OUTPUT).
+.PP
+When job IDs are specified, bhist displays those jobs whatever their owner
+and state, and ignores -u, -q, -m, -S, -D, -C and the state options -a, -d,
+-e, -p, -s and -r.
+.PP
+mbatchd periodically archives lsb.events, so the events of older jobs are
+only in the archived files. Use -n to search them.
+.SH OPTIONS
+.TP
+\fB-a\fR
+Displays jobs in all states, including finished jobs.
+.TP
+\fB-d\fR
+Displays only finished jobs, both those that finished successfully (DONE)
+and those that exited (EXIT).
+.TP
+\fB-e\fR
+Displays only jobs that exited (EXIT).
+.TP
+\fB-p\fR
+Displays only pending jobs.
+.TP
+\fB-s\fR
+Displays only suspended jobs, suspended by the user or by the system.
+.TP
+\fB-r\fR
+Displays only running jobs.
+.PP
+.RS
+The state options can be combined; for example, -ps displays pending and
+suspended jobs. -a overrides the other state options.
+.RE
+.TP
+\fB-b\fR
+Brief format. Lists the events of each job in time order, showing only the
+main information of each event.
+.TP
+\fB-l\fR
+Long format. Lists the events of each job in time order in detail, followed
+by a summary of the time the job spent in each state. -l overrides -b.
+.TP
+\fB-w\fR
+Wide format. Fields are not truncated.
+.TP
+\fB-f\fR \fIlogfile_name\fR
+Reads only the specified event log file. Specify an absolute or a relative
+path. Useful for offline analysis. Cannot be used with -n.
+.TP
+\fB-n\fR \fInum_logfiles\fR
+Reads \fInum_logfiles\fR event log files, starting with the current
+lsb.events and going back through the most recent archived files. For
+example, -n 1 reads only lsb.events, and -n 3 reads lsb.events, lsb.events.1
+and lsb.events.2. -n 0 reads all event log files, up to 100.
+.IP
+The archived files must be numbered consecutively; if a file is missing,
+the files older than it are not read.
+.TP
+\fB-n\fR \fImin_logfile\fR\fB,\fR\fImax_logfile\fR
+Reads the archived event log files numbered from \fImin_logfile\fR to
+\fImax_logfile\fR. For example, -n 2,5 reads lsb.events.2 through
+lsb.events.5.
+.TP
+\fB-C\fR \fItime0\fR\fB,\fR\fItime1\fR
+Displays only jobs that finished during the specified time interval. Implies
+-d; with -e, displays only jobs that exited. See TIME INTERVAL FORMAT.
+.TP
+\fB-S\fR \fItime0\fR\fB,\fR\fItime1\fR
+Displays only jobs that were submitted during the specified time interval.
+.TP
+\fB-D\fR \fItime0\fR\fB,\fR\fItime1\fR
+Displays only jobs that were dispatched during the specified time interval.
+.TP
+\fB-N\fR \fIhost_name\fR | \fB-N\fR \fIhost_model\fR | \fB-N\fR \fICPU_factor\fR
+Normalizes CPU time by the specified CPU factor, or by the CPU factor of the
+specified host or host model. Use lsinfo to see host models and CPU factors.
+.TP
+\fB-P\fR \fIproject_name\fR
+Displays only jobs that belong to the specified project.
+.TP
+\fB-q\fR \fIqueue_name\fR
+Displays only jobs that were submitted to the specified queue.
+.TP
+\fB-m\fR \fIhost_name\fR
+Displays only jobs that were dispatched to the specified host.
+.TP
+\fB-J\fR \fIjob_name\fR
+Displays only jobs with the specified job name.
+.TP
+\fB-u\fR \fIuser_name\fR | \fB-u all\fR
+Displays only jobs of the specified user, or of all users if the keyword
+all is specified.
+.TP
+\fIjob_ID\fR | \fB"\fR\fIjob_ID\fR\fB[\fR\fIindex\fR\fB]"\fR ...
+Displays only the specified jobs; more than one can be given. For a job
+array, \fIjob_ID\fR displays all its elements, and
+"\fIjob_ID\fR[\fIindex\fR]" displays only the specified elements. Quote
+the index so that the shell does not interpret it.
+.TP
+\fB-t\fR
+Displays the events of all jobs in time order, instead of grouping them by
+job. By default, displays only the events of the last week; use -T or the
+environment variable LSB_BHIST_HOURS to change the period. Can be used only
+with -f and -T, and not with job IDs.
+.TP
+\fB-T\fR \fItime0\fR\fB,\fR\fItime1\fR
+Used with -t. Displays only the events during the specified time interval.
+.TP
+\fB-h\fR
+Prints command usage to stderr and exits.
+.TP
+\fB-V\fR
+Prints the Volclava version and exits.
+.SH TIME INTERVAL FORMAT
+-C, -S, -D and -T take a time interval:
+.PP
+.RS
+\fIyear\fR/\fImonth\fR/\fIday\fR\fB,\fR\fIyear\fR/\fImonth\fR/\fIday\fR
+.RE
+.PP
+\fIyear\fR is four digits, \fImonth\fR is 1 to 12, and \fIday\fR is 1 to 31.
+The interval starts at 00:00 on the first date and ends at 23:59 on the
+second date. Do not use spaces in the interval.
+.PP
+For example, 2025/12/31,2026/5/1 is from Dec 31 2025 00:00 to May 1 2026
+23:59.
+.SH OUTPUT
+.SS Default Display
+One line per job, with the seconds the job spent in each state:
+.PP
+.RS
+.nf
+Summary of time in seconds spent in various states:
+JOBID   USER    JOB_NAME  PEND    PSUSP   RUN     USUSP   SSUSP   UNKWN   TOTAL
+1       volclav hostname  10      0       0       0       0       0       10
+.fi
+.RE
+.TP
+PEND
+Time waiting before dispatch, excluding time suspended by the user.
+.TP
+PSUSP
+Time suspended by the user while pending.
+.TP
+RUN
+Run time.
+.TP
+USUSP
+Time suspended by the user after dispatch.
+.TP
+SSUSP
+Time suspended by the system after dispatch.
+.TP
+UNKWN
+Time in unknown state, for example while sbatchd on the execution host
+cannot be reached.
+.TP
+TOTAL
+The sum of the above. For a finished job, the time from submission to
+completion.
+.SS -l output
+The job ID, user, project and command, then the events of the job in time
+order, such as submission, dispatch, start and completion, then the time
+summary:
+.PP
+.RS
+.nf
+Job <1>, User <volclava>, Project <default>, Command <hostname>
+Tue Oct 13 16:24:21: Submitted from host <hostA>, to Queue <normal>, CWD <$HOME>;
+Tue Oct 13 16:24:31: Dispatched to <hostB>;
+Tue Oct 13 16:24:31: Starting (Pid 1164);
+Tue Oct 13 16:24:31: Running with execution home </home/volclava>, Execution CW
+                     D </home/volclava>, Execution Pid <1164>;
+Tue Oct 13 16:24:31: Done successfully. The CPU time used is 0.0 seconds;
+
+Summary of time in seconds spent in various states by  Tue Oct 13 16:24:31
+  PEND     PSUSP    RUN      USUSP    SSUSP    UNKWN    TOTAL
+  10       0        0        0        0        0        10
+.fi
+.RE
+.PP
+-b displays the same events with less detail; for example, the submission
+event does not show the CWD.
+.SH BHIST SPEEDUP
+If bhist speedup was enabled at build time and the administrator has started
+its service, bhist sends the queries it can accelerate to the service; use
+bhist as usual. A query is accelerated when it uses only -l or -w (not both),
+-a, -d, -e, -p, -s, -r, -u, -q, -m, -S, -D, -C, and one or more job IDs.
+Other queries, for example with -n, -f, -t or -J, run standard bhist.
+.PP
+An accelerated query differs from standard bhist as follows:
+.IP \(bu 2
+It searches all history kept in the database (the last 30 days by default).
+.IP \(bu 2
+New events show up a few seconds to a few tens of seconds later.
+.IP \(bu 2
+If the service is unavailable, bhist runs standard bhist instead and prints
+"bhist speedup: falling back to standard bhist"; the results are still
+correct.
+.PP
+See bhist-speedup(1).
+.SH ENVIRONMENT
+.TP
+LSB_BHIST_HOURS
+The period, in hours, that -t displays by default. The default is 168 (one
+week).
+.SH FILES
+.TP
+LSB_SHAREDIR/logdir/lsb.events
+The current event log file.
+.TP
+LSB_SHAREDIR/logdir/lsb.events.\fIN\fR
+Archived event log files; a larger \fIN\fR is older.
+.SH EXIT STATUS
+0 on success. If no job matches, bhist prints "No matching job found" ("No
+matching job/event found" with -t) and exits with 255.
+.SH EXAMPLES
+% \fBbhist\fR
+.PP
+Displays the time your unfinished jobs spent in each state.
+.PP
+% \fBbhist -l 1234\fR
+.PP
+Displays the detailed history of job 1234.
+.PP
+% \fBbhist -n 0 -l 1234\fR
+.PP
+Searches all event log files for job 1234 when it is no longer in the
+current lsb.events.
+.PP
+% \fBbhist -a -u all -q normal\fR
+.PP
+Displays the jobs of all users submitted to the queue normal, including
+finished jobs.
+.PP
+% \fBbhist -n 3 -C 2026/10/01,2026/10/20 -u alice\fR
+.PP
+Searches the three most recent event log files for jobs of alice that
+finished between October 1 and October 20.
+.PP
+% \fBbhist -l "1234[1-10]"\fR
+.PP
+Displays elements 1 to 10 of job array 1234.
+.PP
+% \fBbhist -t -T 2026/10/27,2026/10/28\fR
+.PP
+Displays the events of all jobs on October 27 and 28, 2026, in time order.
+.SH SEE ALSO
+bjobs(1), bsub(1), bhist-speedup(1), lsb.events(5), lsb.hist(5),
+lsb.params(5), badmin(8), mbatchd(8)

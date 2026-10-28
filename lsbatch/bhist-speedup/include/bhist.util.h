@@ -1,7 +1,7 @@
 /*
  * Copyright (C) 2026 Bytedance Ltd. and/or its affiliates
  *
- * Shared helpers used by every bhist speed up program.
+ * Shared helpers used by every bhist speedup program.
  */
 #ifndef BHIST_UTIL_H
 #define BHIST_UTIL_H

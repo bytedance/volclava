@@ -389,12 +389,12 @@ queryFailed(int incomplete, const char *detail, ...)
 
     if (!queryFailReported) {
         queryFailReported = 1;
-        fprintf(stderr, "bhist speed up: history query failed; "
+        fprintf(stderr, "bhist speedup: history query failed; "
                 "contact your cluster administrator\n");
     }
     if (incomplete && !queryIncompleteReported) {
         queryIncompleteReported = 1;
-        fprintf(stderr, "bhist speed up: warning: results may be "
+        fprintf(stderr, "bhist speedup: warning: results may be "
                 "incomplete\n");
     }
 }
@@ -418,7 +418,7 @@ reportHistoryUnavailable(const char *detail, ...)
     ls_syslog(LOG_ERR, "history_database_unavailable %s", text);
     if (!queryUnavailableReported) {
         queryUnavailableReported = 1;
-        fprintf(stderr, "bhist speed up: history database is not available yet; "
+        fprintf(stderr, "bhist speedup: history database is not available yet; "
                 "contact your cluster administrator\n");
     }
 }
@@ -732,7 +732,7 @@ startBhistWorkers(struct bucketInfo *buckets, int bucketCount,
             }
             argv[argc] = NULL;
             execv(request->bhistPath, argv);
-            fprintf(stderr, "bhist speed up: cannot run %s: %s\n",
+            fprintf(stderr, "bhist speedup: cannot run %s: %s\n",
                     request->bhistPath, strerror(errno));
             _exit(127);
         }
@@ -1443,7 +1443,7 @@ static int sqliteRunBhistQuery(sqlite3 *db, const char *sql,
 static int
 invalidArguments(void)
 {
-    fputs("bhist speed up: invalid query arguments; "
+    fputs("bhist speedup: invalid query arguments; "
           "run bhist-fast -h for usage\n", stderr);
     return -1;
 }
@@ -2965,7 +2965,7 @@ loadRequestedJobs(sqlite3 *db, char *const *selectors, int selectorCount)
     }
     for (i = 0; i < selectorCount; i++) {
         if (parseBaseJobId(selectors[i], &baseJobId) != 0) {
-            fprintf(stderr, "bhist speed up: invalid job selector: %s\n",
+            fprintf(stderr, "bhist speedup: invalid job selector: %s\n",
                     selectors[i]);
             /* User-input error: already reported; suppress the generic line. */
             queryFailReported = 1;
@@ -3460,7 +3460,7 @@ runQuery(int argc, char **argv)
             submitFilter.enabled = true;
             submitFilter.arg = optarg;
             if (parseTimeRange(optarg, &submitFilter) != 0) {
-                fprintf(stderr, "bhist speed up: invalid -S time range: %s\n", optarg);
+                fprintf(stderr, "bhist speedup: invalid -S time range: %s\n", optarg);
                 return -1;
             }
             break;
@@ -3468,7 +3468,7 @@ runQuery(int argc, char **argv)
             dispatchFilter.enabled = true;
             dispatchFilter.arg = optarg;
             if (parseTimeRange(optarg, &dispatchFilter) != 0) {
-                fprintf(stderr, "bhist speed up: invalid -D time range: %s\n", optarg);
+                fprintf(stderr, "bhist speedup: invalid -D time range: %s\n", optarg);
                 return -1;
             }
             break;
@@ -3476,7 +3476,7 @@ runQuery(int argc, char **argv)
             completeFilter.enabled = true;
             completeFilter.arg = optarg;
             if (parseTimeRange(optarg, &completeFilter) != 0) {
-                fprintf(stderr, "bhist speed up: invalid -C time range: %s\n", optarg);
+                fprintf(stderr, "bhist speedup: invalid -C time range: %s\n", optarg);
                 return -1;
             }
             break;

@@ -49,7 +49,7 @@ load_environment() {
             return 0
         fi
     done
-    die "cannot find bhist speed up for this host in $LSF_ENVDIR/volclava.sh" \
+    die "cannot find bhist speedup for this host in $LSF_ENVDIR/volclava.sh" \
         "or profile.lsf; check that it is installed for this platform"
 }
 
@@ -151,8 +151,8 @@ install_units() {
     done
 
     CHANGED=0
-    write_unit loader "bhist speed up loader" &&
-        write_unit server "bhist speed up server" ||
+    write_unit loader "bhist speedup loader" &&
+        write_unit server "bhist speedup server" ||
         die "cannot write the unit files in $UNIT_DIR"
     systemctl daemon-reload || die "systemctl daemon-reload failed"
     systemctl -q enable $SERVICES ||
@@ -201,9 +201,9 @@ remove_units() {
     done
     if [ "$removed" -eq 1 ]; then
         [ "$systemd" -eq 0 ] || systemctl daemon-reload
-        echo "Removed the bhist speed up services."
+        echo "Removed the bhist speedup services."
     else
-        echo "No bhist speed up services to remove."
+        echo "No bhist speedup services to remove."
     fi
 }
 

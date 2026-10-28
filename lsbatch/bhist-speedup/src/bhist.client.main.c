@@ -90,10 +90,10 @@ receiveQueryResponse(int fd)
         if (rc != 0) {
             if (sawStdout)
                 fprintf(stderr,
-                        "bhist speed up: service connection lost after partial "
+                        "bhist speedup: service connection lost after partial "
                         "output; results are incomplete\n");
             else
-                fprintf(stderr, "bhist speed up: service connection lost\n");
+                fprintf(stderr, "bhist speedup: service connection lost\n");
             free(payload);
             return sawStdout ? CLIENT_PARTIAL_OUTPUT_STATUS :
                 CLIENT_FALLBACK_SAFE_STATUS;
@@ -129,13 +129,13 @@ receiveQueryResponse(int fd)
                     CLIENT_FALLBACK_SAFE_STATUS;
             return 0;
         } else if (type == FRAME_ERROR && payloadLength >= 4) {
-            fprintf(stderr, "bhist speed up: service error: %.*s\n",
+            fprintf(stderr, "bhist speedup: service error: %.*s\n",
                     (int)(payloadLength - 4), (char *)(payload + 4));
             free(payload);
             return sawStdout ? CLIENT_PARTIAL_OUTPUT_STATUS :
                 CLIENT_FALLBACK_SAFE_STATUS;
         } else {
-            fprintf(stderr, "bhist speed up: invalid service response frame\n");
+            fprintf(stderr, "bhist speedup: invalid service response frame\n");
             free(payload);
             return sawStdout ? CLIENT_PARTIAL_OUTPUT_STATUS :
                 CLIENT_FALLBACK_SAFE_STATUS;
@@ -176,24 +176,24 @@ main(int argc, char **argv)
     }
     if (argc >= 2 && strcmp(argv[1], "perfmon") == 0) {
         fprintf(stderr,
-                "bhist speed up: perfmon is a server command; run "
+                "bhist speedup: perfmon is a server command; run "
                 "bhist-admin server perfmon {seconds|stop} on the service "
                 "host\n");
         return 2;
     }
     if (argc >= 2 && strcmp(argv[1], "view") == 0) {
         fprintf(stderr,
-                "bhist speed up: view is a server command; run "
+                "bhist speedup: view is a server command; run "
                 "bhist-admin server view on the service host\n");
         return 2;
     }
     if (argc - 1 > PROTOCOL_ARGC_MAX) {
-        fprintf(stderr, "bhist speed up: too many arguments\n");
+        fprintf(stderr, "bhist speedup: too many arguments\n");
         return CLIENT_FALLBACK_SAFE_STATUS;
     }
     if (configLoad(CONFIG_ROLE_CLIENT, &config,
                         error, sizeof(error)) != 0) {
-        fprintf(stderr, "bhist speed up: %s\n", error);
+        fprintf(stderr, "bhist speedup: %s\n", error);
         configFree(&config);
         return CLIENT_FALLBACK_SAFE_STATUS;
     }
@@ -201,7 +201,7 @@ main(int argc, char **argv)
     if (passwordEntry == NULL || passwordEntry->pw_name == NULL ||
         passwordEntry->pw_name[0] == '\0' ||
         strlen(passwordEntry->pw_name) > PROTOCOL_USER_HINT_MAX) {
-        fprintf(stderr, "bhist speed up: cannot resolve the local user\n");
+        fprintf(stderr, "bhist speedup: cannot resolve the local user\n");
         configFree(&config);
         return CLIENT_FALLBACK_SAFE_STATUS;
     }
@@ -215,14 +215,14 @@ main(int argc, char **argv)
     requestLength = 0;
     if (encodeQueryRequest(&request, &requestPayload,
                                  &requestLength) != 0) {
-        fprintf(stderr, "bhist speed up: request arguments are too large\n");
+        fprintf(stderr, "bhist speedup: request arguments are too large\n");
         configFree(&config);
         return CLIENT_FALLBACK_SAFE_STATUS;
     }
     fd = connectEndpoint(config.endpoint,
                               config.connectTimeoutSeconds);
     if (fd < 0) {
-        fprintf(stderr, "bhist speed up: cannot connect to service %s: %s\n",
+        fprintf(stderr, "bhist speedup: cannot connect to service %s: %s\n",
                 config.endpoint, strerror(errno));
         free(requestPayload);
         configFree(&config);
@@ -232,7 +232,7 @@ main(int argc, char **argv)
                         requestLength);
     free(requestPayload);
     if (rc != 0) {
-        fprintf(stderr, "bhist speed up: cannot send query request: %s\n",
+        fprintf(stderr, "bhist speedup: cannot send query request: %s\n",
                 strerror(errno));
         close(fd);
         configFree(&config);

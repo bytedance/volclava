@@ -25,6 +25,6 @@ VOLC_CLUSTER_NAME=volclava
 #executables. Default value is exec
 #VOLC_MIX_OS_FOLDER=exec
 
-#Optional. Build and install bhist speed up support. Default is N.
+#Optional. Build and install bhist speedup support. Default is N.
 #Valid values are Y, y, N and n.
 #VOLC_BHIST_SPEEDUP=Y

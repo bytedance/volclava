@@ -69,10 +69,10 @@ AC_CHECK_LIB([tcl], [Tcl_CreateInterp], [], [
   done
 ])
 
-# Build the optional bhist speed up component only when explicitly requested.
+# Build the optional bhist speedup component only when explicitly requested.
 AC_ARG_ENABLE([bhist-speedup],
   [AS_HELP_STRING([--enable-bhist-speedup=Y|N],
-                  [build and install bhist speed up support @<:@default=N@:>@])],
+                  [build and install bhist speedup support @<:@default=N@:>@])],
   [], [enable_bhist_speedup=N])
 AS_CASE([$enable_bhist_speedup],
   [Y|y|yes], [enable_bhist_speedup=yes],
@@ -86,11 +86,11 @@ AS_IF([test "x$enable_bhist_speedup" = "xyes"], [
   # The enabled build uses the SQLite header and shared library supplied by the
   # build host. A disabled build must not require or probe SQLite.
   AC_CHECK_HEADERS([sqlite3.h], [],
-                   [AC_MSG_ERROR([missing sqlite3.h required by bhist speed up])])
+                   [AC_MSG_ERROR([missing sqlite3.h required by bhist speedup])])
   save_LIBS="$LIBS"
   AC_CHECK_LIB([sqlite3], [sqlite3_open_v2],
                [SQLITE3_LIBS="-lsqlite3"],
-               [AC_MSG_ERROR([missing libsqlite3 required by bhist speed up])])
+               [AC_MSG_ERROR([missing libsqlite3 required by bhist speedup])])
   # The database schema relies on partial indexes, which require SQLite 3.8.0.
   # The check runs the library itself so it validates the version that will
   # actually be linked, not just the advertised header version.
@@ -100,7 +100,7 @@ AS_IF([test "x$enable_bhist_speedup" = "xyes"], [
     [AC_LANG_PROGRAM([[#include <sqlite3.h>]],
                      [[return sqlite3_libversion_number() < 3008000;]])],
     [AC_MSG_RESULT([yes])],
-    [AC_MSG_ERROR([bhist speed up requires SQLite 3.8.0 or newer; upgrade sqlite-devel / libsqlite3-dev and re-run configure])],
+    [AC_MSG_ERROR([bhist speedup requires SQLite 3.8.0 or newer; upgrade sqlite-devel / libsqlite3-dev and re-run configure])],
     [AC_MSG_WARN([cannot run test program; skipping SQLite version check])])
   LIBS="$save_LIBS"
 ])

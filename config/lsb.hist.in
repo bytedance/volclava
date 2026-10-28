@@ -1,4 +1,4 @@
-# bhist speed up configuration.
+# bhist speedup configuration.
 #
 # Installed as $LSF_ENVDIR/lsb.hist. Set the two required settings, then
 # start the loader and server on the service host. Restart them after

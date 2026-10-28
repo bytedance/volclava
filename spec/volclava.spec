@@ -214,6 +214,7 @@ install -m 755 ${RPM_BUILD_DIR}/%{name}-%{version}/chkpnt/erestart         ${RPM
 # share
 install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/lsbatch/man1/bbot.1    ${RPM_BUILD_ROOT}%{_mandir}/man1
 install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/lsbatch/man1/bchkpnt.1 ${RPM_BUILD_ROOT}%{_mandir}/man1
+install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/lsbatch/man1/bhist.1 ${RPM_BUILD_ROOT}%{_mandir}/man1
 install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/lsbatch/man1/bhosts.1 ${RPM_BUILD_ROOT}%{_mandir}/man1
 install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/lsbatch/man1/bjobs.1 ${RPM_BUILD_ROOT}%{_mandir}/man1
 install -m 644 ${RPM_BUILD_DIR}/%{name}-%{version}/lsbatch/man1/bkill.1 ${RPM_BUILD_ROOT}%{_mandir}/man1
@@ -416,6 +417,7 @@ fi
 %{_mandir}/man1/bhist-speedup.1
 %endif
 %{_mandir}/man1/bchkpnt.1
+%{_mandir}/man1/bhist.1
 %{_mandir}/man1/bhosts.1
 %{_mandir}/man1/bjobs.1
 %{_mandir}/man1/bkill.1

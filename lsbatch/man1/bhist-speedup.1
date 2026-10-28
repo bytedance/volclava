@@ -27,7 +27,7 @@ numerous. By default it reads only the current
 and ignores earlier archives, and a query that spans many archives can use
 so much memory that it runs out of memory.
 .PP
-bhist speed up keeps importing the event files into a local database in the
+bhist speedup keeps importing the event files into a local database in the
 background. For a query, it first selects the events of the matching jobs
 from the database, then has standard bhist format them. The output is the
 same as standard bhist, common queries are much faster, and queries can
@@ -94,12 +94,12 @@ as configured by the administrator).
 .B New events appear with a delay.
 A job change shows up a few seconds to a few tens of seconds later.
 .SS When acceleration is unavailable
-If the query fails in the bhist speed up service, bhist runs standard bhist
+If the query fails in the bhist speedup service, bhist runs standard bhist
 instead and prints:
 .PP
 .RS
 .nf
-bhist speed up: falling back to standard bhist
+bhist speedup: falling back to standard bhist
 .fi
 .RE
 .PP
@@ -113,7 +113,7 @@ following; run the query again:
 .PP
 .RS
 .nf
-bhist speed up: warning: results may be incomplete
+bhist speedup: warning: results may be incomplete
 .fi
 .RE
 .SS Requirements
