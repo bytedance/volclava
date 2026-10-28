@@ -1624,8 +1624,7 @@ updHostLeftRusageMem(struct jData *jobP, int order)
                 if (i < numLIMhosts && LIMhosts[i].maxMem != 0) {
                     jobP->hPtr[numHost]->leftRusageMem = LIMhosts[i].maxMem;
                 } else {
-                    FREEUP(hBitMaps);
-                    return;
+                    continue;
                 }
             }
             if (resourcePerTask) {
