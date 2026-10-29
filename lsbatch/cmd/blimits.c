@@ -524,7 +524,7 @@ printUsageTable(struct rlimitEnt *limits, int numLimits)
             formatUsage(swpR, swpBuf, sizeof(swpBuf));
             formatUsage(jobsR, jobsBuf, sizeof(jobsBuf));
 
-            prtWord2(RL_NAME_LENGTH, ent->name ? ent->name : "", 1); putchar(' ');
+            prtWord2(RL_NAME_LENGTH, truncIfNarrow(RL_NAME_LENGTH, ent->name), 1); putchar(' ');
             prtWord2(RL_CONS_LENGTH, getConsumerDisplay(ent, RLIMIT_CONSUMER_TYPE_USER), 1); putchar(' ');
             prtWord2(RL_CONS_LENGTH, getConsumerDisplay(ent, RLIMIT_CONSUMER_TYPE_QUEUE), 1); putchar(' ');
             prtWord2(RL_CONS_LENGTH, getConsumerDisplay(ent, RLIMIT_CONSUMER_TYPE_HOST), 1); putchar(' ');
@@ -552,7 +552,7 @@ printUsageTable(struct rlimitEnt *limits, int numLimits)
         prtWord2(RL_CONS_LENGTH, "HOSTS", 1); putchar(' ');
         prtWord2(RL_CONS_LENGTH, "PROJECTS", 1); putchar(' ');
         for (k = 0; k < numExt; k++) {
-            prtWord2(RL_RSRC_LENGTH, extNames[k], 1); putchar(' ');
+            prtWord2(RL_RSRC_LENGTH, truncIfNarrow(RL_RSRC_LENGTH, extNames[k]), 1); putchar(' ');
         }
         printf("\n");
 
@@ -563,7 +563,7 @@ printUsageTable(struct rlimitEnt *limits, int numLimits)
                 continue;
             }
 
-            prtWord2(RL_NAME_LENGTH, ent->name ? ent->name : "", 1); putchar(' ');
+            prtWord2(RL_NAME_LENGTH, truncIfNarrow(RL_NAME_LENGTH, ent->name), 1); putchar(' ');
             prtWord2(RL_CONS_LENGTH, getConsumerDisplay(ent, RLIMIT_CONSUMER_TYPE_USER), 1); putchar(' ');
             prtWord2(RL_CONS_LENGTH, getConsumerDisplay(ent, RLIMIT_CONSUMER_TYPE_QUEUE), 1); putchar(' ');
             prtWord2(RL_CONS_LENGTH, getConsumerDisplay(ent, RLIMIT_CONSUMER_TYPE_HOST), 1); putchar(' ');
