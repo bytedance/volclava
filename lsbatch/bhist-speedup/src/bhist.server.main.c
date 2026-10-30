@@ -1331,6 +1331,8 @@ startRequest(struct pendingRequest *pending,
         closeQueuedFds(queue, pending->fd);
         (void)relayQuery(pending, handlerMetrics);
         freePendingRequest(pending);
+        /* The parent tracks the handler with its own copy of active. */
+        free(active);
         _exit(0);
     }
     (void)setpgid(pid, pid);
