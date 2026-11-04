@@ -163,16 +163,10 @@ child_handler (int sig)
 	for (jobCard = jobQueHead->forw; (jobCard != jobQueHead); 
 	     jobCard = jobCard->forw) {
 
-	    if (jobCard->exitPid == pid) {
-		jobCard->w_status = LS_STATUS(status);
-		jobCard->exitPid = -1;
-	    }
-	    
 	    if (jobCard->jobSpecs.jobPid == pid) {
 		jobCard->collectedChild = TRUE;
 		jobCard->cpuTime = cpuTime;
 		jobCard->w_status = LS_STATUS(status);
-		jobCard->exitPid = -1;  
 		memcpy ((char *) &jobCard->lsfRusage, (char *) &lsfRusage,
 			sizeof (struct lsfRusage));	     
                 jobCard->notReported++;

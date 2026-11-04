@@ -101,7 +101,6 @@ struct jobCard {
     int    actStatus;
     int    actReasons;
     int    actSubReasons;
-    int    exitPid;
     int    jobDone;
     time_t lastCheck;
     char   *actCmd;
@@ -303,13 +302,10 @@ extern void execRestart(struct jobCard *jobCardPtr, struct hostent *hp);
 extern int rmJobBufFiles(struct jobCard *);
 extern void writePreJobFail(struct jobCard *jp);
 
-extern int appendJobFile(struct jobCard *jobCard, char *header,
-			 struct hostent *hp, char *errMsg);
 extern int initPaths(struct jobCard *jp, struct hostent *fromHp,
 		     struct lenData *jf);
 extern int rcpFile(struct jobSpecs *, struct xFile *, char *, int, char *);
 extern void delCredFiles (void);
-extern void jobFileExitStatus(struct jobCard *jobCard);
 extern int isAbsolutePathSub(struct jobCard *, const char *);
 extern int isAbsolutePathExec(const char *);
 
