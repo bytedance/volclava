@@ -1272,7 +1272,6 @@ do_jobSetup(XDR * xdrs, int chfd, struct LSFHeader * reqHdr)
         jp->jobSpecs.reasons = jsetup.reason;
         jp->collectedChild = TRUE;
         jp->notReported = 0;
-        jp->exitPid = -1;
         jp->needReportRU = FALSE;
         jp->jobSpecs.jStatus = jsetup.jStatus;
         jp->w_status = jsetup.w_status;

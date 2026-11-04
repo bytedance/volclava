@@ -69,7 +69,6 @@ static int requeueJob (struct jobCard *);
 static char **execArgs(struct jobSpecs *jp, char **execArgv);
 static void jobFinishRusage(struct jobCard *jp);
 static void initJRusage(struct jRusage *);
-static int getJobVersion (struct jobSpecs *);
 
 extern void osConvertPath_(char *pathname);
 extern int sbdlog_newstatus (struct jobCard *jp);
@@ -2381,23 +2380,10 @@ jobGone (struct jobCard *jp)
         if (jp->notReported > 0)
             jp->notReported = 0;
     } else {
-        if (getJobVersion (&jp->jobSpecs) < 4) {
-
-            if (jp->exitPid == 0) {
-                if ( jp->postJobStarted == 0 ) {
-                    jobFileExitStatus(jp);
-                }
-            }
-            if (jp->exitPid >= 0)
-                return;
-        } else {
-            jp->exitPid = -1;
-
-            if ( jp->postJobStarted == 0 ) {
-                jobFinishRusage(jp);
-            }
+        if ( jp->postJobStarted == 0 ) {
+            jobFinishRusage(jp);
         }
-        if (jp->jobSpecs.actPid == 0 && jp->exitPid == -1) {
+        if (jp->jobSpecs.actPid == 0) {
 
             if (requeueJob(jp) == TRUE) {
                 SBD_SET_STATE(jp, JOB_STAT_PEND);
@@ -4237,7 +4223,6 @@ initJobCard(struct jobCard *jp, struct jobSpecs *jobSpecs, int *reply)
     jp->w_status = 0;
     jp->cpuTime = 0.0;
     jp->notReported = 0;
-    jp->exitPid = 0;
     jp->missing = FALSE;
     jp->needReportRU = FALSE;
     jp->mbdRestarted = FALSE;
@@ -4348,32 +4333,6 @@ initJRusage(struct jRusage *jRusage)
     jRusage->pgid = NULL;
 }
 
-
-static int
-getJobVersion (struct jobSpecs *jobSpecs)
-{
-    int i, version;
-    char *sp;
-
-
-    if (jobSpecs->numEnv <= 0)
-
-        return (2);
-
-    for (i = 0; i < jobSpecs->numEnv; i++) {
-        if ((sp = strstr (jobSpecs->env[i], "LSF_VERSION=")) == NULL)
-            continue;
-        sp += strlen("LSF_VERSION=");
-        version = atoi (sp);
-        if (logclass & LC_EXEC)
-            ls_syslog(LOG_DEBUG3,"getJobVersion: LSF_VERSION of job <%s> is <%d>", lsb_jobid2str(jobSpecs->jobId), version);
-        if (version <= 0)
-            return (-1);
-        return (version);
-    }
-    return (3);
-
-}
 
 int
 lockHosts (struct jobCard *jp)
