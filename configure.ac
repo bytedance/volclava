@@ -84,25 +84,13 @@ AM_CONDITIONAL([BUILD_BHIST_SPEEDUP],
 SQLITE3_LIBS=""
 AS_IF([test "x$enable_bhist_speedup" = "xyes"], [
   # The enabled build uses the SQLite header and shared library supplied by the
-  # build host. A disabled build must not require or probe SQLite.
+  # build host. A disabled build must not require or probe SQLite. The SQLite
+  # version is checked when the loader and server start, on the host they run.
   AC_CHECK_HEADERS([sqlite3.h], [],
                    [AC_MSG_ERROR([missing sqlite3.h required by bhist speedup])])
-  save_LIBS="$LIBS"
   AC_CHECK_LIB([sqlite3], [sqlite3_open_v2],
                [SQLITE3_LIBS="-lsqlite3"],
                [AC_MSG_ERROR([missing libsqlite3 required by bhist speedup])])
-  # The database schema relies on partial indexes, which require SQLite 3.8.0.
-  # The check runs the library itself so it validates the version that will
-  # actually be linked, not just the advertised header version.
-  LIBS="$LIBS $SQLITE3_LIBS"
-  AC_MSG_CHECKING([for SQLite runtime version 3.8.0 or newer])
-  AC_RUN_IFELSE(
-    [AC_LANG_PROGRAM([[#include <sqlite3.h>]],
-                     [[return sqlite3_libversion_number() < 3008000;]])],
-    [AC_MSG_RESULT([yes])],
-    [AC_MSG_ERROR([bhist speedup requires SQLite 3.8.0 or newer; upgrade sqlite-devel / libsqlite3-dev and re-run configure])],
-    [AC_MSG_WARN([cannot run test program; skipping SQLite version check])])
-  LIBS="$save_LIBS"
 ])
 AC_SUBST([SQLITE3_LIBS])
 
