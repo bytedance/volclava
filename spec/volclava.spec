@@ -66,8 +66,8 @@ BuildRequires: gcc, tcl-devel, ncurses-devel
 Requires: ncurses, tcl
 %if %{with bhist_speedup}
 BuildRequires: sqlite-devel
-# Partial indexes (CREATE INDEX ... WHERE) need SQLite 3.8.0+.
-Requires: sqlite-libs >= 3.8.0
+# The loader and server check for SQLite 3.8.0 or newer when they start.
+Requires: sqlite-libs
 %endif
 Requires(pre): /usr/sbin/useradd
 Requires(post): /sbin/chkconfig

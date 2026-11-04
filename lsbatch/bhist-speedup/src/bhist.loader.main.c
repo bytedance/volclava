@@ -1134,8 +1134,8 @@ main(int argc, char **argv)
         usage(stderr);
         return SERVICE_EXIT_USAGE;
     }
-    /* Only the service writes the database and needs the SQLite level. */
-    if (command == NULL && checkSqliteRuntime() != 0)
+    /* Every command but -h and -V needs a supported SQLite library. */
+    if (checkSqliteRuntime() != 0)
         return SERVICE_EXIT_CONFIG;
 
     memset(&config, 0, sizeof(config));

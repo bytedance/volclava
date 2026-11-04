@@ -49,8 +49,14 @@ short_usage() {
     echo "Run '$PROG -h' to list the commands."
 }
 
+# Report that the command failed, with a reason when there is one. The
+# program's own messages, when any, are already shown as written above.
+failed() {
+    echo "$TARGET $COMMAND failed${1:+: $1}" >&2
+}
+
 die() {
-    echo "$PROG: $*" >&2
+    failed "$*"
     exit 1
 }
 
@@ -80,18 +86,9 @@ load_environment() {
         "for this platform"
 }
 
-# Drop the time, pid and level fields ls_syslog() writes before a message.
-strip_log_prefix() {
-    sed -E 's/^[A-Z][a-z]{2} +[0-9]+ [0-9:]+ [0-9]+ [0-9]+ [0-9]+ //'
-}
-
-# Run the program with a command, cleaning up its error messages.
+# Run the program with a command; its messages are shown as written.
 run_program() {
-    local status
-
-    { "$BIN" "$@" 2>&1 1>&3 3>&- | strip_log_prefix >&2; } 3>&1
-    status=${PIPESTATUS[0]}
-    return "$status"
+    "$BIN" "$@"
 }
 
 # Print the PID of the running instance, or nothing when it is stopped.
@@ -102,7 +99,8 @@ running_pid() {
     output=$("$BIN" status 2>&1)
     status=$?
     if [ "$status" -ge 2 ]; then
-        echo "$output" | strip_log_prefix >&2
+        echo "$output" >&2
+        failed
         exit "$status"
     fi
     echo "$output" | sed -n 's/^pid=//p' | head -n 1
@@ -125,13 +123,11 @@ pid_alive() {
     [ "${exe% (deleted)}" = "$BIN" ]
 }
 
-# Explain an exit status the program reports for a failed start.
-start_failure_hint() {
-    case "$1" in
-        65) echo "Rebuild the database: $PROG loader clean, then $PROG loader start" ;;
-        79) ;;
-        *) echo "Fix the problem above, then run: $PROG $TARGET start" ;;
-    esac
+# Give the fix for an exit status when the program's message does not.
+start_failure_reason() {
+    if [ "$1" -eq 65 ]; then
+        echo "rebuild the database: $PROG loader clean, then $PROG loader start"
+    fi
 }
 
 # Test whether the started instance is ready to use.
@@ -182,10 +178,9 @@ do_start() {
         if ! kill -0 "$pid" 2> /dev/null; then
             wait "$pid"
             status=$?
-            strip_log_prefix < "$errors" >&2
+            cat "$errors" >&2
             rm -f "$errors"
-            echo "$TARGET did not start." >&2
-            start_failure_hint "$status" >&2
+            failed "$(start_failure_reason "$status")"
             return 1
         fi
         if started_ready "$pid" "$waited"; then
@@ -242,6 +237,10 @@ do_status() {
 
     run_program status
     status=$?
+    if [ "$status" -ge 2 ]; then
+        failed
+        return "$status"
+    fi
     # Report supervision only where the systemd units are installed.
     if [ -e "$UNIT_DIR/volclava-bhist-$TARGET.service" ] &&
         command -v systemctl > /dev/null 2>&1 &&
@@ -291,5 +290,9 @@ case "$COMMAND" in
     stop)    do_stop ;;
     restart) do_stop && do_start ;;
     status)  do_status ;;
-    *)       run_program "$COMMAND" "$@" ;;
+    *)       run_program "$COMMAND" "$@" || {
+                 status=$?
+                 failed
+                 exit "$status"
+             } ;;
 esac
