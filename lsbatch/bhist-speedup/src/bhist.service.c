@@ -36,7 +36,8 @@ int
 checkSqliteRuntime(void)
 {
     if (sqlite3_libversion_number() < 3008000) {
-        ls_syslog(LOG_ERR, "sqlite too old runtime=%s need=3.8.0",
+        ls_syslog(LOG_ERR, "SQLite %s is installed, but bhist speedup needs "
+                  "SQLite 3.8.0 or newer; upgrade SQLite",
                   sqlite3_libversion());
         return -1;
     }
@@ -66,7 +67,8 @@ checkAdminUser(const struct config *config, uid_t callerUid,
 
     if (getuid() != callerUid || geteuid() != callerUid) {
         setError(error, errorSize,
-                 "management commands require matching real and effective users");
+                 "run this command as root or a cluster administrator, "
+                 "not through a setuid program");
         return -1;
     }
     if (callerUid == 0)
@@ -84,7 +86,8 @@ checkAdminUser(const struct config *config, uid_t callerUid,
         }
     }
     setError(error, errorSize,
-             "this management command must be run as root or a cluster administrator");
+             "run this command as root or a user of ClusterAdmins in "
+             "lsf.cluster.<cluster_name>");
     return -1;
 }
 
@@ -104,13 +107,15 @@ switchServiceUser(const char *user, char *error, size_t errorSize)
 
     if (user == NULL || user[0] == '\0') {
         setError(error, errorSize,
-                 "no service administrator is configured; "
-                 "define ClusterAdmins in lsf.shared");
+                 "no cluster administrator is configured; "
+                 "define ClusterAdmins in lsf.cluster.<cluster_name>");
         return -1;
     }
     account = getpwnam(user);
     if (account == NULL) {
-        setError(error, errorSize, "cannot resolve service administrator %s",
+        setError(error, errorSize,
+                 "%s, the first user of ClusterAdmins in "
+                 "lsf.cluster.<cluster_name>, is not a user on this host",
                  user);
         return -1;
     }
@@ -118,19 +123,22 @@ switchServiceUser(const char *user, char *error, size_t errorSize)
     gid = account->pw_gid;
     if (uid == 0) {
         setError(error, errorSize,
-                 "service administrator %s must have a non-root user ID", user);
+                 "%s, the first user of ClusterAdmins in "
+                 "lsf.cluster.<cluster_name>, must not be root", user);
         return -1;
     }
     if (getuid() != geteuid()) {
         setError(error, errorSize,
-                 "management commands require matching real and effective users");
+                 "run this command as root or a cluster administrator, "
+                 "not through a setuid program");
         return -1;
     }
     if (getuid() != 0) {
         if (getuid() == uid)
             return 0;
         setError(error, errorSize,
-                 "run this command as root or the service administrator %s", user);
+                 "run this command as root or %s, the first user of "
+                 "ClusterAdmins in lsf.cluster.<cluster_name>", user);
         return -1;
     }
     if (initgroups(user, gid) != 0) {
@@ -338,15 +346,17 @@ prepareServicePaths(const char *dbPath, const char *logPath,
     account = getpwnam(adminUser);
     if (account == NULL) {
         setError(error, errorSize,
-                 "cannot resolve service administrator %s", adminUser);
+                 "%s, the first user of ClusterAdmins in "
+                 "lsf.cluster.<cluster_name>, is not a user on this host",
+                 adminUser);
         return -1;
     }
     uid = account->pw_uid;
     gid = account->pw_gid;
     if (uid == 0) {
         setError(error, errorSize,
-                 "service administrator %s must have a non-root user ID",
-                 adminUser);
+                 "%s, the first user of ClusterAdmins in "
+                 "lsf.cluster.<cluster_name>, must not be root", adminUser);
         return -1;
     }
 

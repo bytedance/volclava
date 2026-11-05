@@ -958,7 +958,7 @@ loaderStoreValidateSchema(const char *dbPath, int busyTimeoutMs)
 
     db = NULL;
     if (loaderStoreOpenReadonly(dbPath, busyTimeoutMs, &db) != 0) {
-        ls_syslog(LOG_ERR, "schema_check_open_failed db=%s; run "
+        ls_syslog(LOG_ERR, "cannot open the history database %s; run "
                  "bhist-admin loader clean, then start the loader again",
                  dbPath);
         return -1;
@@ -974,24 +974,24 @@ loaderStoreValidateSchema(const char *dbPath, int busyTimeoutMs)
             strcmp((const char *)actual, expected) == 0;
     }
     if (!compatible) {
-        ls_syslog(LOG_ERR, "schema_incompatible db=%s expected=%s "
-                 "actual=%s; run bhist-admin loader clean, then start the "
-                 "loader again",
-                 dbPath, expected,
-                 actual != NULL ? (const char *)actual : "missing");
+        ls_syslog(LOG_ERR, "the history database %s was created by another "
+                 "version of bhist speedup (schema %s, this version uses %s); "
+                 "run bhist-admin loader clean, then start the loader again",
+                 dbPath,
+                 actual != NULL ? (const char *)actual : "unknown", expected);
     }
     if (statement != NULL)
         sqlite3_finalize(statement);
     if (compatible &&
         loaderStoreGetDbStatus(db, dbStatus, sizeof(dbStatus)) != 0) {
-        ls_syslog(LOG_ERR, "read_db_status_failed db=%s; run "
+        ls_syslog(LOG_ERR, "cannot read the history database %s; run "
                  "bhist-admin loader clean, then start the loader again",
                  dbPath);
         compatible = 0;
     }
     if (compatible &&
         strcmp(dbStatus, LOADER_DB_STATUS_REBUILD_REQUIRED) == 0) {
-        ls_syslog(LOG_ERR, "database_rebuild_required db=%s; run "
+        ls_syslog(LOG_ERR, "the history database %s must be rebuilt; run "
                  "bhist-admin loader clean, then start the loader again",
                  dbPath);
         compatible = 0;
