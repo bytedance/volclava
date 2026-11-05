@@ -112,6 +112,68 @@ function get_installed_deb_prefix() {
     dirname "$(dirname "$env_file")"
 }
 
+# Packages that fail to install during pre_setup are collected here and
+# reported together at the end, so users know exactly what is missing
+# before hitting compile errors.
+FAILED_PKGS=()
+
+# Install packages one by one: an unavailable or broken package only
+# fails itself, the remaining packages are still installed.
+function install_pkgs() {
+    local pkg
+    for pkg in "$@"; do
+        if [ "$OS_NAME" = "ubuntu" ]; then
+            apt install -y "$pkg"
+        else
+            yum install -y "$pkg"
+        fi
+    done
+}
+
+function check_pkgs_installed() {
+    local pkg
+    for pkg in "$@"; do
+        if [ "$OS_NAME" = "ubuntu" ]; then
+            dpkg-query -W -f='${db:Status-Abbrev}' "$pkg" 2>/dev/null | grep -q '^ii' \
+                || FAILED_PKGS+=("$pkg")
+        else
+            rpm -q "$pkg" > /dev/null 2>&1 || FAILED_PKGS+=("$pkg")
+        fi
+    done
+}
+
+function check_build_tools() {
+    if ! command -v gcc > /dev/null 2>&1 || ! command -v make > /dev/null 2>&1; then
+        FAILED_PKGS+=("Development Tools (gcc/make)")
+    fi
+}
+
+# Install package group; check the exit code only (group members are
+# verified by check_build_tools instead).
+function install_group() {
+    local group="$1"
+    if [ "$OS_NAME" = "ubuntu" ]; then
+        return 0
+    fi
+    if ! yum groupinstall -y "$group"; then
+        FAILED_PKGS+=("\"$group\" group")
+    fi
+}
+
+function report_failed_pkgs() {
+    if [ ${#FAILED_PKGS[@]} -eq 0 ]; then
+        return 0
+    fi
+    echo "Error: the following package(s) failed to install on this host:"
+    printf '    - %s\n' "${FAILED_PKGS[@]}"
+    echo "Hints:"
+    echo "  - Install them manually, then re-run:"
+    echo "    volcinstall.sh --setup=pre [--file=/path/install.conf]."
+    echo "  - If the package cannot be found, check that the OS package repositories"
+    echo "    are configured and enabled."
+    return 1
+}
+
 function pre_setup() {
     #add user
     groupadd -f ${VOLCADMIN} > /dev/null 2>&1 || true
@@ -122,31 +184,38 @@ function pre_setup() {
     fi
 
     #install compile library
+    FAILED_PKGS=()
     if [ "$OS_NAME" = "rocky" ]; then
-        yum install -y ncurses-devel tcl tcl-devel libtirpc libtirpc-devel libnsl2-devel
+        PKGS="ncurses-devel tcl tcl-devel libtirpc libtirpc-devel libnsl2-devel"
         if [[ $ENABLE_BHIST_SPEEDUP == Y ]]; then
-            yum install -y sqlite-devel
+            PKGS="$PKGS sqlite-devel"
         fi
-        yum groupinstall -y "Development Tools"
+        install_group "Development Tools"
     elif [ "$OS_NAME" = "ubuntu" ]; then
+        PKGS="build-essential automake tcl-dev libncurses-dev debhelper"
+        if [[ $ENABLE_BHIST_SPEEDUP == Y ]]; then
+            PKGS="$PKGS libsqlite3-dev"
+        fi
         apt update
-        apt install -y build-essential automake tcl-dev libncurses-dev debhelper
-        if [[ $ENABLE_BHIST_SPEEDUP == Y ]]; then
-            apt install -y libsqlite3-dev
-        fi
     else #CentOS
-        yum install -y tcl-devel ncurses-devel
+        PKGS="tcl-devel ncurses-devel"
         if [[ $ENABLE_BHIST_SPEEDUP == Y ]]; then
-            yum install -y sqlite-devel
+            PKGS="$PKGS sqlite-devel"
         fi
-        yum groupinstall -y "Development Tools"
+        install_group "Development Tools"
     fi
 
+    install_pkgs $PKGS
+    check_pkgs_installed $PKGS
+    check_build_tools
+
     #close firewall
-    if [ "$OS_NAME" != "ubuntu" ]; then 
+    if [ "$OS_NAME" != "ubuntu" ]; then
         systemctl stop firewalld
         systemctl disable firewalld
     fi
+
+    report_failed_pkgs
 }
 
 function post_setup() {
@@ -592,7 +661,9 @@ fi
 
 #Execute installation
 if [ "$PHASE" == "pre" ]; then
-    pre_setup
+    if ! pre_setup; then
+        exit 1
+    fi
     echo "Preparation is done. You can use \"volcinstall.sh --setup=install ...\" to install the package"
 elif [ "$PHASE" == "install" ]; then
     install
@@ -604,10 +675,14 @@ elif [ "$PHASE" == "install" ]; then
 elif [ "$PHASE" == "post" ]; then
     post_setup
 elif [ "$PHASE" == "pre-post" ]; then
-    pre_setup
+    if ! pre_setup; then
+        exit 1
+    fi
     post_setup
 elif [ "$PHASE" == "all" ]; then
-    pre_setup
+    if ! pre_setup; then
+        exit 1
+    fi
     install
     post_setup
 else
