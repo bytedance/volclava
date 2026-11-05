@@ -720,7 +720,7 @@ validateStartDatabase(const struct config *sharedConfig)
                                           config.dbBusyTimeoutMs) == 0 ?
             0 : 1;
     if (errno != ENOENT) {
-        ls_syslog(LOG_ERR, "schema_check_access_failed db=%s: %m",
+        ls_syslog(LOG_ERR, "cannot access the history database %s: %m",
                  config.dbPath);
         return 1;
     }
@@ -759,20 +759,23 @@ printDbStatus(const struct loaderConfig *config)
                                    config->dbBusyTimeoutMs,
                                    &db) != 0) {
         fprintf(stdout, "db_status=error\n");
-        fprintf(stderr, "bhist-speedup-loader: cannot open database %s\n",
+        fprintf(stderr, "bhist-speedup-loader: cannot open the history "
+                "database %s\n",
                 config->dbPath);
         return 1;
     }
     if (loaderStoreLoadProgress(db, &progress) != 0) {
         fprintf(stdout, "db_status=error\n");
-        fprintf(stderr, "bhist-speedup-loader: cannot read progress from %s\n",
+        fprintf(stderr, "bhist-speedup-loader: cannot read the history "
+                "database %s\n",
                 config->dbPath);
         loaderStoreClose(db);
         return 1;
     }
     if (loaderStoreGetDbStatus(db, dbStatus, sizeof(dbStatus)) != 0) {
         fprintf(stdout, "db_status=error\n");
-        fprintf(stderr, "bhist-speedup-loader: cannot read status from %s\n",
+        fprintf(stderr, "bhist-speedup-loader: cannot read the history "
+                "database %s\n",
                 config->dbPath);
         loaderStoreClose(db);
         return 1;

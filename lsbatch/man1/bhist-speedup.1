@@ -464,10 +464,10 @@ A management command was run on another host. Log in to the host named by
 .B LSB_BHIST_ENDPOINT
 and run it there.
 .TP
-.B must be run as root or a cluster administrator
+.B run this command as root or a user of ClusterAdmins in lsf.cluster.<cluster_name>
 Run the command as root or a cluster administrator.
 .TP
-.B run this command as root or the service administrator
+.BI "run this command as root or " user ", the first user of ClusterAdmins in lsf.cluster.<cluster_name>"
 start and clean need root or the first cluster administrator.
 .TP
 .B the history database must be rebuilt
