@@ -224,7 +224,7 @@ rsetenv_ (char *host, char **envp, int option)
     char   *sendBuf;
     int    bufferSize;
     int    i, s;
-    resCmd resCmdOption;
+    resCmd resCmdOption = RES_SETENV;
 
     bufferSize = 512;
 

@@ -1323,16 +1323,17 @@ subRestart(struct submit  *jobSubReq, struct submitReq *submitReq,
             goto childExit;
         }
 
-	if (write(childIoFd[1], (char *) &ed.len, sizeof(ed.len))
-	                                        != sizeof(ed.len)) {
-	    goto childExit;
-	}
+    // no esub in this child, no need to send it back
+	// if (write(childIoFd[1], (char *) &ed.len, sizeof(ed.len))
+	//                                         != sizeof(ed.len)) {
+	//     goto childExit;
+	// }
 
-	if (ed.len > 0) {
-	    if (write(childIoFd[1], (char *) ed.data, ed.len) != ed.len) {
-	        goto childExit;
-	    }
-	}
+	// if (ed.len > 0) {
+	//     if (write(childIoFd[1], (char *) ed.data, ed.len) != ed.len) {
+	//         goto childExit;
+	//     }
+	// }
 
 
         if (b_write_fix(childIoFd[1], (char *) jobLog, sizeof(struct jobNewLog))
@@ -1469,21 +1470,22 @@ sendErr:
     }
 
 
-    if (read(childIoFd[0], (char *) &ed.len, sizeof(ed.len)) !=
-						    sizeof(ed.len)) {
-	goto parentErr;
-    }
-    if (ed.len > 0) {
-	if ((ed.data = (char *) malloc(ed.len)) == NULL)
-            goto parentErr;
+    // no esub in child, read esub data is not needed
+    // if (read(childIoFd[0], (char *) &ed.len, sizeof(ed.len)) !=
+	// 					    sizeof(ed.len)) {
+	// goto parentErr;
+    // }
+    // if (ed.len > 0) {
+	// if ((ed.data = (char *) malloc(ed.len)) == NULL)
+    //         goto parentErr;
 
-        if (b_read_fix(childIoFd[0], ed.data, ed.len) != ed.len) {
-	    FREEUP(ed.data);
-	    ed.len = 0;
-	    goto parentErr;
-        }
-    } else
-        ed.data = NULL;
+    //     if (b_read_fix(childIoFd[0], ed.data, ed.len) != ed.len) {
+	//     FREEUP(ed.data);
+	//     ed.len = 0;
+	//     goto parentErr;
+    //     }
+    // } else
+    //     ed.data = NULL;
 
 
     if ((jobLog = (struct jobNewLog *) malloc (sizeof (struct jobNewLog)))
@@ -1726,6 +1728,14 @@ sendErr:
 	submitReq->schedHostType = jobLog->schedHostType;
     else
 	submitReq->schedHostType = "";
+
+    // restore job description
+    if (jobLog->options & SUB2_JOB_DESC) {
+        if (strlen(jobLog->jobDesc) >= MAX_CMD_DESC_LEN)
+            goto parentErr;
+        submitReq->jobDesc = jobLog->jobDesc;
+    } else
+        submitReq->jobDesc = "";
 
     close(childIoFd[0]);
     if (waitpid (pid, &status, 0) < 0) {

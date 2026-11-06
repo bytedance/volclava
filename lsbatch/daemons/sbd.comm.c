@@ -124,6 +124,60 @@ status_job(mbdReqType reqType,
     statusReq.maxMem = jp->maxRusage.mem; /*SBD retains this information to avoid data loss when MBD restarts.*/
     statusReq.avgMem = jp->avgMem;
     statusReq.seq = seq;
+    
+    if (jp->termCode == TERM_NULL) {
+        int cpuLimitKilled = FALSE;
+
+#ifdef SIGXCPU
+        /* OS 内核 RLIMIT_CPU 软限制超限：作业被 SIGXCPU 直接终止，
+         * 或经 shell 转成 128+SIGXCPU 退出码 */
+        if (WIFSIGNALED(statusReq.exitStatus)
+            && WTERMSIG(statusReq.exitStatus) == SIGXCPU) {
+            cpuLimitKilled = TRUE;
+        } else if (WIFEXITED(statusReq.exitStatus)
+                   && (WEXITSTATUS(statusReq.exitStatus) & 0xff)
+                      == (128 + SIGXCPU)) {
+            cpuLimitKilled = TRUE;
+        }
+#endif
+
+        /* OS 内核 RLIMIT_CPU 硬限制超限（队列配置 CPULIMIT 时 soft==hard）：
+         * 内核直接发 SIGKILL，作业被 SIGKILL 直接终止或经 shell 转成
+         * 128+SIGKILL 退出码。SIGKILL 含义较宽，需结合“确已配置 CPU 限制
+         * 且用量达到该限制”来区分外部 SIGKILL 与 CPULIMIT 硬限制。 */
+        if (!cpuLimitKilled) {
+            int sigKilled = 0;
+            if (WIFSIGNALED(statusReq.exitStatus)) {
+                if (WTERMSIG(statusReq.exitStatus) == SIGKILL)
+                    sigKilled = 1;
+            } else if (WIFEXITED(statusReq.exitStatus)
+                       && (WEXITSTATUS(statusReq.exitStatus) & 0xff)
+                          == (128 + SIGKILL)) {
+                sigKilled = 1;
+            }
+
+            if (sigKilled) {
+                struct rlimit rlimit;
+                rlimitDecode_(&jp->jobSpecs.lsfLimits[LSF_RLIMIT_CPU],
+                              &rlimit, LSF_RLIMIT_CPU);
+                if (rlimit.rlim_cur != RLIM_INFINITY
+                    && (long)rlimit.rlim_cur <= (long)jp->cpuTime) {
+                    cpuLimitKilled = TRUE;
+                }
+            }
+        }
+
+        if (cpuLimitKilled)
+            jp->termCode = TERM_CPULIMIT;
+
+        if (jp->termCode == TERM_NULL &&
+            !(jp->jobSpecs.jStatus & JOB_STAT_DONE) &&
+            WIFSIGNALED(statusReq.exitStatus)) {
+            jp->termCode = TERM_EXTERNAL_SIGNAL;
+        }
+    }
+    statusReq.termCode = jp->termCode;
+
     seq++;
     if (seq >= MAX_SEQ_NUM)
         seq = 1;

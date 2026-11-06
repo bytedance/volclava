@@ -18,9 +18,15 @@
 
 #include "lib.h"
 
-#define SIGEMT  SIGBUS
+#ifndef SIGEMT
+#define SIGEMT SIGBUS
+#endif
+#ifndef SIGLOST
 #define SIGLOST SIGIO
-#define SIGIOT  SIGABRT
+#endif
+#ifndef SIGIOT
+#define SIGIOT SIGABRT
+#endif
 
 #if !defined(SIGWINCH) && defined(SIGWINDOW)
 #    define SIGWINCH SIGWINDOW
@@ -179,7 +185,7 @@ SIGFUNCTYPE Signal_(int sig, void (*handler)(int))
     struct sigaction act, oact;
 
     act.sa_handler = handler;
-    act.sa_flags = 0;
+    act.sa_flags = SA_RESTART;
     sigemptyset(&act.sa_mask);
     sigaddset(&act.sa_mask, sig);
     if(sigaction(sig, &act, &oact) == -1){

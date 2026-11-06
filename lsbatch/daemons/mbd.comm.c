@@ -299,6 +299,7 @@ signal_job (struct jData *jp,
     jobSig.actCmd    = sendReq->actCmd;
     jobSig.reasons   = sendReq->reasons;
     jobSig.subReasons= sendReq->subReasons;
+    jobSig.role = sendReq->role;
 
     if (logclass & LC_SIGNAL) {
         ls_syslog(LOG_DEBUG, "\

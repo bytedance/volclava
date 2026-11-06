@@ -321,3 +321,117 @@ Error:
 Done:
     return;
 }
+
+int getTermCode(int signal, int role)
+{
+    static char fname[] = "getTermCode";
+    termcode_t termCode = TERM_NULL;
+    switch (signal) {
+        case SIG_TERM_USER:
+            switch (role) {
+                case ROLE_ROOT:
+                    termCode = TERM_ROOT;
+                    break;
+                case ROLE_QUEUE_ADMIN:
+                    termCode = TERM_QUEUE_ADMIN;
+                    break;
+                case ROLE_CLUSTER_ADMIN:
+                    termCode = TERM_ADMIN;
+                    break;
+                case ROLE_UG_ADMIN:
+                    termCode = TERM_UG_ADMIN;
+                    break;
+                case ROLE_OWNER:
+                default:
+                    termCode = TERM_OWNER;
+                    break;
+            }
+            break;
+        case SIG_TERM_LOAD:
+            termCode = TERM_LOAD;
+            break;
+        case SIG_TERM_WINDOW:
+            termCode = TERM_WINDOW;
+            break;
+        case SIG_TERM_RUNLIMIT:
+            termCode = TERM_RUNLIMIT;
+            break;
+        case SIG_TERM_DEADLINE:
+            termCode = TERM_DEADLINE;
+            break;
+        case SIG_TERM_PROCESSLIMIT:
+            termCode = TERM_PROCESSLIMIT;
+            break;
+        case SIG_TERM_FORCE:
+            switch (role) {
+                case ROLE_ROOT:
+                    termCode = TERM_FORCE_ROOT;
+                    break;
+                case ROLE_QUEUE_ADMIN:
+                    termCode = TERM_FORCE_QUEUE_ADMIN;
+                    break;
+                case ROLE_CLUSTER_ADMIN:
+                    termCode = TERM_FORCE_ADMIN;
+                    break;
+                case ROLE_UG_ADMIN:
+                    termCode = TERM_FORCE_UG_ADMIN;
+                    break;
+                case ROLE_OWNER:
+                default:
+                    termCode = TERM_FORCE_OWNER;
+                    break;
+            }
+            break;
+        case SIG_KILL_REQUEUE:
+            switch (role) {
+                case ROLE_ROOT:
+                    termCode = TERM_REQUEUE_ROOT;
+                    break;
+                case ROLE_QUEUE_ADMIN:
+                    termCode = TERM_REQUEUE_QUEUE_ADMIN;
+                    break;
+                case ROLE_CLUSTER_ADMIN:
+                    termCode = TERM_REQUEUE_ADMIN;
+                    break;
+                case ROLE_UG_ADMIN:
+                    termCode = TERM_REQUEUE_UG_ADMIN;
+                    break;
+                case ROLE_OWNER:
+                default:
+                    termCode = TERM_REQUEUE_OWNER;
+                    break;
+            }
+            break;
+        case SIG_TERM_CPULIMIT:
+            termCode = TERM_CPULIMIT;
+            break;
+        case SIG_TERM_MEMLIMIT:
+            termCode = TERM_MEMLIMIT;
+            break;
+        case SIG_TERM_SWAPLIMIT:
+            termCode = TERM_SWAPLIMIT;
+            break;
+        case SIG_DELETE_JOB:
+        default:
+            if (isSigTerm(signal)){
+                if (logclass & LC_TRACE){
+                    ls_syslog(LOG_DEBUG2, "%s: sig<%s> is ignored in getTermCode",
+                        fname, getLsbSigSymbol(signal));
+                }
+            } else {
+                if (logclass & LC_TRACE){
+                    ls_syslog(LOG_DEBUG2, "%s: sig<%s> is not a termination signal",
+                        fname, getLsbSigSymbol(signal));
+                }
+            }
+            break;
+    }
+
+    if (logclass & (LC_TRACE | LC_EXEC)) {
+	    ls_syslog(LOG_DEBUG1, 
+            "%s: converted sig<%s> role<%d> to termination code <%d>",
+            fname, getLsbSigSymbol(signal), role, termCode);
+    }
+
+    return termCode;
+}

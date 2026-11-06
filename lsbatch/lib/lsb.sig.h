@@ -48,6 +48,7 @@
 #define  SIG_TERM_CPULIMIT       -21  
 #define  SIG_TERM_MEMLIMIT       -22  
 #define  SIG_ARRAY_REQUEUE       -23
+#define  SIG_TERM_SWAPLIMIT      -24
 
 extern int sigNameToValue_ (char *sigString);
 extern char *getLsbSigSymbol ( int sigValue);

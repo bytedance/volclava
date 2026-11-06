@@ -702,6 +702,7 @@ read_newstat(struct eventRec *log)
     jobStatusLog = &log->eventLog.jobStatusLog;
     jobRecord->job->cpuTime  = jobStatusLog->cpuTime;
     jobRecord->job->endTime = jobStatusLog->endTime;
+    jobRecord->job->termCode = jobStatusLog->termCode;
     jobRecord->job->exitStatus = jobStatusLog->exitStatus;
     event = calloc(1, sizeof(struct eventRecord));
 
@@ -710,6 +711,7 @@ read_newstat(struct eventRec *log)
     event->reasons = jobStatusLog->reason;
     event->subreasons = jobStatusLog->subreasons;
     event->exitStatus = jobStatusLog->exitStatus;
+    event->termCode = jobStatusLog->termCode;
     event->timeStamp = log->eventTime;
 
     event->kind = EVENT_JOB_STATUS;

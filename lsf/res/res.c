@@ -26,6 +26,7 @@
 #include <sys/signal.h>
 #include <errno.h>
 #include <ctype.h>
+#include <fcntl.h>
 
 #include <sys/time.h>
 
@@ -65,6 +66,9 @@ struct sockaddr_in ctrlAddr;
 int child_res_port  = INVALID_FD;
 int parent_res_port = INVALID_FD;
 fd_set readmask, writemask, exceptmask;
+
+int sigchldPipeRd = -1;
+int sigchldPipeWr = -1;
 
 int on  = 1;
 int off = 0;
@@ -132,6 +136,7 @@ static void initSignals(void);
 static void houseKeeping(void);
 static void blockSignals(void);
 static void unblockSignals(void);
+static int initSigchldPipe(void);
 
 #undef P_
 
@@ -358,6 +363,8 @@ main(int argc, char **argv)
 	lsbJobStart(sbdArgv, sbdClPort, sbdClHost, sbdPty);
     }
 
+    initSigchldPipe();
+
     maxfd = FD_SETSIZE;
 
 
@@ -462,6 +469,7 @@ loop:
 	if (res_interrupted > 0) {
 	    blockSignals();
 	    res_interrupted = 0;
+	    processReapedChildren();
 	    continue;
 	} else {
             nready = select(maxfd, &readmask, &writemask, &exceptmask,
@@ -491,6 +499,12 @@ loop:
 		}
 	    }
             continue;
+        }
+
+        if (FD_IS_VALID(sigchldPipeRd)
+            && FD_ISSET(sigchldPipeRd, &readmask)) {
+            processReapedChildren();
+            goto loop;
         }
 
 	if (debug > 1) {
@@ -613,6 +627,32 @@ loop:
 
 }
 
+static int
+initSigchldPipe(void)
+{
+    int fds[2];
+    int flags;
+    int fd;
+
+    if (pipe(fds) < 0) {
+        ls_syslog(LOG_ERR, "%s: pipe failed: %m", "initSigchldPipe");
+        return -1;
+    }
+
+    for (fd = 0; fd < 2; fd++) {
+        flags = fcntl(fds[fd], F_GETFL, 0);
+        if (flags >= 0)
+            fcntl(fds[fd], F_SETFL, flags | O_NONBLOCK);
+        flags = fcntl(fds[fd], F_GETFD, 0);
+        if (flags >= 0)
+            fcntl(fds[fd], F_SETFD, flags | FD_CLOEXEC);
+    }
+
+    sigchldPipeRd = fds[0];
+    sigchldPipeWr = fds[1];
+    return 0;
+}
+
 static void
 initSignals()
 {
@@ -666,6 +706,10 @@ getMaskReady(fd_set *rm, fd_set *wm, fd_set *em)
     FD_ZERO(rm);
     FD_ZERO(wm);
     FD_ZERO(em);
+
+    if (FD_IS_VALID(sigchldPipeRd)) {
+        FD_SET(sigchldPipeRd, rm);
+    }
 
     if (allow_accept && FD_IS_VALID(accept_sock)) {
         FD_SET(accept_sock, rm);
@@ -879,7 +923,7 @@ houseKeeping(void)
     }
 
 
-    child_handler_ext();
+    processReapedChildren();
 
 
     if (FD_IS_VALID(conn2NIOS.sock.fd)) {

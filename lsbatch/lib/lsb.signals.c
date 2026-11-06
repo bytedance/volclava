@@ -45,9 +45,11 @@ static int lsbSig_map[] =     {
                        SIG_TERM_DEADLINE,
                        SIG_TERM_PROCESSLIMIT,
                        SIG_TERM_FORCE,
-		       SIG_KILL_REQUEUE,
+		               SIG_KILL_REQUEUE,
                        SIG_TERM_CPULIMIT,
-		       SIG_TERM_MEMLIMIT
+		               SIG_TERM_MEMLIMIT,
+                       SIG_NULL,
+                       SIG_TERM_SWAPLIMIT
                     };
 
 static char *lsbSigSymbol[] = {
@@ -74,9 +76,11 @@ static char *lsbSigSymbol[] = {
                             "SIG_TERM_DEADLINE",
                             "SIG_TERM_PROCESSLIMIT",
                             "SIG_TERM_FORCE",
-		       	    "SIG_KILL_REQUEUE",
+		       	            "SIG_KILL_REQUEUE",
                             "SIG_TERM_CPULIMIT",
-		       	    "SIG_TERM_MEMLIMIT"
+		       	            "SIG_TERM_MEMLIMIT",
+			                "SIG_NULL",
+                            "SIG_TERM_SWAPLIMIT"
                      };
 
 
@@ -106,7 +110,9 @@ static int defaultSigValue [] = {
                              SIGKILL,
                              SIGKILL,
                              SIGKILL,
-			     SIGKILL,
+			                 SIGKILL,
+                             SIG_NULL,
+                             SIGKILL
 };
 
 
@@ -183,6 +189,7 @@ getDefSigValue_( int sigValue, char *actCmd)
         case SIG_TERM_PROCESSLIMIT:
         case SIG_TERM_CPULIMIT:
         case SIG_TERM_MEMLIMIT:
+        case SIG_TERM_SWAPLIMIT:
         case SIG_TERM_FORCE:
             if ((actCmd == NULL) || ( actCmd[0] == '\0'))
                 
@@ -216,6 +223,7 @@ isSigTerm (int sigValue)
         case SIG_TERM_PROCESSLIMIT:
         case SIG_TERM_CPULIMIT:
         case SIG_TERM_MEMLIMIT:
+        case SIG_TERM_SWAPLIMIT:
         case SIG_TERM_FORCE:
         case SIG_KILL_REQUEUE: 
             return(TRUE);

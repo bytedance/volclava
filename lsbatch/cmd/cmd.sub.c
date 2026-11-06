@@ -54,6 +54,7 @@ static int CopyCommand(char **, int);
 static int
 addLabel2RsrcReq(struct submit *subreq);
 
+int is_text_file(const char *filename);
 void sub_perror (char *);
 void do_pack_sub (int option, char **argv, struct submit *req);
 static LS_LONG_INT do_pack_sub_v2(int option, char **argv, struct submit *req);

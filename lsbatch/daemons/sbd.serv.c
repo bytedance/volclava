@@ -37,6 +37,7 @@ extern int jRusageUpdatePeriod;
 extern int  rusageUpdateRate;
 extern int  rusageUpdatePercent;
 extern int sbdlog_newstatus (struct jobCard *jp);
+extern int getTermCode(int signal, int role);
 extern int lsbJobCpuLimit;
 extern int lsbJobMemLimit;
 
@@ -712,17 +713,21 @@ do_sigjob(XDR * xdrs, int chfd, struct LSFHeader * reqHdr)
         reply = ERR_NO_ERROR;	
         goto Reply;
     }
-    
-    if (!JOB_STARTED(jp)) { 
-        if (isSigTerm(sigValue) == TRUE) {           
-            if ((cc = jobSigStart (jp, sigValue, jobSig.actFlags, jobSig.chkPeriod, NO_SIGLOG)) < 0)   
+
+    if (isSigTerm(sigValue) == TRUE) {
+        jp->termCode = getTermCode(sigValue, jobSig.role);
+    }
+
+    if (!JOB_STARTED(jp)) {
+        if (isSigTerm(sigValue) == TRUE) {
+            if ((cc = jobSigStart (jp, sigValue, jobSig.actFlags, jobSig.chkPeriod, NO_SIGLOG)) < 0)
            	reply = ERR_SIG_RETRY;
     	    else
             	reply = ERR_NO_ERROR;
 
             goto Reply;
         }
-    
+
         reply = ERR_SIG_RETRY;
 
         if (logclass & LC_EXEC)
@@ -1243,6 +1248,10 @@ do_jobSetup(XDR * xdrs, int chfd, struct LSFHeader * reqHdr)
         return;
 
     memcpy((char *) &savejp, (char *) jp, sizeof(savejp));
+
+    if (jsetup.jStatus == JOB_STAT_EXIT && jsetup.reason == EXIT_CWD) {
+        jp->termCode = TERM_CWD_NOTEXIST;
+    }
 
     jp->execJobFlag |= JOB_EXEC_QPRE_KNOWN;
     if (jsetup.execJobFlag & JOB_EXEC_QPRE_OK)
