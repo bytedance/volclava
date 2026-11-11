@@ -2115,6 +2115,7 @@ writeChkLog(char *fn, char *chkpntDir, struct jobCard *jp, struct hostent *fromH
     logPtr.eventTime = jp->jobSpecs.startTime;
     jobStartLog->queuePreCmd = jp->jobSpecs.preCmd;
     jobStartLog->queuePostCmd = jp->jobSpecs.postCmd;
+    jobStartLog->effeResReq = NULL;
 
     if (lsb_puteventrec(fp, &logPtr) == -1) {
 	eno = errno;
