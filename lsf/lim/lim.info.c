@@ -34,9 +34,9 @@ static void freeResourceInfoReply (struct resourceInfoReply *);
 
 
 int
-limProjectHostInfoFlags(int flags, const char *fields)
+limPruneHostInfoFlags(int flags, unsigned int mask)
 {
-    if (OUTPUT_MASK(fields, lim) & ((1u << 7) | (1u << 11)))
+    if (mask & (LIM_OUTPUT_SERVER | LIM_OUTPUT_WINDOWS))
         return flags & HINFO_SERVER;
 
     return 0;
@@ -543,33 +543,30 @@ hostInfoReq(XDR *xdrs,
         unsigned int mask = (unsigned int)OUTPUT_MASK(hostInfoRequest.outputFields, lim);
         int needsModel;
 
-        needsModel = (mask & (1u << 2))
-                     || (mask & (1u << 3));
+        needsModel = (mask & (LIM_OUTPUT_MODEL | LIM_OUTPUT_CPU_FACTOR));
         hostInfoReply.nIndex = 0;
         for (i = 0; i < ncandidates; i++) {
             struct shortHInfo *infoPtr = &hostInfoReply.hostMatrix[i];
 
-            if (!(mask & (1u << 1)))
+            if (!(mask & LIM_OUTPUT_TYPE))
                 infoPtr->hTypeIndx = -1;
             if (!needsModel)
                 infoPtr->hModelIndx = -1;
-            if (!(mask & (1u << 4))
-                && !(mask & (1u << 10)))
+            if (!(mask & (LIM_OUTPUT_MAX_CPUS | LIM_OUTPUT_N_DISKS)))
                 infoPtr->maxCpus = 0;
-            if (!(mask & (1u << 5)))
+            if (!(mask & LIM_OUTPUT_MAX_MEM))
                 infoPtr->maxMem = 0;
-            if (!(mask & (1u << 6)))
+            if (!(mask & LIM_OUTPUT_MAX_SWAP))
                 infoPtr->maxSwap = 0;
-            if (!(mask & (1u << 9)))
+            if (!(mask & LIM_OUTPUT_MAX_TMP))
                 infoPtr->maxTmp = 0;
-            if (!(mask & (1u << 8))) {
+            if (!(mask & LIM_OUTPUT_RESOURCES)) {
                 infoPtr->resClass = 0;
                 infoPtr->nRInt = 0;
             }
-            if (!(mask & (1u << 11)))
+            if (!(mask & LIM_OUTPUT_WINDOWS))
                 infoPtr->windows = "-";
-            infoPtr->flags = limProjectHostInfoFlags(
-                infoPtr->flags, hostInfoRequest.outputFields);
+            infoPtr->flags = limPruneHostInfoFlags(infoPtr->flags, mask);
         }
     }
     limReplyCode = LIME_NO_ERR;
@@ -577,9 +574,9 @@ hostInfoReq(XDR *xdrs,
     if (reqHdr->opCode == LIM_HOST_OUTPUT) {
         hostInfoReply.outputMask = (unsigned int)OUTPUT_MASK(hostInfoRequest.outputFields, lim);
         outputInfo = *hostInfoReply.shortLsInfo;
-        if (!(hostInfoReply.outputMask & (1u << 1))) outputInfo.nTypes = 0;
-        if (!(hostInfoReply.outputMask & ((1u << 2) | (1u << 3)))) outputInfo.nModels = 0;
-        if (!(hostInfoReply.outputMask & (1u << 8))) outputInfo.nRes = 0;
+        if (!(hostInfoReply.outputMask & LIM_OUTPUT_TYPE)) outputInfo.nTypes = 0;
+        if (!(hostInfoReply.outputMask & (LIM_OUTPUT_MODEL | LIM_OUTPUT_CPU_FACTOR))) outputInfo.nModels = 0;
+        if (!(hostInfoReply.outputMask & LIM_OUTPUT_RESOURCES)) outputInfo.nRes = 0;
         hostInfoReply.shortLsInfo = &outputInfo;
     }
 Reply:
@@ -637,8 +634,7 @@ Reply1:
                        reqHdr->opCode == LIM_HOST_OUTPUT
                        ? xdr_hostOutputInfoReply : xdr_hostInfoReply,
                        0,
-                       NULL, reqHdr->opCode == LIM_HOST_OUTPUT
-                      ? _VOLCLAVA_VERSION2_3_ : VOLCLAVA_VERSION)) {
+                       NULL, VOLCLAVA_VERSION)) {
         ls_syslog(LOG_ERR, I18N_FUNC_FAIL, fname, "xdr_encodeMsg");
         xdr_destroy(&xdrs2);
         if (limReplyCode == LIME_NO_ERR)
@@ -684,7 +680,7 @@ infoReq(XDR *xdrs, struct sockaddr_in *from, struct LSFHeader *reqHdr, int s)
 
     /* Old LIM ignores the optional probe and returns ordinary INFO. New
      * clients only need this header to negotiate the typed output opcode. */
-    if (reqHdr->version >= _VOLCLAVA_VERSION2_3_ && reqHdr->length == 4) {
+    if (reqHdr->length == 4) {
         int capability = 0;
         char capabilityReply[LSF_HEADER_LEN];
         if (!xdr_int(xdrs, &capability) || capability != LIM_OUTPUT_CAPABILITY) {
@@ -694,9 +690,10 @@ infoReq(XDR *xdrs, struct sockaddr_in *from, struct LSFHeader *reqHdr, int s)
         initLSFHeader_(&replyHdr);
         replyHdr.opCode = LIME_NO_ERR;
         replyHdr.refCode = reqHdr->refCode;
+        replyHdr.reserved = LIM_OUTPUT_CAPABILITY;
         xdrmem_create(&xdrs2, capabilityReply, sizeof(capabilityReply), XDR_ENCODE);
         if (xdr_encodeMsgVersion(&xdrs2, NULL, &replyHdr, NULL, 0, NULL,
-                                 _VOLCLAVA_VERSION2_3_)) {
+                                 VOLCLAVA_VERSION)) {
             if (s < 0)
                 chanSendDgram_(limSock, capabilityReply, XDR_GETPOS(&xdrs2), from);
             else
@@ -727,7 +724,7 @@ infoReq(XDR *xdrs, struct sockaddr_in *from, struct LSFHeader *reqHdr, int s)
     replyHdr.refCode = reqHdr->refCode;
 
     if (!xdr_encodeMsgVersion(&xdrs2, (char *)&allInfo, &replyHdr, xdr_lsInfo, 0,
-                       NULL, MIN(reqHdr->version, VOLCLAVA_PROTOCOL_VERSION))) {
+                       NULL, MIN(reqHdr->version, VOLCLAVA_VERSION))) {
         ls_syslog(LOG_ERR, I18N_FUNC_FAIL, fname, "xdr_encodeMsg");
         xdr_destroy(&xdrs2);
         return;

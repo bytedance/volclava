@@ -37,7 +37,7 @@ struct decisionReq {
     char      *outputFields;
 };
 
-int limProjectHostInfoFlags(int, const char *);
+int limPruneHostInfoFlags(int, unsigned int);
 
 struct placeReply {
     int   numHosts;
@@ -50,7 +50,7 @@ struct jobXfer {
     struct placeInfo *placeInfo;
 };
 
-#define LIM_OUTPUT_CAPABILITY 0x4f555431 /* OUT1, optional INFO probe body. */
+#define LIM_OUTPUT_CAPABILITY 0x4f31 /* 'O','1', fits unsigned short replyHdr.reserved */
 
 enum limReqCode {
     LIM_PLACEMENT     = 1,

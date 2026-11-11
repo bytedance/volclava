@@ -64,10 +64,10 @@ extern int terminateWhen_(int *, char *);
 
 static char fomt[200];
 
-#define bqueues_fields output_queue_fields
+#define queueOutputFields output_queue_fields
 
-#define BQUEUES_NUM_FIELDS \
-    ((int)(sizeof(bqueues_fields) / sizeof(bqueues_fields[0])))
+#define NUM_QUEUE_OUTPUT_FIELDS \
+    ((int)(sizeof(queueOutputFields) / sizeof(queueOutputFields[0])))
 
 void
 usage (char *cmd)
@@ -149,19 +149,19 @@ main(int argc, char **argv)
     }
     if (jsonflag && !oflag) {
         fprintf(stderr, "bqueues: -json requires -o.\n");
-        exit(99);
+        exit(-1);
     }
     if (oflag) {
-        if (fmt_output_parse(fieldName, bqueues_fields, BQUEUES_NUM_FIELDS,
+        if (fmt_output_parse(fieldName, queueOutputFields, NUM_QUEUE_OUTPUT_FIELDS,
                              &formatRequest, fmtErrbuf, sizeof(fmtErrbuf)) < 0) {
             fprintf(stderr, "%s\n", fmtErrbuf);
-            exit(99);
+            exit(-1);
         }
         outputFields = fmt_output_fields_dup(&formatRequest);
         if (!outputFields) {
             fmt_output_free(&formatRequest);
             lsb_perror("fmt_output_fields_dup");
-            exit(99);
+            exit(-1);
         }
     }
 
@@ -186,6 +186,8 @@ main(int argc, char **argv)
     free(outputFields);
     outputFields = NULL;
     if (!queueInfo) {
+        if (oflag)
+            fmt_output_free(&formatRequest);
         if (lsberrno == LSBE_BAD_QUEUE && queues)
             lsb_perror(queues[numQueues]);
         else {
@@ -218,7 +220,7 @@ main(int argc, char **argv)
 }
 
 static const char *
-bqueues_clean_string(const char *value)
+stringOrDash(const char *value)
 {
     const unsigned char *cursor;
 
@@ -235,7 +237,7 @@ bqueues_clean_string(const char *value)
 }
 
 static void
-bqueues_get_status(struct queueInfoEnt *queue, char *buf, size_t buflen)
+formatQueueStatus(struct queueInfoEnt *queue, char *buf, size_t buflen)
 {
     snprintf(buf, buflen, "%s:",
              (queue->qStatus & QUEUE_STAT_OPEN) ? I18N_Open : I18N_Closed);
@@ -251,7 +253,7 @@ bqueues_get_status(struct queueInfoEnt *queue, char *buf, size_t buflen)
 }
 
 static void
-bqueues_format_int_limit(int value, int allow_zero, char *buf, size_t buflen)
+formatIntLimit(int value, int allow_zero, char *buf, size_t buflen)
 {
     if ((allow_zero && value >= 0 && value < INFINIT_INT) ||
         (!allow_zero && value > 0 && value < INFINIT_INT))
@@ -261,7 +263,7 @@ bqueues_format_int_limit(int value, int allow_zero, char *buf, size_t buflen)
 }
 
 static void
-bqueues_format_float_limit(float value, char *buf, size_t buflen)
+formatFloatLimit(float value, char *buf, size_t buflen)
 {
     if (value >= 0 && value < INFINIT_FLOAT)
         snprintf(buf, buflen, "%.1f", value);
@@ -270,25 +272,25 @@ bqueues_format_float_limit(float value, char *buf, size_t buflen)
 }
 
 static const char *
-bqueues_get_fmt_value(struct queueInfoEnt *queue, const char *field,
-                      char *buf, size_t buflen)
+getQueueFieldValue(struct queueInfoEnt *queue, const char *field,
+                   char *buf, size_t buflen)
 {
     if (strcmp(field, "QUEUE_NAME") == 0) {
-        return bqueues_clean_string(queue->queue);
+        return stringOrDash(queue->queue);
     } else if (strcmp(field, "DESCRIPTION") == 0) {
-        return bqueues_clean_string(queue->description);
+        return stringOrDash(queue->description);
     } else if (strcmp(field, "PRIORITY") == 0) {
         snprintf(buf, buflen, "%d", queue->priority);
     } else if (strcmp(field, "STATUS") == 0) {
-        bqueues_get_status(queue, buf, buflen);
+        formatQueueStatus(queue, buf, buflen);
     } else if (strcmp(field, "MAX") == 0) {
-        bqueues_format_int_limit(queue->maxJobs, TRUE, buf, buflen);
+        formatIntLimit(queue->maxJobs, TRUE, buf, buflen);
     } else if (strcmp(field, "JL_U") == 0) {
-        bqueues_format_int_limit(queue->userJobLimit, TRUE, buf, buflen);
+        formatIntLimit(queue->userJobLimit, TRUE, buf, buflen);
     } else if (strcmp(field, "JL_P") == 0) {
-        bqueues_format_float_limit(queue->procJobLimit, buf, buflen);
+        formatFloatLimit(queue->procJobLimit, buf, buflen);
     } else if (strcmp(field, "JL_H") == 0) {
-        bqueues_format_int_limit(queue->hostJobLimit, TRUE, buf, buflen);
+        formatIntLimit(queue->hostJobLimit, TRUE, buf, buflen);
     } else if (strcmp(field, "NJOBS") == 0) {
         snprintf(buf, buflen, "%d", queue->numJobs);
     } else if (strcmp(field, "PEND") == 0) {
@@ -306,51 +308,51 @@ bqueues_get_fmt_value(struct queueInfoEnt *queue, const char *field,
     } else if (strcmp(field, "NICE") == 0) {
         snprintf(buf, buflen, "%d", queue->nice);
     } else if (strcmp(field, "HOSTS") == 0) {
-        return bqueues_clean_string(queue->hostList);
+        return stringOrDash(queue->hostList);
     } else if (strcmp(field, "RES_REQ") == 0) {
-        return bqueues_clean_string(queue->resReq);
+        return stringOrDash(queue->resReq);
     } else if (strcmp(field, "MAX_CORELIMIT") == 0) {
-        bqueues_format_int_limit(queue->rLimits[LSF_RLIMIT_CORE], TRUE,
-                                 buf, buflen);
+        formatIntLimit(queue->rLimits[LSF_RLIMIT_CORE], TRUE,
+                       buf, buflen);
     } else if (strcmp(field, "MAX_CPULIMIT") == 0) {
-        bqueues_format_int_limit(queue->rLimits[LSF_RLIMIT_CPU], TRUE,
-                                 buf, buflen);
+        formatIntLimit(queue->rLimits[LSF_RLIMIT_CPU], TRUE,
+                       buf, buflen);
     } else if (strcmp(field, "DEFAULT_CPULIMIT") == 0) {
-        bqueues_format_int_limit(queue->defLimits[LSF_RLIMIT_CPU], TRUE,
-                                 buf, buflen);
+        formatIntLimit(queue->defLimits[LSF_RLIMIT_CPU], TRUE,
+                       buf, buflen);
     } else if (strcmp(field, "MAX_DATALIMIT") == 0) {
-        bqueues_format_int_limit(queue->rLimits[LSF_RLIMIT_DATA], FALSE,
-                                 buf, buflen);
+        formatIntLimit(queue->rLimits[LSF_RLIMIT_DATA], FALSE,
+                       buf, buflen);
     } else if (strcmp(field, "DEFAULT_DATALIMIT") == 0) {
-        bqueues_format_int_limit(queue->defLimits[LSF_RLIMIT_DATA], FALSE,
-                                 buf, buflen);
+        formatIntLimit(queue->defLimits[LSF_RLIMIT_DATA], FALSE,
+                       buf, buflen);
     } else if (strcmp(field, "MAX_FILELIMIT") == 0) {
-        bqueues_format_int_limit(queue->rLimits[LSF_RLIMIT_FSIZE], FALSE,
-                                 buf, buflen);
+        formatIntLimit(queue->rLimits[LSF_RLIMIT_FSIZE], FALSE,
+                       buf, buflen);
     } else if (strcmp(field, "MAX_MEMLIMIT") == 0) {
-        bqueues_format_int_limit(queue->rLimits[LSF_RLIMIT_RSS], FALSE,
-                                 buf, buflen);
+        formatIntLimit(queue->rLimits[LSF_RLIMIT_RSS], FALSE,
+                       buf, buflen);
     } else if (strcmp(field, "DEFAULT_MEMLIMIT") == 0) {
-        bqueues_format_int_limit(queue->defLimits[LSF_RLIMIT_RSS], FALSE,
-                                 buf, buflen);
+        formatIntLimit(queue->defLimits[LSF_RLIMIT_RSS], FALSE,
+                       buf, buflen);
     } else if (strcmp(field, "MAX_PROCESSLIMIT") == 0) {
-        bqueues_format_int_limit(queue->rLimits[LSF_RLIMIT_PROCESS], FALSE,
-                                 buf, buflen);
+        formatIntLimit(queue->rLimits[LSF_RLIMIT_PROCESS], FALSE,
+                       buf, buflen);
     } else if (strcmp(field, "DEFAULT_PROCESSLIMIT") == 0) {
-        bqueues_format_int_limit(queue->defLimits[LSF_RLIMIT_PROCESS],
-                                 FALSE, buf, buflen);
+        formatIntLimit(queue->defLimits[LSF_RLIMIT_PROCESS],
+                       FALSE, buf, buflen);
     } else if (strcmp(field, "MAX_STACKLIMIT") == 0) {
-        bqueues_format_int_limit(queue->rLimits[LSF_RLIMIT_STACK], FALSE,
-                                 buf, buflen);
+        formatIntLimit(queue->rLimits[LSF_RLIMIT_STACK], FALSE,
+                       buf, buflen);
     } else if (strcmp(field, "MAX_SWAPLIMIT") == 0) {
-        bqueues_format_int_limit(queue->rLimits[LSF_RLIMIT_SWAP], FALSE,
-                                 buf, buflen);
+        formatIntLimit(queue->rLimits[LSF_RLIMIT_SWAP], FALSE,
+                       buf, buflen);
     } else if (strcmp(field, "MAX_TASKLIMIT") == 0) {
-        bqueues_format_int_limit(queue->procLimit, FALSE, buf, buflen);
+        formatIntLimit(queue->procLimit, FALSE, buf, buflen);
     } else if (strcmp(field, "MIN_TASKLIMIT") == 0) {
-        bqueues_format_int_limit(queue->minProcLimit, FALSE, buf, buflen);
+        formatIntLimit(queue->minProcLimit, FALSE, buf, buflen);
     } else if (strcmp(field, "DEFAULT_TASKLIMIT") == 0) {
-        bqueues_format_int_limit(queue->defProcLimit, FALSE, buf, buflen);
+        formatIntLimit(queue->defProcLimit, FALSE, buf, buflen);
     } else {
         snprintf(buf, buflen, "-");
     }
@@ -366,24 +368,24 @@ prtQueuesO(int numQueues, struct queueInfoEnt *queueInfo,
     char value[MAXLINELEN];
     int i, j;
 
-    if (jsonflag && !records) exit(99);
+    if (jsonflag && !records) exit(-1);
     if (!jsonflag) fmt_output_print_header(stdout, request);
     for (i = 0; i < numQueues; i++) {
         if (jsonflag) {
             record = cJSON_CreateObject();
-            if (!record) { cJSON_Delete(records); exit(99); }
+            if (!record) { cJSON_Delete(records); exit(-1); }
             cJSON_AddItemToArray(records, record);
         }
         for (j = 0; j < request->num_columns; j++) {
             const char *fieldValue;
 
-            fieldValue = bqueues_get_fmt_value(
+            fieldValue = getQueueFieldValue(
                 &queueInfo[i], request->columns[j].field->name,
                 value, sizeof(value));
             if (jsonflag) {
                 if (fmt_json_value(record, request, j, fieldValue) < 0) {
                     cJSON_Delete(records);
-                    exit(99);
+                    exit(-1);
                 }
             } else fmt_output_print_value(stdout, request, j, fieldValue);
         }
@@ -391,7 +393,7 @@ prtQueuesO(int numQueues, struct queueInfoEnt *queueInfo,
     }
 
     if (jsonflag && fmt_json_print(stdout, "bqueues", "QUEUES", records) < 0)
-        exit(99);
+        exit(-1);
 }
 
 static void

@@ -565,7 +565,9 @@ ls_gethostinfo_fields(char *resReq, int *numhosts, char **hostlist,
     static char fname[] = "ls_gethostinfo";
     struct decisionReq hostInfoReq;
     static struct hostInfoReply hostInfoReply;
-    struct shortLsInfo lsInfo;
+    static struct shortLsInfo lsInfo;
+    static bool_t (*prevFreeXdr)() = NULL;
+    static struct LSFHeader prevHeader;
     char   *hname;
     int    cc, i;
 
@@ -641,48 +643,60 @@ ls_gethostinfo_fields(char *resReq, int *numhosts, char **hostlist,
     hostInfoReq.outputFields = (char *)(outputFields ? outputFields : "");
     {
         struct LSFHeader replyHeader;
-        static struct shortLsInfo outputInfo;
-        static struct hostInfoReply outputReply;
         int custom = outputFields && outputFields[0];
         int capability = LIM_OUTPUT_CAPABILITY;
+
+        if (prevFreeXdr != NULL) {
+            xdr_lsffree(prevFreeXdr, (char *)&hostInfoReply, &prevHeader);
+            memset(&hostInfoReply, 0, sizeof(hostInfoReply));
+            prevFreeXdr = NULL;
+        }
+
         memset(&replyHeader, 0, sizeof(replyHeader));
         if (custom) {
             /*
-             * Probe whether the remote LIM supports field-selective output (v2.3+).
+             * Probe whether the remote LIM supports field-selective output.
              * Legacy LIM TCP dispatchers silently drop unknown opcodes, so we probe
              * LIM_GET_INFO with capability payload first before invoking LIM_HOST_OUTPUT.
              */
             cc = callLimVersion_(LIM_GET_INFO, &capability, xdr_int, NULL, NULL,
-                                 NULL, _USE_TCP_, _VOLCLAVA_VERSION2_3_, &replyHeader);
+                                 NULL, _USE_TCP_, VOLCLAVA_VERSION, &replyHeader);
             if (cc < 0 && replyHeader.opCode != LIME_BAD_REQ_CODE)
                 goto hostOutputDone;
-            custom = cc >= 0 && replyHeader.version >= _VOLCLAVA_VERSION2_3_;
+            custom = cc >= 0 && replyHeader.reserved == LIM_OUTPUT_CAPABILITY;
         }
         if (custom) {
-            outputReply.shortLsInfo = &outputInfo;
-            xdr_lsffree(xdr_hostOutputInfoReply, (char *)&outputReply, &replyHeader);
-            memset(&outputReply, 0, sizeof(outputReply));
-            outputReply.shortLsInfo = &outputInfo;
+            hostInfoReply.shortLsInfo = &lsInfo;
             memset(&replyHeader, 0, sizeof(replyHeader));
             cc = callLimVersion_(LIM_HOST_OUTPUT, &hostInfoReq, xdr_decisionReq,
-                                 &outputReply, xdr_hostOutputInfoReply,
-                                 NULL, _USE_TCP_, _VOLCLAVA_VERSION2_3_, &replyHeader);
-            if (replyHeader.opCode == LIME_BAD_REQ_CODE ||
-                (replyHeader.opCode == LIME_NO_ERR && replyHeader.version > 0 &&
-                 replyHeader.version < _VOLCLAVA_VERSION2_3_)) {
-                xdr_lsffree(xdr_hostOutputInfoReply, (char *)&outputReply, &replyHeader);
+                                 &hostInfoReply, xdr_hostOutputInfoReply,
+                                 NULL, _USE_TCP_, VOLCLAVA_VERSION, &replyHeader);
+            if (replyHeader.opCode == LIME_BAD_REQ_CODE) {
+                xdr_lsffree(xdr_hostOutputInfoReply, (char *)&hostInfoReply, &replyHeader);
+                memset(&hostInfoReply, 0, sizeof(hostInfoReply));
                 custom = 0;
             } else if (cc >= 0) {
-                hostInfoReply = outputReply;
+                prevFreeXdr = xdr_hostOutputInfoReply;
+                prevHeader = replyHeader;
             } else {
-                xdr_lsffree(xdr_hostOutputInfoReply, (char *)&outputReply, &replyHeader);
+                xdr_lsffree(xdr_hostOutputInfoReply, (char *)&hostInfoReply, &replyHeader);
+                memset(&hostInfoReply, 0, sizeof(hostInfoReply));
             }
         }
-        /* Fall back to legacy full host info query (v2.2) if custom output is unsupported. */
+        /* Fall back to legacy full host info query if custom output is unsupported. */
         if (!custom) {
+            hostInfoReply.shortLsInfo = &lsInfo;
+            memset(&replyHeader, 0, sizeof(replyHeader));
             cc = callLimVersion_(LIM_GET_HOSTINFO, &hostInfoReq, xdr_decisionReq,
                                  &hostInfoReply, xdr_hostInfoReply,
-                                 NULL, _USE_TCP_, _VOLCLAVA_VERSION2_2_, NULL);
+                                 NULL, _USE_TCP_, _VOLCLAVA_VERSION2_2_, &replyHeader);
+            if (cc >= 0) {
+                prevFreeXdr = xdr_hostInfoReply;
+                prevHeader = replyHeader;
+            } else {
+                xdr_lsffree(xdr_hostInfoReply, (char *)&hostInfoReply, &replyHeader);
+                memset(&hostInfoReply, 0, sizeof(hostInfoReply));
+            }
         }
     }
 hostOutputDone:

@@ -71,10 +71,10 @@ struct indexFmt fmt1[] = {
 {  NULL,  "%7s", "*%6.1f"  , " %6.1f",      1.0 }
 }, *fmt;
 
-#define lshosts_fields output_lim_fields
+#define host_output_fields output_lim_fields
 
-#define LSHOSTS_NUM_FIELDS \
-    ((int)(sizeof(lshosts_fields) / sizeof(lshosts_fields[0])))
+#define NUM_HOST_OUTPUT_FIELDS \
+    ((int)(sizeof(host_output_fields) / sizeof(host_output_fields[0])))
 
 static char *
 stripSpaces(char *field)
@@ -293,13 +293,13 @@ print_long(struct hostInfo *hostInfo)
 }
 
 static unitTypes
-lshosts_get_unit_for_limits(void)
+get_unit_for_limits(void)
 {
     return unitForLimits;
 }
 
 static const char *
-lshosts_unit_suffix(unitTypes unit)
+get_unit_suffix(unitTypes unit)
 {
     switch (unit) {
     case Gigabytes:
@@ -317,7 +317,7 @@ lshosts_unit_suffix(unitTypes unit)
 }
 
 static double
-lshosts_unit_scale(unitTypes unit)
+get_unit_scale(unitTypes unit)
 {
     double scale = 1.0;
     int i;
@@ -329,7 +329,7 @@ lshosts_unit_scale(unitTypes unit)
 }
 
 static void
-lshosts_format_space(int value, unitTypes unit, char *buf, size_t buflen)
+format_space(int value, unitTypes unit, char *buf, size_t buflen)
 {
     double scaled;
 
@@ -338,12 +338,12 @@ lshosts_format_space(int value, unitTypes unit, char *buf, size_t buflen)
         return;
     }
 
-    scaled = (double)value / lshosts_unit_scale(unit);
-    snprintf(buf, buflen, "%g%s", scaled, lshosts_unit_suffix(unit));
+    scaled = (double)value / get_unit_scale(unit);
+    snprintf(buf, buflen, "%g%s", scaled, get_unit_suffix(unit));
 }
 
 static void
-lshosts_format_int(int value, char *buf, size_t buflen)
+format_int(int value, char *buf, size_t buflen)
 {
     if (value > 0)
         snprintf(buf, buflen, "%d", value);
@@ -352,7 +352,7 @@ lshosts_format_int(int value, char *buf, size_t buflen)
 }
 
 static char *
-lshosts_make_resources(struct hostInfo *hostInfo)
+make_resource_string(struct hostInfo *hostInfo)
 {
     int i;
     size_t needed = 3;
@@ -398,9 +398,9 @@ lshosts_make_resources(struct hostInfo *hostInfo)
 
 
 static const char *
-lshosts_get_fmt_value(struct hostInfo *hostInfo, const char *field,
-                      unitTypes unit, const char *resources,
-                      char *buf, size_t buflen)
+get_host_field_value(struct hostInfo *hostInfo, const char *field,
+                     unitTypes unit, const char *resources,
+                     char *buf, size_t buflen)
 {
     if (strcmp(field, "HOST_NAME") == 0) {
         return hostInfo->hostName[0] ? hostInfo->hostName : "-";
@@ -413,19 +413,19 @@ lshosts_get_fmt_value(struct hostInfo *hostInfo, const char *field,
     } else if (strcmp(field, "CPUF") == 0) {
         snprintf(buf, buflen, "%.1f", hostInfo->cpuFactor);
     } else if (strcmp(field, "NCPUS") == 0) {
-        lshosts_format_int(hostInfo->maxCpus, buf, buflen);
+        format_int(hostInfo->maxCpus, buf, buflen);
     } else if (strcmp(field, "MAXMEM") == 0) {
-        lshosts_format_space(hostInfo->maxMem, unit, buf, buflen);
+        format_space(hostInfo->maxMem, unit, buf, buflen);
     } else if (strcmp(field, "MAXSWP") == 0) {
-        lshosts_format_space(hostInfo->maxSwap, unit, buf, buflen);
+        format_space(hostInfo->maxSwap, unit, buf, buflen);
     } else if (strcmp(field, "SERVER") == 0) {
         snprintf(buf, buflen, "%s", hostInfo->isServer ? I18N_Yes : I18N_No);
     } else if (strcmp(field, "RESOURCES") == 0) {
         return resources;
     } else if (strcmp(field, "MAXTMP") == 0) {
-        lshosts_format_space(hostInfo->maxTmp, unit, buf, buflen);
+        format_space(hostInfo->maxTmp, unit, buf, buflen);
     } else if (strcmp(field, "NPROCS") == 0) {
-        lshosts_format_int(hostInfo->maxCpus, buf, buflen);
+        format_int(hostInfo->maxCpus, buf, buflen);
     } else if (strcmp(field, "RUN_WINDOWS") == 0) {
         if (hostInfo->isServer)
             return hostInfo->windows && hostInfo->windows[0] &&
@@ -449,35 +449,35 @@ print_o(struct hostInfo *hostInfo, int numHosts,
     unitTypes unit;
     int needResources, i, j;
 
-    unit = lshosts_get_unit_for_limits();
+    unit = get_unit_for_limits();
     needResources = fmt_output_field_requested(request, "RESOURCES");
-    if (jsonflag && !records) exit(99);
+    if (jsonflag && !records) exit(-1);
     if (!jsonflag) fmt_output_print_header(stdout, request);
     for (i = 0; i < numHosts; i++) {
         char *resources = NULL;
 
         if (needResources)
-            resources = lshosts_make_resources(&hostInfo[i]);
+            resources = make_resource_string(&hostInfo[i]);
         if (needResources && !resources) {
             lserrno = LSE_MALLOC;
-            ls_perror("lshosts_make_resources");
+            ls_perror("make_resource_string");
             exit(-1);
         }
         if (jsonflag) {
             record = cJSON_CreateObject();
-            if (!record) { cJSON_Delete(records); exit(99); }
+            if (!record) { cJSON_Delete(records); exit(-1); }
             cJSON_AddItemToArray(records, record);
         }
         for (j = 0; j < request->num_columns; j++) {
             const char *fieldValue;
 
-            fieldValue = lshosts_get_fmt_value(
+            fieldValue = get_host_field_value(
                 &hostInfo[i], request->columns[j].field->name,
                 unit, resources ? resources : "-", value, sizeof(value));
             if (jsonflag) {
                 if (fmt_json_value(record, request, j, fieldValue) < 0) {
                     cJSON_Delete(records);
-                    exit(99);
+                    exit(-1);
                 }
             } else fmt_output_print_value(stdout, request, j, fieldValue);
         }
@@ -486,7 +486,7 @@ print_o(struct hostInfo *hostInfo, int numHosts,
     }
 
     if (jsonflag && fmt_json_print(stdout, "lshosts", "HOSTS", records) < 0)
-        exit(99);
+        exit(-1);
 }
 
 int
@@ -608,20 +608,21 @@ main(int argc, char **argv)
 	        }
         if (jsonflag && !oflag) {
             fprintf(stderr, "lshosts: -json requires -o.\n");
-            exit(99);
+            exit(-1);
         }
         if (oflag) {
-            if (fmt_output_parse(fieldName, lshosts_fields, LSHOSTS_NUM_FIELDS,
+            if (fmt_output_parse(fieldName, host_output_fields,
+                                 NUM_HOST_OUTPUT_FIELDS,
                                  &formatRequest, fmtErrbuf,
                                  sizeof(fmtErrbuf)) < 0) {
                 fprintf(stderr, "%s\n", fmtErrbuf);
-                exit(99);
+                exit(-1);
             }
             outputFields = fmt_output_fields_dup(&formatRequest);
             if (!outputFields) {
                 fmt_output_free(&formatRequest);
                 ls_perror("fmt_output_fields_dup");
-                exit(99);
+                exit(-1);
             }
         }
 
@@ -646,14 +647,19 @@ main(int argc, char **argv)
             }
             namebufs[i] = strdup(isClus ? argv[optind] : hp->h_name);
             if (namebufs[i] == NULL) {
+                if (oflag)
+                    fmt_output_free(&formatRequest);
                 perror("strdup()");
                 exit(-1);
             }
             i++;
         }
 
-        if (i == 0 && unknown == 1)
+        if (i == 0 && unknown == 1) {
+            if (oflag)
+                fmt_output_free(&formatRequest);
             exit(-1);
+        }
 
         if (i == 0) {
             TIMEIT(0, (hostinfo = ls_gethostinfo_fields(resReq, &numhosts,
@@ -661,6 +667,8 @@ main(int argc, char **argv)
                                                         outputFields)),
                    "ls_gethostinfo_fields");
             if (hostinfo == NULL) {
+                if (oflag)
+                    fmt_output_free(&formatRequest);
                 ls_perror("ls_gethostinfo()");
                 exit(-1);
             }
@@ -670,6 +678,8 @@ main(int argc, char **argv)
                                                         outputFields)),
                    "ls_gethostinfo_fields");
 	    if (hostinfo == NULL) {
+	        if (oflag)
+	            fmt_output_free(&formatRequest);
 	        ls_perror("ls_gethostinfo");
 	        exit(-1);
 	    }

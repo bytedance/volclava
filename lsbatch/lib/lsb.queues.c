@@ -35,11 +35,11 @@ lsb_queueinfo_fields(char **queues, int *numQueues, char *hosts, char *users,
                      int options, const char *outputFields)
 {
     mbdReqType mbdReqtype;
-    int useOutput, retried = 0;
-    static struct infoReq queueInfoReq;         
-    static struct queueInfoReply reply;
-    static struct queueInfoReply outputReply;
-    static struct queueInfoEnt **qInfo = NULL;
+    int useOutput, fallbackAttempted = 0;
+    static __thread struct infoReq queueInfoReq;
+    static __thread struct queueInfoReply reply;
+    static __thread struct queueInfoReply outputReply;
+    static __thread struct queueInfoEnt **qInfo = NULL;
     struct queueInfoEnt **qTmp;
     XDR xdrs, xdrs2;
     char *request_buf;
@@ -47,7 +47,7 @@ lsb_queueinfo_fields(char **queues, int *numQueues, char *hosts, char *users,
     int cc, i;
     size_t outputFieldsLength;
     size_t requestSize;
-    static struct LSFHeader hdr;
+    static __thread struct LSFHeader hdr;
     char *clusterName = NULL;
 
     
@@ -161,8 +161,7 @@ retryOutput:
     hdr.reserved = useOutput ? OUTPUT_QUEUE : 0;
     if (!xdr_encodeMsgVersion(&xdrs, (char*) &queueInfoReq, &hdr, xdr_infoReq,
 		              0, NULL,
-                              useOutput ? _VOLCLAVA_VERSION2_3_
-                                        : _VOLCLAVA_VERSION2_2_)) {
+                              useOutput ? VOLCLAVA_VERSION : _VOLCLAVA_VERSION2_2_)) {
         lsberrno = LSBE_XDR;
         xdr_destroy(&xdrs);
         free (request_buf);
@@ -178,14 +177,12 @@ retryOutput:
 	return (NULL);
     }
 
-    if (useOutput && !retried &&
-        (hdr.opCode == LSBE_PROTOCOL ||
-         (hdr.opCode == LSBE_NO_ERROR && hdr.version < _VOLCLAVA_VERSION2_3_))) {
+    if (useOutput && !fallbackAttempted && (hdr.opCode == LSBE_PROTOCOL)) {
         if (cc) free(reply_buf);
         reply_buf = NULL;
         xdr_destroy(&xdrs);
         useOutput = 0;
-        retried = 1;
+        fallbackAttempted = 1;
         goto retryOutput;
     }
     xdr_destroy(&xdrs);

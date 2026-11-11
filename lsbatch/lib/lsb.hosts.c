@@ -44,7 +44,7 @@ lsb_hostinfo_ex_fields(char **hosts, int *numHosts, char *resReq, int options,
                        const char *outputFields)
 {
     mbdReqType mbdReqtype;
-    int useOutput, retried = 0;
+    int useOutput, fallbackAttempted = 0;
     XDR xdrs;
     struct LSFHeader hdr;
     char *request_buf;
@@ -53,9 +53,9 @@ lsb_hostinfo_ex_fields(char **hosts, int *numHosts, char *resReq, int options,
     size_t outputFieldsLength;
     size_t requestSize;
     char *clusterName =NULL;
-    static struct infoReq hostInfoReq;        
+    static __thread struct infoReq hostInfoReq;
     struct hostDataReply reply;
-    static struct hostDataReply outputReply;
+    static __thread struct hostDataReply outputReply;
 
     if (numHosts) {
         numReq = *numHosts;                     
@@ -162,8 +162,7 @@ retryOutput:
     hdr.reserved = useOutput ? OUTPUT_HOST : 0;
     if (!xdr_encodeMsgVersion(&xdrs, (char *)&hostInfoReq, &hdr, xdr_infoReq,
 		              0, NULL,
-                              useOutput ? _VOLCLAVA_VERSION2_3_
-                                        : _VOLCLAVA_VERSION2_2_)) {
+                              useOutput ? VOLCLAVA_VERSION : _VOLCLAVA_VERSION2_2_)) {
         xdr_destroy(&xdrs);
         free (request_buf);
 	lsberrno = LSBE_XDR;
@@ -177,14 +176,12 @@ retryOutput:
         free (request_buf);
 	return (NULL);
     }
-    if (useOutput && !retried &&
-        (hdr.opCode == LSBE_PROTOCOL ||
-         (hdr.opCode == LSBE_NO_ERROR && hdr.version < _VOLCLAVA_VERSION2_3_))) {
+    if (useOutput && !fallbackAttempted && (hdr.opCode == LSBE_PROTOCOL)) {
         if (cc) free(reply_buf);
         reply_buf = NULL;
         xdr_destroy(&xdrs);
         useOutput = 0;
-        retried = 1;
+        fallbackAttempted = 1;
         goto retryOutput;
     }
     xdr_destroy(&xdrs);

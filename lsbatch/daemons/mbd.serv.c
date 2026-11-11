@@ -57,23 +57,32 @@ static int selectQmbdSyncJgrpsByMode(int, struct jobInfoReq *,
                                      struct nodeList **,
                                      struct jobMetaData ***, int *);
 static int mergeQmbdSyncReply(int, int);
-static void projectJobInfoReply(struct jobInfoReply *, const char *);
-static void projectHostDataReply(struct hostDataReply *, const char *);
-static void projectQueueInfoReply(struct queueInfoReply *, const char *);
+static void pruneJobInfoReplyFields(struct jobInfoReply *, const char *);
+static void pruneHostDataReplyFields(struct hostDataReply *, const char *);
+static void pruneQueueInfoReplyFields(struct queueInfoReply *, const char *);
 extern void closeSession(int);
 
 struct controlReq mbdCtrlReq;
 
-
+/*
+ * Clear a heap-owned string field: free the old value and install a newly
+ * allocated empty string so later XDR encode / free paths see a valid
+ * freeable pointer.
+ */
 static void
-replaceOwnedString(char **value, char *replacement)
+clearStringField(char **field)
 {
-    FREEUP(*value);
-    *value = safeSave(replacement ? replacement : "");
+    FREEUP(*field);
+    *field = safeSave("");
 }
 
+/*
+ * Prune reply fields in place for selective output.
+ * Preserve fields required by client-side processing.
+ * May free owned data; the reply is no longer a full-info reply.
+ */
 static void
-projectHostDataReply(struct hostDataReply *reply, const char *fields)
+pruneHostDataReplyFields(struct hostDataReply *reply, const char *fields)
 {
     unsigned long long mask;
     int needsMemoryLoads;
@@ -83,19 +92,24 @@ projectHostDataReply(struct hostDataReply *reply, const char *fields)
         return;
 
     mask = OUTPUT_MASK(fields, host);
-    needsMemoryLoads = (mask & ((1ULL << 10) | (1ULL << 11) | (1ULL << 12))) != 0;
+    needsMemoryLoads = (mask & (HOST_OUTPUT_AVAILABLE_MEM |
+                                HOST_OUTPUT_RESERVED_MEM |
+                                HOST_OUTPUT_TOTAL_MEM)) != 0;
     if (!needsMemoryLoads)
         reply->nIdx = 0;
 
     for (i = 0; i < reply->numHosts; i++) {
-        if (!(mask & (1ULL << 9)))
+        if (!(mask & HOST_OUTPUT_DISPATCH_WINDOW))
             reply->hosts[i].windows = "";
         reply->hosts[i].actionComment = "";
     }
 }
 
+/*
+ * Prune queue reply fields in place for selective output.
+ */
 static void
-projectQueueInfoReply(struct queueInfoReply *reply, const char *fields)
+pruneQueueInfoReplyFields(struct queueInfoReply *reply, const char *fields)
 {
     unsigned long long mask;
     int i;
@@ -108,41 +122,24 @@ projectQueueInfoReply(struct queueInfoReply *reply, const char *fields)
     for (i = 0; i < reply->numQueues; i++) {
         struct queueInfoEnt *queue = &reply->queues[i];
 
-        if (!(mask & (1ULL << 1)))
+        if (!(mask & QUEUE_OUTPUT_DESCRIPTION))
             queue->description = "";
-        if (!(mask & (1ULL << 16)))
-            replaceOwnedString(&queue->hostList, "");
-        if (!(mask & (1ULL << 17)))
-            replaceOwnedString(&queue->resReq, "");
+        if (!(mask & QUEUE_OUTPUT_HOSTS))
+            clearStringField(&queue->hostList);
+        if (!(mask & QUEUE_OUTPUT_RES_REQ))
+            clearStringField(&queue->resReq);
 
-        replaceOwnedString(&queue->windows, "");
-        replaceOwnedString(&queue->windowsD, "");
-        replaceOwnedString(&queue->defaultHostSpec, "");
-        replaceOwnedString(&queue->userList, "");
-        replaceOwnedString(&queue->hostSpec, "");
-        replaceOwnedString(&queue->admins, "");
-        replaceOwnedString(&queue->preCmd, "");
-        replaceOwnedString(&queue->postCmd, "");
-        replaceOwnedString(&queue->prepostUsername, "");
-        replaceOwnedString(&queue->requeueEValues, "");
-        replaceOwnedString(&queue->resumeCond, "");
-        replaceOwnedString(&queue->stopCond, "");
-        replaceOwnedString(&queue->jobStarter, "");
-        replaceOwnedString(&queue->suspendActCmd, "");
-        replaceOwnedString(&queue->resumeActCmd, "");
-        replaceOwnedString(&queue->terminateActCmd, "");
-        replaceOwnedString(&queue->chkpntDir, "");
-        if (queue->shareAcctTree) {
-            freeShareAcctInfoEnt(queue->shareAcctTree);
-            FREEUP(queue->shareAcctTree);
-        }
         queue->userShares = "";
         queue->actionComment = "";
     }
 }
 
+/*
+ * Prune job reply fields in place for selective output.
+ * Preserve fields required by client-side visibility filters.
+ */
 static void
-projectJobInfoReply(struct jobInfoReply *reply, const char *fields)
+pruneJobInfoReplyFields(struct jobInfoReply *reply, const char *fields)
 {
     struct submitReq *bill;
     unsigned int mask;
@@ -186,32 +183,32 @@ projectJobInfoReply(struct jobInfoReply *reply, const char *fields)
     }
 
     if (!(mask & JOB_OUTPUT_QUEUE))
-        replaceOwnedString(&bill->queue, "");
+        clearStringField(&bill->queue);
     if (!(mask & JOB_OUTPUT_FROM_HOST))
-        replaceOwnedString(&bill->fromHost, "");
+        clearStringField(&bill->fromHost);
     if (!(mask & JOB_OUTPUT_JOB_NAME))
-        replaceOwnedString(&bill->jobName, "");
+        clearStringField(&bill->jobName);
     if (!(mask & JOB_OUTPUT_SUBMIT_TIME))
         bill->submitTime = 0;
-    replaceOwnedString(&bill->resReq, "");
-    replaceOwnedString(&bill->dependCond, "");
-    replaceOwnedString(&bill->command, "");
-    replaceOwnedString(&bill->preExecCmd, "");
-    replaceOwnedString(&bill->postExecCmd, "");
-    replaceOwnedString(&bill->mailUser, "");
-    replaceOwnedString(&bill->loginShell, "");
-    replaceOwnedString(&bill->schedHostType, "");
-    replaceOwnedString(&bill->jobDesc, "");
-    replaceOwnedString(&bill->jobFile, "");
-    replaceOwnedString(&bill->inFile, "");
-    replaceOwnedString(&bill->outFile, "");
-    replaceOwnedString(&bill->errFile, "");
-    replaceOwnedString(&bill->inFileSpool, "");
-    replaceOwnedString(&bill->commandSpool, "");
-    replaceOwnedString(&bill->chkpntDir, "");
-    replaceOwnedString(&bill->subHomeDir, "");
-    replaceOwnedString(&bill->cwd, "");
-    replaceOwnedString(&bill->hostSpec, "");
+    clearStringField(&bill->resReq);
+    clearStringField(&bill->dependCond);
+    clearStringField(&bill->command);
+    clearStringField(&bill->preExecCmd);
+    clearStringField(&bill->postExecCmd);
+    clearStringField(&bill->mailUser);
+    clearStringField(&bill->loginShell);
+    clearStringField(&bill->schedHostType);
+    clearStringField(&bill->jobDesc);
+    clearStringField(&bill->jobFile);
+    clearStringField(&bill->inFile);
+    clearStringField(&bill->outFile);
+    clearStringField(&bill->errFile);
+    clearStringField(&bill->inFileSpool);
+    clearStringField(&bill->commandSpool);
+    clearStringField(&bill->chkpntDir);
+    clearStringField(&bill->subHomeDir);
+    clearStringField(&bill->cwd);
+    clearStringField(&bill->hostSpec);
     if (bill->numAskedHosts > 0) {
         for (i = 0; i < bill->numAskedHosts; i++)
             FREEUP(bill->askedHosts[i]);
@@ -844,8 +841,7 @@ do_jobInfoReq(XDR *xdrs,
 
     if (!xdr_encodeMsgVersion(&xdrs2, (char *) &jobInfoHead, &replyHdr,
                        xdr_jobInfoHead, 0, NULL,
-                       reqHdr->opCode == BATCH_OUTPUT
-                       ? _VOLCLAVA_VERSION2_3_ : VOLCLAVA_VERSION)) {
+                       VOLCLAVA_VERSION)) {
         FREEUP (reply_buf);
         freeJobHead (&jobInfoHead);
         ls_syslog(LOG_ERR, I18N_FUNC_S_FAIL, fname,
@@ -994,7 +990,7 @@ packJgrpInfo(struct jgTreeNode * jgNode, int remain, char **replyBuf, int schedu
 
     if (!xdr_encodeMsgVersion(&xdrs, (char *) &jobInfoReply,
                        &hdr, xdr_jobInfoReply, 0, NULL,
-                       MIN(version, VOLCLAVA_PROTOCOL_VERSION))) {
+                       MIN(version, VOLCLAVA_VERSION))) {
         ls_syslog(LOG_ERR, I18N_FUNC_S_FAIL, fname,
                   "xdr_encodeMsg", "jobInfoReply");
         xdr_destroy(&xdrs);
@@ -1446,7 +1442,7 @@ packJobInfo(struct jData * jobData,
     memcpy(&jobInfoReply.runRusage,
            &jobData->runRusage, sizeof(struct jRusage));
 
-    projectJobInfoReply(&jobInfoReply, outputFields);
+    pruneJobInfoReplyFields(&jobInfoReply, outputFields);
 
     len = jobInfoReplyXdrBufLen(&jobInfoReply);
     len += 1024;
@@ -1460,7 +1456,7 @@ packJobInfo(struct jData * jobData,
 
     if (!xdr_encodeMsgVersion(&xdrs, (char *) &jobInfoReply,
                        &hdr, xdr_jobInfoReply, 0, NULL,
-                       MIN(version, VOLCLAVA_PROTOCOL_VERSION))) {
+                       MIN(version, VOLCLAVA_VERSION))) {
         ls_syslog(LOG_ERR, I18N_FUNC_S_FAIL, fname,
                   "xdr_encodeMsg", "jobInfoReply");
         xdr_destroy(&xdrs);
@@ -1619,7 +1615,13 @@ encodeJobOutput(struct jobOutputReply *reply, int remain, char **replyBuf,
     hdr.version = version;
     if (!xdr_encodeMsgVersion(&xdrs, (char *)reply, &hdr,
                        xdr_jobOutputReply, 0, NULL,
-                       _VOLCLAVA_VERSION2_3_)) {
+                       VOLCLAVA_VERSION)) {
+        xdr_destroy(&xdrs);
+        FREEUP(buffer);
+        return -1;
+    }
+
+    if ((size_t)XDR_GETPOS(&xdrs) > (size_t)len) {
         xdr_destroy(&xdrs);
         FREEUP(buffer);
         return -1;
@@ -2278,7 +2280,7 @@ do_hostInfoReq(XDR *xdrs,
 
         reply = checkHosts(&hostsReq, &hostsReply);
 
-        projectHostDataReply(&hostsReply, hostsReq.outputFields);
+        pruneHostDataReplyFields(&hostsReply, hostsReq.outputFields);
         /* Host identity is needed by sorting and duplicate-host filtering. */
         hostsReply.outputMask = OUTPUT_MASK(hostsReq.outputFields, host) | 1ULL;
 
@@ -2302,8 +2304,7 @@ do_hostInfoReq(XDR *xdrs,
                        reqHdr->opCode == BATCH_OUTPUT
                        ? xdr_hostOutputReply : xdr_hostDataReply,
                        0,
-                       NULL, reqHdr->opCode == BATCH_OUTPUT
-                       ? _VOLCLAVA_VERSION2_3_ : VOLCLAVA_VERSION)) {
+                       NULL, VOLCLAVA_VERSION)) {
         ls_syslog(LOG_ERR, "\
 %s: failed encode %dbytes reply to %s", __func__,
                   XDR_GETPOS(&xdrs2), sockAdd2Str_(from));
@@ -2453,7 +2454,7 @@ do_queueInfoReq(XDR *xdrs,
                       __func__, qInfoReq.outputFields);
         }
         reply = checkQueues(&qInfoReq, &qInfoReply);
-        projectQueueInfoReply(&qInfoReply, qInfoReq.outputFields);
+        pruneQueueInfoReplyFields(&qInfoReply, qInfoReq.outputFields);
         qInfoReply.outputMask = OUTPUT_MASK(qInfoReq.outputFields, queue) | 1ULL;
         len = sizeof(struct LSFHeader);
         len += xdrsize_QueueInfoReply(&qInfoReply);
@@ -2485,8 +2486,7 @@ do_queueInfoReq(XDR *xdrs,
                         reqHdr->opCode == BATCH_OUTPUT
                         ? xdr_queueOutputReply : xdr_queueInfoReply,
                         0,
-                        NULL, reqHdr->opCode == BATCH_OUTPUT
-                       ? _VOLCLAVA_VERSION2_3_ : VOLCLAVA_VERSION)) {
+                        NULL, VOLCLAVA_VERSION)) {
         ls_syslog(LOG_ERR, "\
 %s: failed encode data to %s", __func__, sockAdd2Str_(from));
         freeQueueInfoReply(&qInfoReply, replyStruct);
@@ -4072,7 +4072,7 @@ int
 do_outputReq(XDR *xdrs, int chfd, struct sockaddr_in *from,
               struct LSFHeader *hdr, int schedule)
 {
-    if (hdr->version < _VOLCLAVA_VERSION2_3_) {
+    if (hdr->version < _VOLCLAVA_VERSION2_2_) {
         errorBack(chfd, LSBE_PROTOCOL, from);
         return -1;
     }

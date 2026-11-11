@@ -858,7 +858,7 @@ chanWriteQmbdShmJobXdr(int chfd, struct jobMetaData *jobMeta, int remain,
     xdr_destroy(&xdrs);
     if (result) {
         hdr.reserved = MIN(remain, USHRT_MAX);
-        hdr.version = MIN(version, VOLCLAVA_PROTOCOL_VERSION);
+        hdr.version = MIN(version, VOLCLAVA_VERSION);
         xdrmem_create(&xdrs, packet, LSF_HEADER_LEN, XDR_ENCODE);
         result = xdr_LSFHeader(&xdrs, &hdr);
         xdr_destroy(&xdrs);
@@ -1005,7 +1005,7 @@ chanWriteQmbdShmJobOutput(int chfd, struct jobMetaData *meta, int remain,
 {
     char *packet, *output = NULL;
     int first, length, result = -1;
-    if (!shm || !meta || meta->xdrLen < LSF_HEADER_LEN ||
+    if (!shm || !shm->xdrBuffer || !meta || meta->xdrLen < LSF_HEADER_LEN ||
         meta->xdrLen > shm->xdrBuffer->capacity || meta->xdrOffset < 0 ||
         meta->xdrOffset >= shm->xdrBuffer->capacity)
         return -1;

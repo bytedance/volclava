@@ -46,7 +46,7 @@ static void displayO(struct jobInfoEnt *, struct jobInfoHead *,
                      int, int, const struct fmt_request *);
 static cJSON *displayJson(struct jobInfoEnt *, struct jobInfoHead *,
                           int, int, const struct fmt_request *);
-static int bjobs_parse_fmt_request(char *, struct fmt_request *);
+static int parseJobOutputFormat(char *, struct fmt_request *);
 
 static LS_LONG_INT *usrJids;
 static int *numJobs;
@@ -60,10 +60,10 @@ int uflag = FALSE;
 int Wflag = FALSE;
 int jsonflag = FALSE;
 
-#define bjobs_fields output_job_fields
+#define jobOutputFields output_job_fields
 
-#define BJOBS_NUM_FIELDS \
-    ((int)(sizeof(bjobs_fields) / sizeof(bjobs_fields[0])))
+#define NUM_JOB_OUTPUT_FIELDS \
+    ((int)(sizeof(jobOutputFields) / sizeof(jobOutputFields[0])))
 
 static int isLSFAdmin(void);
 static char *Timer2String(float timer);
@@ -150,18 +150,18 @@ main (int argc, char **argv)
 
     if (jsonflag) {
         jobJsonArray = cJSON_CreateArray();
-        if (!jobJsonArray) exit(99);
+        if (!jobJsonArray) exit(-1);
 
     }
 
     if (format == O_FORMAT) {
-        if (bjobs_parse_fmt_request(fieldName, &formatRequest) < 0)
-            exit(99);
+        if (parseJobOutputFormat(fieldName, &formatRequest) < 0)
+            exit(-1);
         outputFields = fmt_output_fields_dup(&formatRequest);
         if (!outputFields) {
             fmt_output_free(&formatRequest);
             lsb_perror("fmt_output_fields_dup");
-            exit(99);
+            exit(-1);
         }
     }
 
@@ -382,7 +382,7 @@ main (int argc, char **argv)
 
     if (jsonflag) {
         if (fmt_json_print(stdout, "bjobs", "JOBS", jobJsonArray) < 0)
-            exit(99);
+            exit(-1);
     }
 
     if (!jobDisplayed) {
@@ -539,7 +539,8 @@ do_options (int argc, char **argv, int *options, char **user, char **queue,
         float *tempPtr;
 
         *options |= DONE_JOB;
-        *format = LONG_FORMAT;
+        if (*format != O_FORMAT)
+            *format = LONG_FORMAT;
         TIMEIT(0, (tempPtr = getCpuFactor (norOp, FALSE)), "getCpuFactor");
         if (tempPtr == NULL)
             if ((tempPtr = getCpuFactor (norOp, TRUE)) == NULL)
@@ -587,7 +588,7 @@ displayJobs (struct jobInfoEnt *job, struct jobInfoHead *jInfoH,
         hostList = lsb_compressStrList(job->exHosts, job->numExHosts);
         if (!hostList) {
 
-            exit(99);
+            exit(-1);
         }
     }
 
@@ -855,7 +856,7 @@ cleanup:
 
 }
 
-struct bjobs_fmt_record {
+struct jobOutputRecord {
     struct jobInfoEnt *job;
     struct submit *submitInfo;
     char *status;
@@ -868,7 +869,7 @@ struct bjobs_fmt_record {
 
 /* Preserve the upstream first-host/first-compressed-group convention. */
 static char *
-bjobs_join_exec_hosts(struct jobInfoEnt *job)
+makeExecHostString(struct jobInfoEnt *job)
 {
     NAMELIST *hosts;
     char *value;
@@ -895,7 +896,7 @@ bjobs_join_exec_hosts(struct jobInfoEnt *job)
 }
 
 static char *
-bjobs_make_job_name(struct jobInfoEnt *job)
+makeJobNameString(struct jobInfoEnt *job)
 {
     const char *name = job->submit.jobName;
     const char *bracket = NULL;
@@ -929,7 +930,7 @@ bjobs_make_job_name(struct jobInfoEnt *job)
 }
 
 static char *
-bjobs_make_pids(struct jobInfoEnt *job)
+makePidsString(struct jobInfoEnt *job)
 {
     size_t needed = 1;
     size_t used = 0;
@@ -969,9 +970,9 @@ bjobs_make_pids(struct jobInfoEnt *job)
 }
 
 static int
-bjobs_prepare_fmt_record(struct jobInfoEnt *job,
-                         const struct fmt_request *request,
-                         struct bjobs_fmt_record *record)
+prepareJobOutputRecord(struct jobInfoEnt *job,
+                       const struct fmt_request *request,
+                       struct jobOutputRecord *record)
 {
     memset(record, 0, sizeof(*record));
     record->job = job;
@@ -997,11 +998,11 @@ bjobs_prepare_fmt_record(struct jobInfoEnt *job,
     }
 
     if (fmt_output_field_requested(request, "EXEC_HOST"))
-        record->execHost = bjobs_join_exec_hosts(job);
+        record->execHost = makeExecHostString(job);
     if (fmt_output_field_requested(request, "JOB_NAME"))
-        record->jobName = bjobs_make_job_name(job);
+        record->jobName = makeJobNameString(job);
     if (fmt_output_field_requested(request, "PIDS"))
-        record->pids = bjobs_make_pids(job);
+        record->pids = makePidsString(job);
 
     if ((fmt_output_field_requested(request, "EXEC_HOST")
          && !record->execHost)
@@ -1014,7 +1015,7 @@ bjobs_prepare_fmt_record(struct jobInfoEnt *job,
 }
 
 static void
-bjobs_free_fmt_record(struct bjobs_fmt_record *record)
+freeJobOutputRecord(struct jobOutputRecord *record)
 {
     free(record->execHost);
     free(record->jobName);
@@ -1023,8 +1024,8 @@ bjobs_free_fmt_record(struct bjobs_fmt_record *record)
 }
 
 static const char *
-bjobs_get_fmt_value(struct bjobs_fmt_record *record, const char *field,
-                    char *buf, size_t buflen)
+getJobFieldValue(struct jobOutputRecord *record, const char *field,
+                 char *buf, size_t buflen)
 {
     struct jobInfoEnt *job = record->job;
     float cpuTime = 0;
@@ -1108,11 +1109,11 @@ bjobs_get_fmt_value(struct bjobs_fmt_record *record, const char *field,
 }
 
 static int
-bjobs_parse_fmt_request(char *fieldName, struct fmt_request *request)
+parseJobOutputFormat(char *fieldName, struct fmt_request *request)
 {
     char errbuf[MAXLINELEN];
 
-    if (fmt_output_parse(fieldName, bjobs_fields, BJOBS_NUM_FIELDS, request,
+    if (fmt_output_parse(fieldName, jobOutputFields, NUM_JOB_OUTPUT_FIELDS, request,
                          errbuf, sizeof(errbuf)) < 0) {
         fprintf(stderr, "%s\n", errbuf);
         return -1;
@@ -1129,7 +1130,7 @@ displayO(struct jobInfoEnt *job, struct jobInfoHead *jInfoH,
          int options, int format, const struct fmt_request *request)
 {
     static char first = TRUE;
-    struct bjobs_fmt_record record;
+    struct jobOutputRecord record;
     char value[MAXLINELEN];
     int i;
 
@@ -1138,21 +1139,21 @@ displayO(struct jobInfoEnt *job, struct jobInfoHead *jInfoH,
         fmt_output_print_header(stdout, request);
     }
 
-    if (bjobs_prepare_fmt_record(job, request, &record) < 0) {
-        bjobs_free_fmt_record(&record);
+    if (prepareJobOutputRecord(job, request, &record) < 0) {
+        freeJobOutputRecord(&record);
         lsberrno = LSBE_NO_MEM;
-        lsb_perror("bjobs_prepare_fmt_record");
-        exit(99);
+        lsb_perror("prepareJobOutputRecord");
+        exit(-1);
     }
 
     for (i = 0; i < request->num_columns; i++) {
-        const char *fieldValue = bjobs_get_fmt_value(&record,
+        const char *fieldValue = getJobFieldValue(&record,
             request->columns[i].field->name, value, sizeof(value));
         fmt_output_print_value(stdout, request, i, fieldValue);
     }
     fmt_output_print_eol(stdout);
 
-    bjobs_free_fmt_record(&record);
+    freeJobOutputRecord(&record);
 }
 
 /*
@@ -1162,35 +1163,35 @@ cJSON
 *displayJson(struct jobInfoEnt *job, struct jobInfoHead *jInfoH,
              int options, int format, const struct fmt_request *request)
 {
-    struct bjobs_fmt_record record;
+    struct jobOutputRecord record;
     char value[MAXLINELEN];
     int i;
     cJSON *jobItem = cJSON_CreateObject();
 
-    if (bjobs_prepare_fmt_record(job, request, &record) < 0) {
-        bjobs_free_fmt_record(&record);
+    if (prepareJobOutputRecord(job, request, &record) < 0) {
+        freeJobOutputRecord(&record);
         cJSON_Delete(jobItem);
         lsberrno = LSBE_NO_MEM;
-        lsb_perror("bjobs_prepare_fmt_record");
-        exit(99);
+        lsb_perror("prepareJobOutputRecord");
+        exit(-1);
     }
 
-    if (!jobItem) { bjobs_free_fmt_record(&record); exit(99); }
+    if (!jobItem) { freeJobOutputRecord(&record); exit(-1); }
     for (i = 0; i < request->num_columns; i++) {
-        const char *fieldValue = bjobs_get_fmt_value(&record,
+        const char *fieldValue = getJobFieldValue(&record,
             request->columns[i].field->name, value, sizeof(value));
         /* Upstream JSON uses an empty execution host for pending jobs. */
         if (strcmp(request->columns[i].field->name, "EXEC_HOST") == 0 &&
             IS_PEND(job->status))
             fieldValue = "";
         if (fmt_json_value(jobItem, request, i, fieldValue) < 0) {
-            bjobs_free_fmt_record(&record);
+            freeJobOutputRecord(&record);
             cJSON_Delete(jobItem);
-            exit(99);
+            exit(-1);
         }
     }
 
-    bjobs_free_fmt_record(&record);
+    freeJobOutputRecord(&record);
     return jobItem;
 }
 

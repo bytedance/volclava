@@ -535,7 +535,7 @@ processUDPMsg(void)
             rcvConfInfo(&xdrs, &from, &reqHdr);
             break;
         default:
-            if (reqHdr.version <= VOLCLAVA_PROTOCOL_VERSION) {
+            if (reqHdr.version <= VOLCLAVA_VERSION) {
                 static int lastcode;
 
                 errorBack(&from, &reqHdr, LIME_BAD_REQ_CODE, -1);

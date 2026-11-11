@@ -12,4 +12,4 @@ liblsfint_a_SOURCES = admin.c cmdtime.c jidx.c lsftcl.c \
 	resourcecmd.c testbitset.c list2.c link.c fmtout.c cJSON.c \
 	bitset.h intlibout.h jidx.h list.h listset.h  \
 	lsftcl.h resreq.h tokdefs.h yparse.h \
-	listerr.def lsbitseterr.def list2.h link.h fmtout.h outfields.h cJSON.h
+	listerr.def lsbitseterr.def list2.h link.h fmtout.h outfields.h outwire.h cJSON.h

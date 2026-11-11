@@ -91,8 +91,8 @@ static char *formatHeader(char **, int, int);
 static char * stripSpaces(char *field);
 static float getLoad(char *, float *, int, int *);
 static char ** formLINamesList ( struct lsInfo *);
-static void bhosts_init_load_formats(struct lsInfo *);
-static void bhosts_format_load_value(char *, float, int, char *, size_t);
+static void initLoadFormats(struct lsInfo *);
+static void formatLoadValue(char *, float, int, char *, size_t);
 
 static void prtHostsLong (int, struct hostInfoEnt *);
 static void prtHostsShort(int, struct hostInfoEnt *);
@@ -118,10 +118,10 @@ static void  insertSlotsToResults(struct hostInfoEnt  *hPtr,
                                   int  *last,
                                   struct lsInfo *lsInfo);
 
-#define bhosts_fields output_host_fields
+#define hostOutputFields output_host_fields
 
-#define BHOSTS_NUM_FIELDS \
-    ((int)(sizeof(bhosts_fields) / sizeof(bhosts_fields[0])))
+#define NUM_HOST_OUTPUT_FIELDS \
+    ((int)(sizeof(hostOutputFields) / sizeof(hostOutputFields[0])))
 
 void
 usage (char *cmd)
@@ -217,19 +217,19 @@ main(int argc, char **argv)
     }
     if (jsonflag && !oflag) {
         fprintf(stderr, "bhosts: -json requires -o.\n");
-        exit(99);
+        exit(-1);
     }
     if (oflag) {
-        if (fmt_output_parse(fieldName, bhosts_fields, BHOSTS_NUM_FIELDS,
+        if (fmt_output_parse(fieldName, hostOutputFields, NUM_HOST_OUTPUT_FIELDS,
                              &formatRequest, fmtErrbuf, sizeof(fmtErrbuf)) < 0) {
             fprintf(stderr, "%s\n", fmtErrbuf);
-            exit(99);
+            exit(-1);
         }
         outputFields = fmt_output_fields_dup(&formatRequest);
         if (!outputFields) {
             fmt_output_free(&formatRequest);
             lsb_perror("fmt_output_fields_dup");
-            exit(99);
+            exit(-1);
         }
     }
     numHosts = getNames (argc, argv, optind, &hosts, &local, "host");
@@ -243,6 +243,8 @@ main(int argc, char **argv)
     free(outputFields);
     outputFields = NULL;
     if (!hInfo) {
+        if (oflag)
+            fmt_output_free(&formatRequest);
         if (lsberrno == LSBE_BAD_HOST && hostPoint)
             lsb_perror (hosts[numHosts]);
         else
@@ -267,7 +269,7 @@ main(int argc, char **argv)
 
 }
 
-struct bhosts_fmt_record {
+struct hostOutputRecord {
     struct hostInfoEnt *host;
     char *status;
     char availableMem[MAXLINELEN];
@@ -277,7 +279,7 @@ struct bhosts_fmt_record {
 
 
 static char *
-bhosts_get_status(struct hostInfoEnt *host)
+getHostStatusString(struct hostInfoEnt *host)
 {
     char *status = I18N_ok;
 
@@ -299,7 +301,7 @@ bhosts_get_status(struct hostInfoEnt *host)
 }
 
 static void
-bhosts_format_limit(int value, char *buf, size_t buflen)
+formatHostLimit(int value, char *buf, size_t buflen)
 {
     if (value >= 0 && value < INFINIT_INT)
         snprintf(buf, buflen, "%d", value);
@@ -308,8 +310,8 @@ bhosts_format_limit(int value, char *buf, size_t buflen)
 }
 
 static void
-bhosts_set_mem_values(struct hostInfoEnt *host, struct lsInfo *lsInfo,
-                      struct bhosts_fmt_record *record)
+formatHostMemValues(struct hostInfoEnt *host, struct lsInfo *lsInfo,
+                    struct hostOutputRecord *record)
 {
     char *memIndex = "mem";
     float totalValue;
@@ -327,7 +329,7 @@ bhosts_set_mem_values(struct hostInfoEnt *host, struct lsInfo *lsInfo,
     if (!lsInfo || !host->load || !host->realLoad)
         return;
 
-    bhosts_init_load_formats(lsInfo);
+    initLoadFormats(lsInfo);
 
     availableValue = getLoad(memIndex, host->load, host->nIdx, &index);
     realValue = getLoad(memIndex, host->realLoad, host->nIdx, &realIndex);
@@ -346,34 +348,34 @@ bhosts_set_mem_values(struct hostInfoEnt *host, struct lsInfo *lsInfo,
          LSB_ISBUSYON(host->busyStop, index)))
         busy = TRUE;
 
-    bhosts_format_load_value(memIndex, totalValue, FALSE, record->totalMem,
-                             sizeof(record->totalMem));
-    bhosts_format_load_value(memIndex, reservedValue, FALSE,
-                             record->reservedMem,
-                             sizeof(record->reservedMem));
-    bhosts_format_load_value(memIndex, availableValue, busy,
-                             record->availableMem,
-                             sizeof(record->availableMem));
+    formatLoadValue(memIndex, totalValue, FALSE, record->totalMem,
+                    sizeof(record->totalMem));
+    formatLoadValue(memIndex, reservedValue, FALSE,
+                    record->reservedMem,
+                    sizeof(record->reservedMem));
+    formatLoadValue(memIndex, availableValue, busy,
+                    record->availableMem,
+                    sizeof(record->availableMem));
 }
 
 static void
-bhosts_prepare_fmt_record(struct hostInfoEnt *host, struct lsInfo *lsInfo,
-                          int needMem, struct bhosts_fmt_record *record)
+prepareHostOutputRecord(struct hostInfoEnt *host, struct lsInfo *lsInfo,
+                        int needMem, struct hostOutputRecord *record)
 {
     memset(record, 0, sizeof(*record));
     record->host = host;
-    record->status = bhosts_get_status(host);
+    record->status = getHostStatusString(host);
     strcpy(record->availableMem, "-");
     strcpy(record->reservedMem, "-");
     strcpy(record->totalMem, "-");
 
     if (needMem)
-        bhosts_set_mem_values(host, lsInfo, record);
+        formatHostMemValues(host, lsInfo, record);
 }
 
 static const char *
-bhosts_get_fmt_value(struct bhosts_fmt_record *record, const char *field,
-                     char *buf, size_t buflen)
+getHostFieldValue(struct hostOutputRecord *record, const char *field,
+                  char *buf, size_t buflen)
 {
     struct hostInfoEnt *host = record->host;
 
@@ -382,9 +384,9 @@ bhosts_get_fmt_value(struct bhosts_fmt_record *record, const char *field,
     } else if (strcmp(field, "STATUS") == 0) {
         return record->status && record->status[0] ? record->status : "-";
     } else if (strcmp(field, "JL_U") == 0) {
-        bhosts_format_limit(host->userJobLimit, buf, buflen);
+        formatHostLimit(host->userJobLimit, buf, buflen);
     } else if (strcmp(field, "MAX") == 0) {
-        bhosts_format_limit(host->maxJobs, buf, buflen);
+        formatHostLimit(host->maxJobs, buf, buflen);
     } else if (strcmp(field, "NJOBS") == 0) {
         snprintf(buf, buflen, "%d", host->numJobs);
     } else if (strcmp(field, "RUN") == 0) {
@@ -415,7 +417,7 @@ prtHostsO(int numReply, struct hostInfoEnt *hInfo,
 {
     cJSON *records = jsonflag ? cJSON_CreateArray() : NULL;
     cJSON *jsonRecord = NULL;
-    struct bhosts_fmt_record record;
+    struct hostOutputRecord record;
     struct lsInfo *lsInfo = NULL;
     char value[MAXLINELEN];
     int needMem, i, j;
@@ -431,28 +433,28 @@ prtHostsO(int numReply, struct hostInfoEnt *hInfo,
         lsInfoPtr = lsInfo;
     }
 
-    if (jsonflag && !records) exit(99);
+    if (jsonflag && !records) exit(-1);
     if (!jsonflag) fmt_output_print_header(stdout, request);
     for (i = 0; i < numReply; i++) {
         if (repeatHost(i, hInfo))
             continue;
 
-        bhosts_prepare_fmt_record(&hInfo[i], lsInfo, needMem, &record);
+        prepareHostOutputRecord(&hInfo[i], lsInfo, needMem, &record);
         if (jsonflag) {
             jsonRecord = cJSON_CreateObject();
-            if (!jsonRecord) { cJSON_Delete(records); exit(99); }
+            if (!jsonRecord) { cJSON_Delete(records); exit(-1); }
             cJSON_AddItemToArray(records, jsonRecord);
         }
         for (j = 0; j < request->num_columns; j++) {
             const char *fieldValue;
 
-            fieldValue = bhosts_get_fmt_value(
+            fieldValue = getHostFieldValue(
                 &record, request->columns[j].field->name,
                 value, sizeof(value));
             if (jsonflag) {
                 if (fmt_json_value(jsonRecord, request, j, fieldValue) < 0) {
                     cJSON_Delete(records);
-                    exit(99);
+                    exit(-1);
                 }
             } else fmt_output_print_value(stdout, request, j, fieldValue);
         }
@@ -460,7 +462,7 @@ prtHostsO(int numReply, struct hostInfoEnt *hInfo,
     }
 
     if (jsonflag && fmt_json_print(stdout, "bhosts", "HOSTS", records) < 0)
-        exit(99);
+        exit(-1);
 }
 
 static void
@@ -797,7 +799,7 @@ prtLoad (struct hostInfoEnt  *hPtrs, struct lsInfo *lsInfo)
     int last;
     int curLoadNum = lsInfo->numIndx + 1; /*number of load + 'slots'*/
 
-    bhosts_init_load_formats(lsInfo);
+    initLoadFormats(lsInfo);
     if ((nlp = formLINamesList (lsInfo)) == NULL) {
         fprintf (stderr, "%s\n",
             _i18n_msg_get(ls_catd,NL_SETN,1629, "Bad load index name specified")); /* catgets  1629  */
@@ -960,7 +962,7 @@ stripSpaces(char *field)
 }
 
 static void
-bhosts_init_load_formats(struct lsInfo *lsInfo)
+initLoadFormats(struct lsInfo *lsInfo)
 {
     int curLoadNum;
     int formatCount;
@@ -983,8 +985,8 @@ bhosts_init_load_formats(struct lsInfo *lsInfo)
 }
 
 static void
-bhosts_format_load_value(char *name, float load, int busy, char *buf,
-                         size_t buflen)
+formatLoadValue(char *name, float load, int busy, char *buf,
+                size_t buflen)
 {
     int id;
     char *sp;
@@ -999,27 +1001,27 @@ bhosts_format_load_value(char *name, float load, int busy, char *buf,
 
     id = nameToFmt(name);
     if (busy)
-        strcpy(firstFmt, fmt[id].busy);
+        snprintf(firstFmt, sizeof(firstFmt), "%s", fmt[id].busy);
     else
-        strcpy(firstFmt, fmt[id].ok);
+        snprintf(firstFmt, sizeof(firstFmt), "%s", fmt[id].ok);
 
-    sprintf(fmtField, "%s%s", firstFmt, fmt[id].normFmt);
-    sprintf(tmpfield, fmtField, load * fmt[id].scale);
+    snprintf(fmtField, sizeof(fmtField), "%s%s", firstFmt, fmt[id].normFmt);
+    snprintf(tmpfield, sizeof(tmpfield), fmtField, load * fmt[id].scale);
     sp = stripSpaces(tmpfield);
 
     if (strlen(sp) > fmt[id].dispLen) {
         if (load > 1024)
-            sprintf(fmtField, "%s%s", firstFmt, fmt[id].expFmt);
+            snprintf(fmtField, sizeof(fmtField), "%s%s", firstFmt, fmt[id].expFmt);
         else
-            sprintf(fmtField, "%s%s", firstFmt, fmt[id].normFmt);
+            snprintf(fmtField, sizeof(fmtField), "%s%s", firstFmt, fmt[id].normFmt);
 
         if (load > 1024 &&
             (!strcmp(fmt[id].name, "mem") ||
              !strcmp(fmt[id].name, "tmp") ||
              !strcmp(fmt[id].name, "swp")))
-            sprintf(tmpfield, fmtField, (load * fmt[id].scale) / 1024);
+            snprintf(tmpfield, sizeof(tmpfield), fmtField, (load * fmt[id].scale) / 1024);
         else
-            sprintf(tmpfield, fmtField, load * fmt[id].scale);
+            snprintf(tmpfield, sizeof(tmpfield), fmtField, load * fmt[id].scale);
     }
 
     sp = stripSpaces(tmpfield);

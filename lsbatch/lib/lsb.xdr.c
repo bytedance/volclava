@@ -412,7 +412,7 @@ bool_t
 xdr_jobInfoReq (XDR *xdrs, struct jobInfoReq *jobInfoReq, struct LSFHeader *hdr)
 {
     int jobArrId, jobArrElemId;
-    int hasOutputFields = hdr && hdr->version >= _VOLCLAVA_VERSION2_3_;
+    int hasOutputFields = hdr && hdr->opCode == BATCH_OUTPUT;
 
     if (xdrs->x_op == XDR_FREE) {
         xdr_var_string(xdrs, &jobInfoReq->userName);
@@ -1237,9 +1237,6 @@ xdr_jobOutputReply(XDR *xdrs, struct jobOutputReply *reply,
 
     if (reply->fields & ~0x3ffffu)
         return FALSE;
-    if ((reply->fields & (JOB_OUTPUT_MAX_MEM | JOB_OUTPUT_AVG_MEM))
-        && (!hdr || hdr->version < _VOLCLAVA_VERSION2_3_))
-        return FALSE;
     if (xdrs->x_op == XDR_DECODE)
         jobId32To64(&reply->jobId, jobId, arrayIndex);
 
@@ -1580,7 +1577,7 @@ xdr_infoReq (XDR *xdrs, struct infoReq *infoReq,
                  struct LSFHeader *hdr)
 {
     int i;
-    int hasOutputFields = hdr && hdr->version >= _VOLCLAVA_VERSION2_3_;
+    int hasOutputFields = hdr && hdr->opCode == BATCH_OUTPUT;
 
     if(xdrs->x_op == XDR_FREE){
         if (infoReq->names) {

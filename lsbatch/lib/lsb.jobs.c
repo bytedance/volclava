@@ -38,7 +38,7 @@ static __thread struct jobOutputReply compactReply;
 static __thread int jobInfoRemaining;
 
 static void
-finishJobInfoRecord(int *more)
+updateJobInfoRemaining(int *more)
 {
     if (jobInfoRemaining > 0)
         jobInfoRemaining--;
@@ -113,7 +113,7 @@ readCompactJobOutput(char *buffer, struct LSFHeader *hdr, int *more)
     jobInfo.mergedResReq = empty;
     jobInfo.effeResReq = empty;
 
-    finishJobInfoRecord(more);
+    updateJobInfoRemaining(more);
     return &jobInfo;
 }
 
@@ -148,7 +148,7 @@ lsb_openjobinfo_a_fields(LS_LONG_INT jobId, char *jobName, char *userName,
     static __thread struct jobInfoReq jobInfoReq;
     static __thread struct jobInfoHead jobInfoHead;
     mbdReqType mbdReqtype;
-    int useOutput, requestVersion, retried = 0;
+    int useOutput, requestVersion, fallbackAttempted = 0;
     XDR xdrs, xdrs2;
     char *request_buf = NULL;
     char *reply_buf, *clusterName = NULL;
@@ -264,8 +264,7 @@ lsb_openjobinfo_a_fields(LS_LONG_INT jobId, char *jobName, char *userName,
     useOutput = outputFields && outputFields[0] != '\0';
 retryOutput:
     mbdReqtype = useOutput ? BATCH_OUTPUT : BATCH_JOB_INFO;
-    requestVersion = useOutput ? _VOLCLAVA_VERSION2_3_
-                               : _VOLCLAVA_VERSION2_2_;
+    requestVersion = useOutput ? VOLCLAVA_VERSION : _VOLCLAVA_VERSION2_2_;
     xdrmem_create(&xdrs, request_buf, (u_int)requestSize, XDR_ENCODE);
 
     initLSFHeader_(&hdr);
@@ -292,16 +291,13 @@ retryOutput:
 	return (NULL);
     }
 
-    /* Negotiate required fields before reading rows: older typed peers may
-     * accept a newer request without supplying its added fields. */
-    if (useOutput && !retried &&
-        (hdr.opCode == LSBE_PROTOCOL ||
-         (hdr.opCode == LSBE_NO_ERROR && hdr.version < _VOLCLAVA_VERSION2_3_))) {
+    /* Fallback to legacy batch RPC if custom output opcode is unsupported */
+    if (useOutput && !fallbackAttempted && (hdr.opCode == LSBE_PROTOCOL)) {
         if (cc) free(reply_buf);
         reply_buf = NULL;
         xdr_destroy(&xdrs);
         useOutput = 0;
-        retried = 1;
+        fallbackAttempted = 1;
         lsb_closejobinfo();
         compactJobOutput = FALSE;
         goto retryOutput;
@@ -561,7 +557,7 @@ lsb_readjobinfo(int *more)
     jobInfo.maxMem = jobInfoReply.maxMem;
     jobInfo.avgMem = jobInfoReply.avgMem;
 
-    finishJobInfoRecord(more);
+    updateJobInfoRemaining(more);
 
     return &jobInfo;
 }

@@ -28,6 +28,7 @@
 #include "../../lsf/lib/lib.hdr.h"
 #include "../../lsf/lib/lproto.h"
 #include "../lib/lsb.sig.h"
+#include "../../lsf/intlib/outwire.h"
 
 #define BATCH_MASTER_PORT   40000
 #define ALL_HOSTS      "all"                
@@ -268,28 +269,95 @@ struct jobInfoReply {
 };
 
 /*
- * Field selection bitmasks used in jobOutputReply.fields to selectively
- * encode/decode requested job fields over XDR, reducing payload size.
+ * Field selection bitmasks (JOB_OUTPUT_*) are defined in outwire.h.
  */
-#define JOB_OUTPUT_USER        0x0001
-#define JOB_OUTPUT_STAT        0x0002
-#define JOB_OUTPUT_QUEUE       0x0004
-#define JOB_OUTPUT_FROM_HOST   0x0008
-#define JOB_OUTPUT_EXEC_HOST   0x0010
-#define JOB_OUTPUT_JOB_NAME    0x0020
-#define JOB_OUTPUT_SUBMIT_TIME 0x0040
-#define JOB_OUTPUT_PROJ_NAME   0x0080
-#define JOB_OUTPUT_CPU_USED    0x0100
-#define JOB_OUTPUT_MEM         0x0200
-#define JOB_OUTPUT_SWAP        0x0400
-#define JOB_OUTPUT_PIDS        0x0800
-#define JOB_OUTPUT_START_TIME  0x1000
-#define JOB_OUTPUT_FINISH_TIME 0x2000
-#define JOB_OUTPUT_EXIT_CODE   0x4000
-#define JOB_OUTPUT_REASONS     0x8000 /* v23; needed to distinguish ZOMBI */
 
-#define JOB_OUTPUT_MAX_MEM     0x10000 /* v23 */
-#define JOB_OUTPUT_AVG_MEM     0x20000 /* v23 */
+#if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
+/* Job domain bit drift assertions */
+_Static_assert((1ULL << 0) == JOB_OUTPUT_USER, "bit drift USER");
+_Static_assert((1ULL << 1) == JOB_OUTPUT_STAT, "bit drift STAT");
+_Static_assert((1ULL << 2) == JOB_OUTPUT_QUEUE, "bit drift QUEUE");
+_Static_assert((1ULL << 3) == JOB_OUTPUT_FROM_HOST, "bit drift FROM_HOST");
+_Static_assert((1ULL << 4) == JOB_OUTPUT_EXEC_HOST, "bit drift EXEC_HOST");
+_Static_assert((1ULL << 5) == JOB_OUTPUT_JOB_NAME, "bit drift JOB_NAME");
+_Static_assert((1ULL << 6) == JOB_OUTPUT_SUBMIT_TIME, "bit drift SUBMIT_TIME");
+_Static_assert((1ULL << 7) == JOB_OUTPUT_PROJ_NAME, "bit drift PROJ_NAME");
+_Static_assert((1ULL << 8) == JOB_OUTPUT_CPU_USED, "bit drift CPU_USED");
+_Static_assert((1ULL << 9) == JOB_OUTPUT_MEM, "bit drift MEM");
+_Static_assert((1ULL << 10) == JOB_OUTPUT_SWAP, "bit drift SWAP");
+_Static_assert((1ULL << 11) == JOB_OUTPUT_PIDS, "bit drift PIDS");
+_Static_assert((1ULL << 12) == JOB_OUTPUT_START_TIME, "bit drift START_TIME");
+_Static_assert((1ULL << 13) == JOB_OUTPUT_FINISH_TIME, "bit drift FINISH_TIME");
+_Static_assert((1ULL << 14) == JOB_OUTPUT_EXIT_CODE, "bit drift EXIT_CODE");
+_Static_assert((1ULL << 15) == JOB_OUTPUT_REASONS, "bit drift REASONS");
+_Static_assert((1ULL << 16) == JOB_OUTPUT_MAX_MEM, "bit drift MAX_MEM");
+_Static_assert((1ULL << 17) == JOB_OUTPUT_AVG_MEM, "bit drift AVG_MEM");
+
+/* Host domain bit drift assertions */
+_Static_assert((1ULL << 0) == HOST_OUTPUT_HOST_NAME, "bit drift HOST_NAME");
+_Static_assert((1ULL << 1) == HOST_OUTPUT_STATUS, "bit drift STATUS");
+_Static_assert((1ULL << 2) == HOST_OUTPUT_JL_U, "bit drift JL_U");
+_Static_assert((1ULL << 3) == HOST_OUTPUT_MAX, "bit drift MAX");
+_Static_assert((1ULL << 4) == HOST_OUTPUT_NJOBS, "bit drift NJOBS");
+_Static_assert((1ULL << 5) == HOST_OUTPUT_RUN, "bit drift RUN");
+_Static_assert((1ULL << 6) == HOST_OUTPUT_SSUSP, "bit drift SSUSP");
+_Static_assert((1ULL << 7) == HOST_OUTPUT_USUSP, "bit drift USUSP");
+_Static_assert((1ULL << 8) == HOST_OUTPUT_RSV, "bit drift RSV");
+_Static_assert((1ULL << 9) == HOST_OUTPUT_DISPATCH_WINDOW, "bit drift DISPATCH_WINDOW");
+_Static_assert((1ULL << 10) == HOST_OUTPUT_AVAILABLE_MEM, "bit drift AVAILABLE_MEM");
+_Static_assert((1ULL << 11) == HOST_OUTPUT_RESERVED_MEM, "bit drift RESERVED_MEM");
+_Static_assert((1ULL << 12) == HOST_OUTPUT_TOTAL_MEM, "bit drift TOTAL_MEM");
+
+/* Queue domain bit drift assertions */
+_Static_assert((1ULL << 0) == QUEUE_OUTPUT_QUEUE_NAME, "bit drift QUEUE_NAME");
+_Static_assert((1ULL << 1) == QUEUE_OUTPUT_DESCRIPTION, "bit drift DESCRIPTION");
+_Static_assert((1ULL << 2) == QUEUE_OUTPUT_PRIORITY, "bit drift PRIORITY");
+_Static_assert((1ULL << 3) == QUEUE_OUTPUT_STATUS, "bit drift STATUS");
+_Static_assert((1ULL << 4) == QUEUE_OUTPUT_MAX, "bit drift MAX");
+_Static_assert((1ULL << 5) == QUEUE_OUTPUT_JL_U, "bit drift JL_U");
+_Static_assert((1ULL << 6) == QUEUE_OUTPUT_JL_P, "bit drift JL_P");
+_Static_assert((1ULL << 7) == QUEUE_OUTPUT_JL_H, "bit drift JL_H");
+_Static_assert((1ULL << 8) == QUEUE_OUTPUT_NJOBS, "bit drift NJOBS");
+_Static_assert((1ULL << 9) == QUEUE_OUTPUT_PEND, "bit drift PEND");
+_Static_assert((1ULL << 10) == QUEUE_OUTPUT_RUN, "bit drift RUN");
+_Static_assert((1ULL << 11) == QUEUE_OUTPUT_SUSP, "bit drift SUSP");
+_Static_assert((1ULL << 12) == QUEUE_OUTPUT_RSV, "bit drift RSV");
+_Static_assert((1ULL << 13) == QUEUE_OUTPUT_USUSP, "bit drift USUSP");
+_Static_assert((1ULL << 14) == QUEUE_OUTPUT_SSUSP, "bit drift SSUSP");
+_Static_assert((1ULL << 15) == QUEUE_OUTPUT_NICE, "bit drift NICE");
+_Static_assert((1ULL << 16) == QUEUE_OUTPUT_HOSTS, "bit drift HOSTS");
+_Static_assert((1ULL << 17) == QUEUE_OUTPUT_RES_REQ, "bit drift RES_REQ");
+_Static_assert((1ULL << 18) == QUEUE_OUTPUT_MAX_CORELIMIT, "bit drift MAX_CORELIMIT");
+_Static_assert((1ULL << 19) == QUEUE_OUTPUT_MAX_CPULIMIT, "bit drift MAX_CPULIMIT");
+_Static_assert((1ULL << 20) == QUEUE_OUTPUT_DEFAULT_CPULIMIT, "bit drift DEFAULT_CPULIMIT");
+_Static_assert((1ULL << 21) == QUEUE_OUTPUT_MAX_DATALIMIT, "bit drift MAX_DATALIMIT");
+_Static_assert((1ULL << 22) == QUEUE_OUTPUT_DEFAULT_DATALIMIT, "bit drift DEFAULT_DATALIMIT");
+_Static_assert((1ULL << 23) == QUEUE_OUTPUT_MAX_FILELIMIT, "bit drift MAX_FILELIMIT");
+_Static_assert((1ULL << 24) == QUEUE_OUTPUT_MAX_MEMLIMIT, "bit drift MAX_MEMLIMIT");
+_Static_assert((1ULL << 25) == QUEUE_OUTPUT_DEFAULT_MEMLIMIT, "bit drift DEFAULT_MEMLIMIT");
+_Static_assert((1ULL << 26) == QUEUE_OUTPUT_MAX_PROCESSLIMIT, "bit drift MAX_PROCESSLIMIT");
+_Static_assert((1ULL << 27) == QUEUE_OUTPUT_DEFAULT_PROCESSLIMIT, "bit drift DEFAULT_PROCESSLIMIT");
+_Static_assert((1ULL << 28) == QUEUE_OUTPUT_MAX_STACKLIMIT, "bit drift MAX_STACKLIMIT");
+_Static_assert((1ULL << 29) == QUEUE_OUTPUT_MAX_SWAPLIMIT, "bit drift MAX_SWAPLIMIT");
+_Static_assert((1ULL << 30) == QUEUE_OUTPUT_MAX_TASKLIMIT, "bit drift MAX_TASKLIMIT");
+_Static_assert((1ULL << 31) == QUEUE_OUTPUT_MIN_TASKLIMIT, "bit drift MIN_TASKLIMIT");
+_Static_assert((1ULL << 32) == QUEUE_OUTPUT_DEFAULT_TASKLIMIT, "bit drift DEFAULT_TASKLIMIT");
+
+/* LIM domain bit drift assertions */
+_Static_assert((1u << 0) == LIM_OUTPUT_HOST_NAME, "bit drift LIM HOST_NAME");
+_Static_assert((1u << 1) == LIM_OUTPUT_TYPE, "bit drift LIM TYPE");
+_Static_assert((1u << 2) == LIM_OUTPUT_MODEL, "bit drift LIM MODEL");
+_Static_assert((1u << 3) == LIM_OUTPUT_CPU_FACTOR, "bit drift LIM CPU_FACTOR");
+_Static_assert((1u << 4) == LIM_OUTPUT_MAX_CPUS, "bit drift LIM MAX_CPUS");
+_Static_assert((1u << 5) == LIM_OUTPUT_MAX_MEM, "bit drift LIM MAX_MEM");
+_Static_assert((1u << 6) == LIM_OUTPUT_MAX_SWAP, "bit drift LIM MAX_SWAP");
+_Static_assert((1u << 7) == LIM_OUTPUT_SERVER, "bit drift LIM SERVER");
+_Static_assert((1u << 8) == LIM_OUTPUT_RESOURCES, "bit drift LIM RESOURCES");
+_Static_assert((1u << 9) == LIM_OUTPUT_MAX_TMP, "bit drift LIM MAX_TMP");
+_Static_assert((1u << 10) == LIM_OUTPUT_N_DISKS, "bit drift LIM N_DISKS");
+_Static_assert((1u << 11) == LIM_OUTPUT_WINDOWS, "bit drift LIM WINDOWS");
+_Static_assert(((1u << 12) - 1) == LIM_OUTPUT_VALID_MASK, "bit drift LIM_VALID_MASK");
+#endif
 
 struct jobOutputReply {
     LS_LONG_INT jobId;
