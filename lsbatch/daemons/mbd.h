@@ -302,6 +302,7 @@ struct jData {
         int   sig1Flags;
         int   sigDel;
         int   notModified;
+        role_t role;  /* which role send the signal, for pending job signals*/
     } pendEvent;
     int     numDependents;
     char    *schedHost;
@@ -361,6 +362,7 @@ struct jData {
      * Lifecycle follows reasonTb. */
     struct limitDetail *pendLimitDetail;
     int    numPendLimitDetail;
+    termcode_t termCode; /* termination reason code */
 };
 
 
@@ -1224,7 +1226,7 @@ extern int                  unpackJobFiles(struct lenData *packed, struct lenDat
 extern void                 accumRunTime (struct jData *, int, time_t);
 extern void                 signalReplyCode (sbdReplyType reply,
                                              struct jData *jData,
-                                             int sigValue, int chkFlags);
+                                             int sigValue, int chkFlags, int role);
 extern void                 jobStatusSignal(sbdReplyType reply,
                                             struct jData *jData,
                                             int sigValue, int chkFlags,
@@ -1232,7 +1234,7 @@ extern void                 jobStatusSignal(sbdReplyType reply,
 extern void                 tryResume (void);
 extern void                 freeSubmitReq (struct submitReq *);
 extern int                  shouldLockJob (struct jData *, int);
-extern int                  sigPFjob (struct jData *, int, time_t, int);
+extern int                  sigPFjob (struct jData *, int, time_t, int, int);
 extern void                 offJobList (struct jData *, int);
 extern void                 handleRequeueJob (struct jData *, time_t);
 extern int                  PJLorMJL(struct jData *);

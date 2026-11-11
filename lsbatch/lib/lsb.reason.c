@@ -145,12 +145,15 @@ lsb_suspreason (int reasons, int subreasons, struct loadIndexLog *ld)
         else if (subreasons & SUB_REASON_PROCESSLIMIT)
             sprintf(msgbuf, _i18n_msg_get(ls_catd , NL_SETN, 527, 
 		" PROCESSLIMIT was reached;\n"));  /* catgets 527 */
-       else if (subreasons & SUB_REASON_CPULIMIT)
+        else if (subreasons & SUB_REASON_CPULIMIT)
             sprintf(msgbuf, I18N(529,
                 " CPULIMIT was reached;\n"));  /* catgets 529 */
-       else if (subreasons & SUB_REASON_MEMLIMIT)
+        else if (subreasons & SUB_REASON_MEMLIMIT)
             sprintf(msgbuf, I18N(530, 
 		" MEMLIMIT was reached;\n"));  /* catgets 530 */
+        else if (subreasons & SUB_REASON_SWAPLIMIT)
+            sprintf(msgbuf, I18N(531, 
+		" SWAPLIMIT was reached;\n"));  /* catgets 531 */
     } else
 	sprintf (msgbuf, _i18n_msg_get(ls_catd , NL_SETN, 528, 
 		" Unknown suspending reason code: %d\n"), reasons); /* catgets 528 */

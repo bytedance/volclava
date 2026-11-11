@@ -786,7 +786,7 @@ do_Resources(FILE *fp, int *lineNum, char *fname)
                     }
                 } else
                     ls_syslog(LOG_ERR, (_i18n_msg_get(ls_catd,NL_SETN,5095, "%s: %s(%d): INCREASING <%s> is not used by the resource <%s> with type <%s>; ignoring INCREASING")),    /* catgets 5095 */
-                              "do_Resources", fname, *lineNum, keyList[RKEY_INCREASING].val, keyList[RKEY_RESOURCENAME].val, (lsinfo.resTable[lsinfo.nRes].orderType == LS_BOOLEAN)?"BOOLEAN":"STRING");
+                              "do_Resources", fname, *lineNum, keyList[RKEY_INCREASING].val, keyList[RKEY_RESOURCENAME].val, (lsinfo.resTable[lsinfo.nRes].valueType == LS_BOOLEAN)?"BOOLEAN":"STRING");
             } else {
                 if (lsinfo.resTable[lsinfo.nRes].valueType
                     == LS_NUMERIC) {
@@ -1725,8 +1725,9 @@ addHost(struct hostInfo *host, char *fname, int *lineNum)
     }
 
     cConf->numHosts++;
-    if ( cConf->numHosts && (newlist = (struct hostInfo *) malloc
-                             (cConf->numHosts*sizeof(struct hostInfo))) == NULL) {
+    newlist = (struct hostInfo *) malloc(cConf->numHosts*sizeof(struct hostInfo));
+    
+    if ( cConf->numHosts && newlist == NULL) {
         ls_syslog(LOG_ERR, I18N_FUNC_D_FAIL_M, "addHost", "malloc",
                   cConf->numHosts*sizeof(struct hostInfo));
         cConf->numHosts--;

@@ -4998,7 +4998,7 @@ scheduleAJob(struct jData *jp, bool_t checkReady, bool_t checkOtherGroup)
 
 
     if (jp->pendEvent.sig != SIG_NULL) {
-        sigPFjob(jp, jp->pendEvent.sig, 0, LOG_IT);
+        sigPFjob(jp, jp->pendEvent.sig, 0, jp->pendEvent.role, LOG_IT);
 
         if (!IS_PEND(jp->jStatus)) {
             return 0;

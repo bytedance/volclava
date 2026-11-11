@@ -24,10 +24,116 @@
 #include "sbd.h"
 
 #include "../../lsf/lib/lsi18n.h"
+#include "../../lsf/lib/lib.channel.h"
 #define NL_SETN		11	
 
 extern short mbdExitVal;
 extern int mbdExitCnt;
+extern int mbdPid;
+
+int sigchldPipeRd = -1;
+int sigchldPipeWr = -1;
+int sigchldPipeChfd = -1;
+
+struct hTab pidHT;
+
+#define PID_KEY_LEN 32
+
+static char *
+pidKey(pid_t pid, char *buf)
+{
+    sprintf(buf, "%d", (int)pid);
+    return buf;
+}
+
+void
+initPidHT(void)
+{
+    h_initTab_(&pidHT, 101);
+}
+
+void
+addPidHT(pid_t pid, struct jobCard *jp)
+{
+    char key[PID_KEY_LEN];
+    hEnt *ent;
+    int new;
+
+    if (pid <= 0)
+        return;
+
+    ent = h_addEnt_(&pidHT, pidKey(pid, key), &new);
+    if (ent == NULL)
+        return;
+    ent->hData = (void *)jp;
+}
+
+void
+removePidHT(pid_t pid)
+{
+    char key[PID_KEY_LEN];
+    hEnt *ent;
+
+    if (pid <= 0)
+        return;
+
+    ent = h_getEnt_(&pidHT, pidKey(pid, key));
+    if (ent != NULL)
+        h_rmEnt_(&pidHT, ent);
+}
+
+struct jobCard *
+getJobCardByPid(pid_t pid)
+{
+    char key[PID_KEY_LEN];
+    hEnt *ent;
+
+    if (pid <= 0)
+        return NULL;
+
+    ent = h_getEnt_(&pidHT, pidKey(pid, key));
+    if (ent != NULL)
+        return (struct jobCard *)ent->hData;
+    return NULL;
+}
+
+int
+initSigchldPipe(void)
+{
+    int fds[2];
+    int flags;
+
+    if (sigchldPipeRd >= 0)
+        return 0;
+
+    if (pipe(fds) < 0) {
+        ls_syslog(LOG_ERR, "initSigchldPipe: pipe failed: %m");
+        return -1;
+    }
+
+    flags = fcntl(fds[0], F_GETFL, 0);
+    if (flags >= 0)
+        fcntl(fds[0], F_SETFL, flags | O_NONBLOCK);
+
+    flags = fcntl(fds[1], F_GETFL, 0);
+    if (flags >= 0)
+        fcntl(fds[1], F_SETFL, flags | O_NONBLOCK);
+
+    sigchldPipeRd = fds[0];
+    sigchldPipeWr = fds[1];
+
+    sigchldPipeChfd = chanRegisterFd_(sigchldPipeRd, EPOLLIN | EPOLLERR);
+    if (sigchldPipeChfd < 0) {
+        ls_syslog(LOG_ERR, "initSigchldPipe: chanRegisterFd_ failed");
+        close(sigchldPipeRd);
+        close(sigchldPipeWr);
+        sigchldPipeRd = -1;
+        sigchldPipeWr = -1;
+        return -1;
+    }
+
+    return 0;
+}
 
 #define NL_SETN         11  
 void
@@ -111,91 +217,128 @@ shout_err (struct jobCard *jobPtr, char *msg)
 } 
 
 
-void 
+/*
+ * Async-signal-safe SIGCHLD handler.
+ * It does not call wait*(), walk job lists, or access shared job state.
+ * Instead it writes a single byte to a self-pipe to wake the main loop,
+ * which will reap children and update job state in process-safe context.
+ */
+void
 child_handler (int sig)
 {
-    int             pid;
-    LS_WAIT_T       status;
-    struct rusage   rusage;
-    register float  cpuTime;
-    struct lsfRusage lsfRusage;
-    struct jobCard *jobCard;
+    int saved_errno = errno;
+    char byte = 1;
+
+    if (sigchldPipeWr >= 0) {
+        while (write(sigchldPipeWr, &byte, 1) < 0 && errno == EINTR)
+            ;
+    }
+
+    errno = saved_errno;
+}
+
+static void
+processReapedMbd(int pid, LS_WAIT_T status)
+{
     static short lastMbdExitVal = MASTER_NULL;
-    static int sbd_finish_sleep = -1;
+    int sig;
 
-    cleanRusage (&rusage);
-    now = time(0);
-    while ((pid=wait3(&status, WNOHANG, &rusage)) > 0) {
-        if (pid == mbdPid) {
-	    int sig = WTERMSIG(status);
-            if (mbdExitCnt > 150)
-                mbdExitCnt = 150;             
-	    mbdExitVal = WIFSIGNALED(status);
-	    if (mbdExitVal) {
-                if (WCOREDUMP(status))
-                mbdExitVal = sig;
-                if (mbdExitVal == lastMbdExitVal)
-                    mbdExitCnt++;
-                else {
-                    mbdExitCnt = 0;
-                    lastMbdExitVal = mbdExitVal;
-                }
-	        continue;
-	    } else {
-	        mbdExitVal = WEXITSTATUS(status);
+    if (pid != mbdPid)
+        return;
 
-		if (mbdExitVal == lastMbdExitVal)
-                    mbdExitCnt++;
-                else {
-                    mbdExitCnt = 0;
-                    lastMbdExitVal = mbdExitVal;
-                }
-		if (mbdExitVal == MASTER_RECONFIG) {
-		    start_master();
-		} else
-	        continue;
-	    }
+    sig = WTERMSIG(status);
+    if (mbdExitCnt > 150)
+        mbdExitCnt = 150;
+
+    mbdExitVal = WIFSIGNALED(status);
+    if (mbdExitVal) {
+        if (WCOREDUMP(status))
+            mbdExitVal = sig;
+        if (mbdExitVal == lastMbdExitVal)
+            mbdExitCnt++;
+        else {
+            mbdExitCnt = 0;
+            lastMbdExitVal = mbdExitVal;
         }
+    } else {
+        mbdExitVal = WEXITSTATUS(status);
+        if (mbdExitVal == lastMbdExitVal)
+            mbdExitCnt++;
+        else {
+            mbdExitCnt = 0;
+            lastMbdExitVal = mbdExitVal;
+        }
+        if (mbdExitVal == MASTER_RECONFIG) {
+            start_master();
+        }
+    }
+}
 
-        ls_ruunix2lsf (&rusage, &lsfRusage);             
-	cpuTime = lsfRusage.ru_utime + lsfRusage.ru_stime;
-	
-	for (jobCard = jobQueHead->forw; (jobCard != jobQueHead); 
-	     jobCard = jobCard->forw) {
+static void
+processReapedJob(int pid, LS_WAIT_T status, struct rusage *rusage)
+{
+    struct jobCard *jobCard;
+    struct lsfRusage lsfRusage;
+    float cpuTime;
 
-	    if (jobCard->jobSpecs.jobPid == pid) {
-		jobCard->collectedChild = TRUE;
-		jobCard->cpuTime = cpuTime;
-		jobCard->w_status = LS_STATUS(status);
-		memcpy ((char *) &jobCard->lsfRusage, (char *) &lsfRusage,
-			sizeof (struct lsfRusage));	     
-                jobCard->notReported++;
-		
-		
-		
-		if (sbd_finish_sleep < 0) {       
-		    if (daemonParams[LSB_SBD_FINISH_SLEEP].paramValue) {
-			errno = 0;
-			sbd_finish_sleep = atoi(daemonParams[LSB_SBD_FINISH_SLEEP].paramValue);
-			if (errno)
-			    sbd_finish_sleep = 1000;
-		    } else {
-			sbd_finish_sleep=1000;
-		    }
-		}
-//		if (sbd_finish_sleep > 0) {
-//		    millisleep_(sbd_finish_sleep);
-//		}
+    jobCard = getJobCardByPid(pid);
+    if (jobCard == NULL)
+        return;
 
-		need_checkfinish = TRUE;
+    ls_ruunix2lsf(rusage, &lsfRusage);
+    cpuTime = lsfRusage.ru_utime + lsfRusage.ru_stime;
 
-		break;  
-	    }
-	}
-    } 
+    if (jobCard->jobSpecs.jobPid == pid) {
+        jobCard->collectedChild = TRUE;
+        jobCard->cpuTime = cpuTime;
+        jobCard->w_status = LS_STATUS(status);
+        memcpy((char *) &jobCard->lsfRusage, (char *) &lsfRusage,
+               sizeof(struct lsfRusage));
+        jobCard->notReported++;
+        need_checkfinish = TRUE;
+        removePidHT(pid);
+    }
+}
 
+/*
+ * Called from the main loop when the self-pipe is readable.
+ * Drain the pipe and reap all available children, then update job state.
+ */
+void
+processReapedChildren(void)
+{
+    LS_WAIT_T status;
+    struct rusage rusage;
+    pid_t pid;
+    char buf[256];
+    ssize_t n;
 
-} 
+    if (sigchldPipeRd < 0)
+        return;
+
+    do {
+        n = read(sigchldPipeRd, buf, sizeof(buf));
+    } while (n < 0 && errno == EINTR);
+
+    cleanRusage(&rusage);
+
+    for (;;) {
+        pid = wait3(&status, WNOHANG, &rusage);
+        if (pid == 0)
+            break;
+        if (pid < 0) {
+            if (errno == EINTR)
+                continue;
+            break;
+        }
+        if (pid == mbdPid) {
+            processReapedMbd(pid, status);
+        } else {
+            processReapedJob(pid, status, &rusage);
+        }
+        cleanRusage(&rusage);
+    }
+}
 
 #ifndef BSIZE
 #define BSIZE 1024

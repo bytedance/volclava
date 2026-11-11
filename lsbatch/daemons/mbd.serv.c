@@ -957,6 +957,7 @@ packJobInfo(struct jData * jobData,
     jobInfoReply.effeResReq = (jobData->effeResReqEnt ? GET_JOB_EFFE_RES_REQ_STR(jobData): "");
     jobInfoReply.maxMem = jobData->maxMem;
     jobInfoReply.avgMem = jobData->avgMem;
+    jobInfoReply.termCode = jobData->termCode;
 
 
     if (jobData->jStatus & JOB_STAT_UNKWN)
@@ -2944,7 +2945,7 @@ doSignalJobReply(struct sbdNode *sbdPtr, int exception)
     } else if (IS_PEND (jData->jStatus)) {
 
         if (sbdPtr->sigVal != SIG_CHKPNT && sbdPtr->sigVal != SIG_CHKPNT_COPY) {
-            sigPFjob (jData, sbdPtr->sigVal, 0, now);
+            sigPFjob (jData, sbdPtr->sigVal, 0, jData->pendEvent.role, now);
         }
         return;
     }
@@ -2989,7 +2990,7 @@ doSignalJobReply(struct sbdNode *sbdPtr, int exception)
                   fname, lsb_jobid2str(jData->jobId),
                   sbdPtr->sigVal, replyHdr.opCode);
 
-    signalReplyCode(replyHdr.opCode, jData, sbdPtr->sigVal, sbdPtr->sigFlags);
+    signalReplyCode(replyHdr.opCode, jData, sbdPtr->sigVal, sbdPtr->sigFlags, jData->pendEvent.role);
 
     switch (replyHdr.opCode) {
         case ERR_NO_ERROR:

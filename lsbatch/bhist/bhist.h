@@ -120,7 +120,8 @@ struct eventRecord {
     char    *execCwd;
     char    *execUsername;
     int     exitStatus;
-    
+    termcode_t termCode;
+
     int     usrId;
     int     idx;
     int     jmMsgId;

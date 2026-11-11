@@ -46,6 +46,7 @@ void                 freeNewJob(struct jData *newjob);
 extern void          initResVal(struct resVal* );
 extern int           userJobLimitOk (struct jData *, int, int *);
 extern void          reorderSJL(void);
+extern int           getTermCode(int signal, int role);
 
 static int checkSubHost(struct jData *job);
 static bool_t  checkUserPriority(struct jData *jp, int userPriority, int *errnum);
@@ -57,7 +58,7 @@ static int           getCpuLimit(struct jData *, struct submitReq *);
 static void          insertAndShift(struct jData *, struct jData *, int, int);
 static int           resigJobs1(struct jData *, int *);
 static void          sndJobMsgs(struct hData *, int *);
-static sbdReplyType  sigStartedJob(struct jData *, int, time_t, int);
+static sbdReplyType  sigStartedJob(struct jData *, int, time_t, int, int);
 static void          reorderSJL1(struct jData *);
 static int           matchJobStatus(int, int);
 static double        acumulateValue(double, double);
@@ -98,8 +99,9 @@ static char              ususpPendingEvent(struct jData *jpbw);
 static char              terminatePendingEvent(struct jData *jpbw);
 static void              initSubmitReq(struct submitReq *);
 static int               skipJobListByReq (int, int);
+
 static void              replaceString (char *, int, char *, char *);
-static void initJobSig (struct jData *, struct jobSig *, int, time_t, int);
+static void initJobSig (struct jData *, struct jobSig *, int, time_t, int, int);
 static int modifyAJob (struct modifyReq *, struct submitMbdReply *,
                        struct lsfAuth *, struct jData *);
 static bool_t isSignificantChange(struct jRusage *, struct jRusage *, float );
@@ -1793,10 +1795,19 @@ signalJob (struct signalReq *signalReq, struct lsfAuth *auth)
         signalReq->sigValue = SIG_RESUME_USER;
 
     if (auth) {
-        if (auth->uid != 0 && !jgrpPermitOk(auth, jpbw->jgrpNode)
-            && !isAuthQueAd (jpbw->qPtr, auth)) {
+        bool_t isQueueAdmin = isAuthQueAd(jpbw->qPtr, auth);
+        bool_t isRoot = (auth->uid == 0);
+        bool_t isClusterAdmin = isAuthManager(auth);
+        bool_t isOwner = isJobOwner(auth, jpbw);
+        bool_t isGrpPermitOk = jgrpPermitOk(auth, jpbw->jgrpNode);
+
+        if (!isRoot && !isQueueAdmin && !isClusterAdmin && !isOwner && !isGrpPermitOk)
             return (LSBE_PERMISSION);
-        }
+
+        if (isRoot) signalReq->role = ROLE_ROOT;
+        if (isQueueAdmin) signalReq->role = ROLE_QUEUE_ADMIN;
+        if (isClusterAdmin) signalReq->role = ROLE_CLUSTER_ADMIN;
+        if (isOwner) signalReq->role = ROLE_OWNER;
     }
 
     if (jpbw->nodeType != JGRP_NODE_JOB &&
@@ -1829,13 +1840,13 @@ signalJob (struct signalReq *signalReq, struct lsfAuth *auth)
         }
 
         for (jPtr = jpbw->nextJob; jPtr; jPtr = jPtr->nextJob) {
-
-
             if (IS_FINISH(jPtr->jStatus)) {
                 continue;
             }
 
             jPtr->pendEvent.sig = signalReq->sigValue;
+            jPtr->pendEvent.role = signalReq->role;
+
             eventPending = TRUE;
             if (signalReq->sigValue == SIG_DELETE_JOB) {
                 jPtr->pendEvent.sigDel = TRUE;
@@ -1851,6 +1862,7 @@ signalJob (struct signalReq *signalReq, struct lsfAuth *auth)
             && signalReq->sigValue != SIG_TERM_FORCE
             && signalReq->sigValue != SIG_KILL_REQUEUE) {
             jpbw->pendEvent.sig = signalReq->sigValue;
+            jpbw->pendEvent.role = signalReq->role;
             eventPending = TRUE;
             return (LSBE_OP_RETRY);
         }
@@ -1913,7 +1925,7 @@ signalJob (struct signalReq *signalReq, struct lsfAuth *auth)
                 }
             }
             reply = sigPFjob (jpbw, signalReq->sigValue,
-                              signalReq->chkPeriod, LOG_IT);
+                              signalReq->chkPeriod, signalReq->role, LOG_IT);
             if (jpbw->pendEvent.sigDel && jpbw->numRef)
                 reply = LSBE_JOB_DEP;
             break;
@@ -1962,7 +1974,7 @@ signalJob (struct signalReq *signalReq, struct lsfAuth *auth)
                 break;
             }
             sbdReply = sigStartedJob (jpbw, signalReq->sigValue,
-                                      signalReq->chkPeriod, 0);
+                                      signalReq->chkPeriod, signalReq->role, 0);
             switch (sbdReply) {
                 case ERR_NO_ERROR:
                     reply = LSBE_NO_ERROR;
@@ -1980,7 +1992,7 @@ signalJob (struct signalReq *signalReq, struct lsfAuth *auth)
 
 
 int
-sigPFjob (struct jData *jData, int sigValue, time_t chkPeriod, int logIt)
+sigPFjob (struct jData *jData, int sigValue, time_t chkPeriod, int role, int logIt)
 {
     static char fname[] = "sigPFjob";
     struct jData *zombieData = NULL;
@@ -2007,9 +2019,6 @@ sigPFjob (struct jData *jData, int sigValue, time_t chkPeriod, int logIt)
 
             if (chkPeriod != LSB_CHKPERIOD_NOCHNG &&
                 chkPeriod != jData->chkpntPeriod) {
-
-
-
                 jData->chkpntPeriod = chkPeriod;
                 log_jobsigact (jData, NULL, 0);
             }
@@ -2040,6 +2049,7 @@ sigPFjob (struct jData *jData, int sigValue, time_t chkPeriod, int logIt)
                         jData->newReason = EXIT_REMOVE;
                     }
                 }
+                jData->termCode = getTermCode(SIG_TERM_FORCE, role);
                 return (LSBE_NO_ERROR);
             }
         case SIG_TERM_USER:
@@ -2048,6 +2058,7 @@ sigPFjob (struct jData *jData, int sigValue, time_t chkPeriod, int logIt)
             if (!IS_PEND(jData->jStatus))
                 return(LSBE_JOB_FINISH);
             jData->newReason = EXIT_NORMAL;
+            jData->termCode = getTermCode(SIG_TERM_USER, role);
             jStatusChange(jData, JOB_STAT_EXIT, logIt, fname);
             return (LSBE_NO_ERROR);
 
@@ -2069,7 +2080,7 @@ sigPFjob (struct jData *jData, int sigValue, time_t chkPeriod, int logIt)
 
 static sbdReplyType
 sigStartedJob (struct jData *jData, int sigValue, time_t chkPeriod,
-               int actFlags)
+               int role, int actFlags)
 {
     static char fname[] = "sigStartedJob";
     sbdReplyType reply;
@@ -2107,7 +2118,7 @@ sigStartedJob (struct jData *jData, int sigValue, time_t chkPeriod,
             return (ERR_NO_ERROR);
         }
     }
-    initJobSig (jData, &jobSig, sigValue, chkPeriod, actFlags);
+    initJobSig (jData, &jobSig, sigValue, chkPeriod, actFlags, role); 
 
 
     switch (sigValue) {
@@ -2151,6 +2162,7 @@ sigStartedJob (struct jData *jData, int sigValue, time_t chkPeriod,
         case SIG_TERM_FORCE:
             jobSig.actCmd = jData->qPtr->terminateActCmd;
             jobSig.sigValue = sigValue;
+            jobSig.role = role;
             break;
     }
     if (jobSig.actCmd == NULL)
@@ -2160,7 +2172,7 @@ sigStartedJob (struct jData *jData, int sigValue, time_t chkPeriod,
     jobSig.subReasons = jData->subreasons;
 
     reply = signal_job (jData, &jobSig, &jobReply);
-    signalReplyCode(reply, jData, sigValue, actFlags);
+    signalReplyCode(reply, jData, sigValue, actFlags, role);
 
     return reply;
 
@@ -2169,9 +2181,16 @@ sigStartedJob (struct jData *jData, int sigValue, time_t chkPeriod,
 
 void
 signalReplyCode (sbdReplyType reply, struct jData *jData, int sigValue,
-                 int chkFlags)
+                 int chkFlags, int role)
 {
     static char fname[] = "signalReplyCode";
+
+    if (sigValue == SIG_TERM_FORCE) {
+        jData->newReason = EXIT_REMOVE;
+        jData->termCode = getTermCode(SIG_TERM_FORCE, role);
+        jStatusChange (jData, JOB_STAT_EXIT, LOG_IT, fname);
+        return;
+    }
 
     switch (reply) {
         case ERR_NO_ERROR:
@@ -2561,6 +2580,15 @@ packJobSpecs (struct jData *jDataPtr, struct jobSpecs *jobSpecs)
         strcpy (jobSpecs->jobName, jDataPtr->shared->jobBill.command);
     }
 
+    if ((jDataPtr->shared->jobBill.options2 & SUB2_JOB_DESC) &&
+        (jDataPtr->shared->jobBill.jobDesc != NULL) &&
+        (jDataPtr->shared->jobBill.jobDesc[0] != '\0')) {
+        strncpy(jobSpecs->jobDesc, jDataPtr->shared->jobBill.jobDesc,
+                MAX_JOB_DESC_LEN - 1);
+        jobSpecs->jobDesc[MAX_JOB_DESC_LEN - 1] = '\0';
+    } else {
+        jobSpecs->jobDesc[0] = '\0';
+    }
 
     jobSpecs->jStatus = (jDataPtr->jStatus & ~JOB_STAT_UNKWN);
 
@@ -2772,7 +2800,7 @@ packJobSpecs (struct jData *jDataPtr, struct jobSpecs *jobSpecs)
             *sp = '/';
         }
         else
-            sprintf(jobSpecs->chkpntDir, jDataPtr->shared->jobBill.chkpntDir);
+            sprintf(jobSpecs->chkpntDir, "%s", jDataPtr->shared->jobBill.chkpntDir);
 
     }
     else
@@ -3028,6 +3056,10 @@ statusJob(struct statusReq *statusReq, struct hostent *hp, int *schedule)
         jpbw->maxMem = statusReq->maxMem;
     }
     jpbw->avgMem = statusReq->avgMem;
+
+    if (statusReq->termCode != TERM_NULL) {
+        jpbw->termCode = statusReq->termCode;
+    }
 
     /*update cpuTime for fairshare account*/
     diffTime = diffSTime+diffUTime;
@@ -5747,7 +5779,7 @@ resigJobs1 (struct jData *jpbw, int *sigcnt)
         if (logclass & (LC_TRACE | LC_SIGNAL))
             ls_syslog (LOG_DEBUG2, "%s: signal job %s", fname, lsb_jobid2str(jpbw->jobId));
         if (IS_PEND (jpbw->jStatus)) {
-            sigPFjob (jpbw, jpbw->pendEvent.sig, 0, LOG_IT);
+            sigPFjob (jpbw, jpbw->pendEvent.sig, 0, jpbw->pendEvent.role, LOG_IT);
             reply = ERR_NO_ERROR;
         } else {
             if  ((((MASK_STATUS(jpbw->jStatus))==JOB_STAT_RUN)
@@ -5759,7 +5791,7 @@ resigJobs1 (struct jData *jpbw, int *sigcnt)
 
                 reply = ERR_NO_ERROR;
             } else {
-                reply = sigStartedJob (jpbw, jpbw->pendEvent.sig, 0, 0);
+                reply = sigStartedJob (jpbw, jpbw->pendEvent.sig, 0, jpbw->pendEvent.role, 0);
             }
         }
         (*sigcnt)++;
@@ -5779,12 +5811,12 @@ resigJobs1 (struct jData *jpbw, int *sigcnt)
             ls_syslog (LOG_DEBUG2, "%s: chkpnt job %s", fname, lsb_jobid2str(jpbw->jobId));
         if (IS_PEND (jpbw->jStatus)) {
             sigPFjob (jpbw, jpbw->pendEvent.sig1,
-                      jpbw->chkpntPeriod, LOG_IT);
+                      jpbw->chkpntPeriod, jpbw->pendEvent.role, LOG_IT);
             reply = ERR_NO_ERROR;
         }
         else {
             reply = sigStartedJob (jpbw, jpbw->pendEvent.sig1,
-                                   jpbw->chkpntPeriod,
+                                   jpbw->chkpntPeriod, jpbw->pendEvent.role,
                                    jpbw->pendEvent.sig1Flags);
         }
         (*sigcnt)++;
@@ -8795,7 +8827,7 @@ tryResume(void)
             }
 
             if (returnCode == RESUME_JOB) {
-                sigStartedJob (jp, resumeSig, 0, 0);
+                sigStartedJob (jp, resumeSig, 0, jp->pendEvent.role, 0);
                 jp->jFlags |= JFLAG_SEND_SIG;
                 jp->hPtr[0]->flags |= HOST_JOB_RESUME;
 
@@ -9590,7 +9622,7 @@ cleanCandHosts (struct jData *job)
 
 static void
 initJobSig (struct jData *jData, struct jobSig *jobSig, int sigValue,
-            time_t chkPeriod, int actFlags)
+            time_t chkPeriod, int actFlags, int role)
 {
     jobSig->jobId = jData->jobId;
     jobSig->sigValue = sigValue;
@@ -9600,6 +9632,7 @@ initJobSig (struct jData *jData, struct jobSig *jobSig, int sigValue,
     jobSig->reasons = 0;
     jobSig->subReasons = 0;
     jobSig->newJobId = 0;
+    jobSig->role = role;
 }
 
 static bool_t
@@ -10112,6 +10145,7 @@ arrayRequeue(struct jData      *jArray,
             jPtr->pendEvent.sig       = SIG_KILL_REQUEUE;
             jPtr->pendEvent.sigDel    = DEL_ACTION_REQUEUE;
             jPtr->pendEvent.sig1Flags = sigPtr->chkPeriod;
+            jPtr->pendEvent.role = sigPtr->role;
             eventPending = TRUE;
 
             if (mSchedStage != M_STAGE_REPLAY) {

@@ -32,7 +32,7 @@
 #define NL_SETN   23
 #define EPOLL_EVENT_MAX_SIZE 2048
 
-#define CLOSEIT(i) {                                    \                                      
+#define CLOSEIT(i) {                                    \
         CLOSESOCKET(channels[i].handle);                \
         channels[i].state = CH_DISC;                    \
         channels[i].readyEvents = EPOLL_EVENT_NONE;     \
@@ -1562,6 +1562,41 @@ findAFreeChannel(void)
     channels[i].chanerr = CHANE_NOERR;
     channels[i].readyEvents = EPOLL_EVENT_NONE;
     return i;
+}
+
+/*
+ * Register an arbitrary file descriptor as a channel for epoll event monitoring.
+ * This is useful for pipes, eventfds, or other non-socket file descriptors
+ * that need to wake up the chanEpoll_ main loop.
+ * @param[in] fd: File descriptor to register.
+ * @param[in] mask: Event mask (EPOLLIN, EPOLLOUT, etc.) to monitor.
+ * @return: channel index on success, -1 if no free channel, -2 if epoll_ctl fails.
+ */
+int
+chanRegisterFd_(int fd, uint32_t mask)
+{
+    int ch;
+
+    if ((ch = findAFreeChannel()) < 0) {
+        lserrno = LSE_NO_CHAN;
+        return -1;
+    }
+
+    channels[ch].handle = fd;
+    channels[ch].state = CH_WAIT;
+    channels[ch].type = CH_TYPE_NAMEDPIPE;
+    channels[ch].send = NULL;
+    channels[ch].recv = NULL;
+    channels[ch].chanerr = CHANE_NOERR;
+    channels[ch].readyEvents = EPOLL_EVENT_NONE;
+
+    if (chanRegisterEpoll_(ch, mask) < 0) {
+        channels[ch].handle = INVALID_HANDLE;
+        channels[ch].state = CH_FREE;
+        return -2;
+    }
+
+    return ch;
 }
 
 /*

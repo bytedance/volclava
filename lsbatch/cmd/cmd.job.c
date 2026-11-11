@@ -32,6 +32,7 @@ static char *strXfOptions(int);
 void prtJobRusage(struct jobInfoEnt *);
 void prtJobRusageUF(struct jobInfoEnt *);
 void prtJobRusageMem(struct jobInfoEnt *);
+extern char *termCode2Str(termcode_t termCode);
 
 void
 prtHeader(struct jobInfoEnt *job, int prt_q, int tFormat)
@@ -616,9 +617,16 @@ prtAcctFinish(struct jobInfoEnt *job)
 		_i18n_ctime(ls_catd, CTIME_FORMAT_a_b_d_T, &job->endTime),
 		I18N(620, "Completed <done>")); /* catgets  620  */
     else if (job->status == JOB_STAT_EXIT) 
-        sprintf(prline, "%s: %s.\n",
-	       _i18n_ctime(ls_catd, CTIME_FORMAT_a_b_d_T, &job->endTime),
-	       I18N(621, "Completed <exit>")); /* catgets  621  */
+        if (job->termCode != TERM_NULL) {
+            sprintf(prline, "%s: %s; %s.\n", 
+                _i18n_ctime(ls_catd, CTIME_FORMAT_a_b_d_T, &job->endTime),
+                I18N(621, "Completed <exit>"),   /* catgets  621  */
+                termCode2Str(job->termCode));
+        } else {
+            sprintf(prline, "%s: %s.\n",
+                _i18n_ctime(ls_catd, CTIME_FORMAT_a_b_d_T, &job->endTime),
+                I18N(621, "Completed <exit>"));   /* catgets  621  */
+        }
     else
         sprintf(prline, "%s: %s.\n",
 		_i18n_ctime(ls_catd, CTIME_FORMAT_a_b_d_T, &job->endTime),
@@ -709,6 +717,23 @@ prtJobFinish(struct jobInfoEnt *job, struct jobInfoHead *jInfoH)
 	}
 
 	printf(prline);
+
+        /* Print termination reason */
+        if (job->status == JOB_STAT_EXIT) {
+            if (job->termCode != -1) {
+                if (job->termCode != TERM_NULL) {
+                    sprintf(prline, "%s: %s; %s.\n", 
+                        _i18n_ctime(ls_catd, CTIME_FORMAT_a_b_d_T, &job->endTime),
+                        I18N(621, "Completed <exit>"),   /* catgets  621  */
+                        termCode2Str(job->termCode));
+                } else {
+                    sprintf(prline, "%s: %s.\n",
+                        _i18n_ctime(ls_catd, CTIME_FORMAT_a_b_d_T, &job->endTime),
+                        I18N(621, "Completed <exit>"));   /* catgets  621  */
+                }
+                prtLine(prline);
+            }
+        }
 
         prtJobRusageMem(job);
         break;
@@ -1849,6 +1874,15 @@ prtJobFinishUF(struct jobInfoEnt *job, struct jobInfoHead *jInfoH)
             }
 
             printf("%s", prline);
+
+            /* Print termination reason */
+            if (job->termCode != -1 && job->termCode != TERM_NULL) {
+                sprintf(prline, "%s: %s; %s.\n",
+                        _i18n_ctime(ls_catd, CTIME_FORMAT_a_b_d_T, &job->endTime),
+                        I18N(621, "Completed <exit>"),   /* catgets  621  */
+                        termCode2Str(job->termCode));
+                printf("%s", prline);
+            }
             break;
         case JOB_STAT_PSUSP:
         case JOB_STAT_PEND:

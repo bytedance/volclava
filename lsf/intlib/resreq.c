@@ -858,7 +858,7 @@ static int
 resToClassNew(char *resReq, struct resVal *resVal,
               struct lsInfo *lsInfo, int options)
 {
-    int i, s, t, len, entry, hasQuote;
+    int i, j, s, t, len, entry = -1, hasQuote = FALSE;
     char res[MAXLSFNAMELEN], val[MAXLSFNAMELEN];
     char tmpbuf[MAXLSFNAMELEN * 7];
     char *sp, *op;

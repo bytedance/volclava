@@ -132,6 +132,8 @@ job_checking (void)
 			fname, jobCard->jobSpecs.jobId);
 		    jobsig(jobCard, SIGUSR2, FALSE);
 		    jobCard->timeExpire = TRUE;
+		    if (jobCard->termCode == TERM_NULL)
+			jobCard->termCode = TERM_RUNLIMIT;
 	        }
             } else { 
                 if (jobCard->runTime >
@@ -176,6 +178,8 @@ job_checking (void)
 		    if (!jobCard->timeExpire) {        
 		        jobsig(jobCard, SIGUSR2, FALSE);
 		        jobCard->timeExpire = TRUE;
+		        if (jobCard->termCode == TERM_NULL)
+			    jobCard->termCode = TERM_DEADLINE;
 		    }
             } else { 
                 if (now > jobCard->jobSpecs.termTime) {
@@ -1004,6 +1008,7 @@ sigActEnd (struct jobCard *jobCard)
         case SIG_TERM_PROCESSLIMIT:
         case SIG_TERM_CPULIMIT:
         case SIG_TERM_MEMLIMIT:
+        case SIG_TERM_SWAPLIMIT:
             suspendActEnd (jobCard, w_status);
             break;
         default:
@@ -1398,8 +1403,15 @@ ruLimits(struct jobCard *jobCard)
                   &rlimit, LSF_RLIMIT_SWAP);
     if (rlimit.rlim_cur != RLIM_INFINITY) {
         if ((long)(rlimit.rlim_cur / 1024) < (long)jobCard->runRusage.swap) {
-            jobsig(jobCard, SIGQUIT, FALSE);
-            jobsig(jobCard, SIGKILL, TRUE);
+            // jobsig(jobCard, SIGQUIT, FALSE);
+            // jobsig(jobCard, SIGKILL, TRUE);
+            if (jobCard->jobSpecs.jStatus & JOB_STAT_KILL) {
+
+            } else {
+                jobSigStart (jobCard, SIG_TERM_SWAPLIMIT, 0, 0, SIGLOG);
+                sbdlog_newstatus(jobCard); 
+                jobCard->jobSpecs.jStatus |= JOB_STAT_KILL;
+            }
         }
     }
 
