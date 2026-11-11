@@ -216,6 +216,10 @@ addQStr (FILE *log_fp, char *str)
 {
     int j = 1;
 
+    if (str == NULL) { 
+        str = "";
+    }
+
     if (putc (' ', log_fp) == EOF)
         return -1;
     if (putc ('"', log_fp) == EOF)
