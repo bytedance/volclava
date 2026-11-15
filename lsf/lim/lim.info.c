@@ -628,13 +628,13 @@ Reply1:
 
     xdrmem_create(&xdrs2, buf, bufSize, XDR_ENCODE);
 
-    if (!xdr_encodeMsgVersion(&xdrs2,
+    if (!xdr_encodeMsg(&xdrs2,
                        replyStruct,
                        &replyHdr,
                        reqHdr->opCode == LIM_HOST_OUTPUT
                        ? xdr_hostOutputInfoReply : xdr_hostInfoReply,
                        0,
-                       NULL, VOLCLAVA_VERSION)) {
+                       NULL)) {
         ls_syslog(LOG_ERR, I18N_FUNC_FAIL, fname, "xdr_encodeMsg");
         xdr_destroy(&xdrs2);
         if (limReplyCode == LIME_NO_ERR)
@@ -692,8 +692,7 @@ infoReq(XDR *xdrs, struct sockaddr_in *from, struct LSFHeader *reqHdr, int s)
         replyHdr.refCode = reqHdr->refCode;
         replyHdr.reserved = LIM_OUTPUT_CAPABILITY;
         xdrmem_create(&xdrs2, capabilityReply, sizeof(capabilityReply), XDR_ENCODE);
-        if (xdr_encodeMsgVersion(&xdrs2, NULL, &replyHdr, NULL, 0, NULL,
-                                 VOLCLAVA_VERSION)) {
+        if (xdr_encodeMsg(&xdrs2, NULL, &replyHdr, NULL, 0, NULL)) {
             if (s < 0)
                 chanSendDgram_(limSock, capabilityReply, XDR_GETPOS(&xdrs2), from);
             else
@@ -723,8 +722,8 @@ infoReq(XDR *xdrs, struct sockaddr_in *from, struct LSFHeader *reqHdr, int s)
     replyHdr.opCode  = (short) limReplyCode;
     replyHdr.refCode = reqHdr->refCode;
 
-    if (!xdr_encodeMsgVersion(&xdrs2, (char *)&allInfo, &replyHdr, xdr_lsInfo, 0,
-                       NULL, MIN(reqHdr->version, VOLCLAVA_VERSION))) {
+    if (!xdr_encodeMsg(&xdrs2, (char *)&allInfo, &replyHdr, xdr_lsInfo, 0,
+                       NULL)) {
         ls_syslog(LOG_ERR, I18N_FUNC_FAIL, fname, "xdr_encodeMsg");
         xdr_destroy(&xdrs2);
         return;

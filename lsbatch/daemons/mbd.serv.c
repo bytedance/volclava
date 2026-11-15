@@ -40,8 +40,8 @@ extern int freeShareAcctInfoEnt(struct shareAcctInfoEnt *);
 extern char *jgrpNodeParentPath(struct jgTreeNode *);
 static int packJgrpInfo(struct jgTreeNode *, int, char **, int, int);
 int packJobInfo(struct jData *, int, char **, int, int, int, const char *);
-static int packJobOutput(struct jData *, int, char **, int, const char *);
-static int encodeJobOutput(struct jobOutputReply *, int, char **, int);
+static int packJobOutput(struct jData *, int, char **, const char *);
+static int encodeJobOutput(struct jobOutputReply *, int, char **);
 static void initSubmit(int *, struct submitReq *, struct submitMbdReply *);
 static int sendBack(int, struct submitReq *, struct submitMbdReply *, int);
 static int sendBackPack(int, int, int, struct submitMbdReply *, int, int, int);
@@ -63,18 +63,6 @@ static void pruneQueueInfoReplyFields(struct queueInfoReply *, const char *);
 extern void closeSession(int);
 
 struct controlReq mbdCtrlReq;
-
-/*
- * Clear a heap-owned string field: free the old value and install a newly
- * allocated empty string so later XDR encode / free paths see a valid
- * freeable pointer.
- */
-static void
-clearStringField(char **field)
-{
-    FREEUP(*field);
-    *field = safeSave("");
-}
 
 /*
  * Prune reply fields in place for selective output.
@@ -839,9 +827,8 @@ do_jobInfoReq(XDR *xdrs,
     initLSFHeader_(&replyHdr);
     replyHdr.opCode = reply;
 
-    if (!xdr_encodeMsgVersion(&xdrs2, (char *) &jobInfoHead, &replyHdr,
-                       xdr_jobInfoHead, 0, NULL,
-                       VOLCLAVA_VERSION)) {
+    if (!xdr_encodeMsg(&xdrs2, (char *) &jobInfoHead, &replyHdr,
+                       xdr_jobInfoHead, 0, NULL)) {
         FREEUP (reply_buf);
         freeJobHead (&jobInfoHead);
         ls_syslog(LOG_ERR, I18N_FUNC_S_FAIL, fname,
@@ -880,7 +867,6 @@ do_jobInfoReq(XDR *xdrs,
             && (IS_JOB_OUTPUT(reqHdr)
                 ? ((len = packJobOutput((struct jData *)jgrplist[i].info,
                                         listSize + (syncMode == QMBD_JOB_SYNC_SHM ? syncListSize : 0) - 1 - i, &buf,
-                                        reqHdr->version,
                                         outputFields)) < 0)
                 : ((len = packJobInfo((struct jData *)jgrplist[i].info,
                                       listSize + (syncMode == QMBD_JOB_SYNC_SHM ? syncListSize : 0) - 1 - i, &buf, schedule,
@@ -920,9 +906,9 @@ do_jobInfoReq(XDR *xdrs,
         for (i = 0; i < syncListSize; i++) {
             if ((IS_JOB_OUTPUT(reqHdr)
                  ? chanWriteQmbdShmJobOutput(chfd, syncJobMetaList[i],
-                     syncListSize - i - 1, reqHdr->version, outputFields)
+                     syncListSize - i - 1, outputFields)
                  : chanWriteQmbdShmJobXdr(chfd, syncJobMetaList[i],
-                     syncListSize - i - 1, reqHdr->version)) < 0) {
+                     syncListSize - i - 1)) < 0) {
                 FREEUP(syncJobMetaList);
                 FREEUP(jgrplist);
                 FREEUP(outputFields);
@@ -988,9 +974,8 @@ packJgrpInfo(struct jgTreeNode * jgNode, int remain, char **replyBuf, int schedu
     hdr.reserved = MIN(remain, USHRT_MAX);
     hdr.version = version;
 
-    if (!xdr_encodeMsgVersion(&xdrs, (char *) &jobInfoReply,
-                       &hdr, xdr_jobInfoReply, 0, NULL,
-                       MIN(version, VOLCLAVA_VERSION))) {
+    if (!xdr_encodeMsg(&xdrs, (char *) &jobInfoReply,
+                       &hdr, xdr_jobInfoReply, 0, NULL)) {
         ls_syslog(LOG_ERR, I18N_FUNC_S_FAIL, fname,
                   "xdr_encodeMsg", "jobInfoReply");
         xdr_destroy(&xdrs);
@@ -1454,9 +1439,8 @@ packJobInfo(struct jData * jobData,
     hdr.reserved = MIN(remain, USHRT_MAX);
     hdr.version = version;
 
-    if (!xdr_encodeMsgVersion(&xdrs, (char *) &jobInfoReply,
-                       &hdr, xdr_jobInfoReply, 0, NULL,
-                       MIN(version, VOLCLAVA_VERSION))) {
+    if (!xdr_encodeMsg(&xdrs, (char *) &jobInfoReply,
+                       &hdr, xdr_jobInfoReply, 0, NULL)) {
         ls_syslog(LOG_ERR, I18N_FUNC_S_FAIL, fname,
                   "xdr_encodeMsg", "jobInfoReply");
         xdr_destroy(&xdrs);
@@ -1508,7 +1492,7 @@ addJobOutputStringSize(size_t *size, const char *value)
 
 static int
 packJobOutput(struct jData *jobData, int remain, char **replyBuf,
-              int version, const char *outputFields)
+              const char *outputFields)
 {
     struct jobOutputReply reply;
     struct submitReq *bill;
@@ -1561,14 +1545,13 @@ packJobOutput(struct jData *jobData, int remain, char **replyBuf,
         }
     }
 
-    len = encodeJobOutput(&reply, remain, replyBuf, version);
+    len = encodeJobOutput(&reply, remain, replyBuf);
     FREEUP(reply.exHosts);
     return len;
 }
 
 static int
-encodeJobOutput(struct jobOutputReply *reply, int remain, char **replyBuf,
-                 int version)
+encodeJobOutput(struct jobOutputReply *reply, int remain, char **replyBuf)
 {
     struct LSFHeader hdr;
     XDR xdrs;
@@ -1612,10 +1595,8 @@ encodeJobOutput(struct jobOutputReply *reply, int remain, char **replyBuf,
     xdrmem_create(&xdrs, buffer, len, XDR_ENCODE);
     initLSFHeader_(&hdr);
     hdr.reserved = MIN(remain, USHRT_MAX);
-    hdr.version = version;
-    if (!xdr_encodeMsgVersion(&xdrs, (char *)reply, &hdr,
-                       xdr_jobOutputReply, 0, NULL,
-                       VOLCLAVA_VERSION)) {
+    if (!xdr_encodeMsg(&xdrs, (char *)reply, &hdr,
+                       xdr_jobOutputReply, 0, NULL)) {
         xdr_destroy(&xdrs);
         FREEUP(buffer);
         return -1;
@@ -1644,7 +1625,7 @@ sizeError:
  */
 int
 transcodeJobOutput(char *packet, int length, int remain, char **output,
-                   int version, const char *fields)
+                   const char *fields)
 {
     struct jobInfoReply job;
     struct submitReq bill;
@@ -1712,7 +1693,7 @@ transcodeJobOutput(char *packet, int length, int remain, char **output,
     compact.startTime = job.startTime;
     compact.endTime = job.endTime;
     compact.exitStatus = job.exitStatus;
-    result = encodeJobOutput(&compact, remain, output, version);
+    result = encodeJobOutput(&compact, remain, output);
 cleanup:
     freeSubmitReq(&bill);
     if (job.toHosts)
@@ -2298,13 +2279,13 @@ do_hostInfoReq(XDR *xdrs,
     if (reply == LSBE_NO_ERROR || reply == LSBE_BAD_HOST)
         replyStruct = (char *) &hostsReply;
 
-    if (!xdr_encodeMsgVersion(&xdrs2,
+    if (!xdr_encodeMsg(&xdrs2,
                        replyStruct,
                        &replyHdr,
                        reqHdr->opCode == BATCH_OUTPUT
                        ? xdr_hostOutputReply : xdr_hostDataReply,
                        0,
-                       NULL, VOLCLAVA_VERSION)) {
+                       NULL)) {
         ls_syslog(LOG_ERR, "\
 %s: failed encode %dbytes reply to %s", __func__,
                   XDR_GETPOS(&xdrs2), sockAdd2Str_(from));
@@ -2480,13 +2461,13 @@ do_queueInfoReq(XDR *xdrs,
     else
         replyStruct = NULL;
 
-    if (! xdr_encodeMsgVersion(&xdrs2,
+    if (! xdr_encodeMsg(&xdrs2,
                         replyStruct,
                         &hdr,
                         reqHdr->opCode == BATCH_OUTPUT
                         ? xdr_queueOutputReply : xdr_queueInfoReply,
                         0,
-                        NULL, VOLCLAVA_VERSION)) {
+                        NULL)) {
         ls_syslog(LOG_ERR, "\
 %s: failed encode data to %s", __func__, sockAdd2Str_(from));
         freeQueueInfoReply(&qInfoReply, replyStruct);

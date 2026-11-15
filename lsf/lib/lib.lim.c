@@ -53,21 +53,6 @@ callLim_(enum limReqCode reqCode,
          int options,
          struct LSFHeader *hdr)
 {
-    return callLimVersion_(reqCode, dsend, xdr_sfunc, drecv, xdr_rfunc,
-                           host, options, VOLCLAVA_VERSION, hdr);
-}
-
-int
-callLimVersion_(enum limReqCode reqCode,
-                void *dsend,
-                bool_t (*xdr_sfunc)(),
-                void *drecv,
-                bool_t (*xdr_rfunc)(),
-                char *host,
-                int options,
-                int requestVersion,
-                struct LSFHeader *hdr)
-{
     struct LSFHeader reqHdr;
     struct LSFHeader replyHdr;
     XDR    xdrs;
@@ -102,11 +87,10 @@ callLimVersion_(enum limReqCode reqCode,
     reqHdr.opCode = reqCode;
 
     reqHdr.refCode  = getRefNum_();
-    reqHdr.version = requestVersion;
+    reqHdr.version = VOLCLAVA_VERSION;
 
     xdrmem_create(&xdrs, sbuf, 8*MSGSIZE, XDR_ENCODE);
-    if (!xdr_encodeMsgVersion(&xdrs, dsend, &reqHdr, xdr_sfunc, 0, NULL,
-                              requestVersion)) {
+    if (!xdr_encodeMsg(&xdrs, dsend, &reqHdr, xdr_sfunc, 0, NULL)) {
         xdr_destroy(&xdrs);
         lserrno = LSE_BAD_XDR;
         return -1;

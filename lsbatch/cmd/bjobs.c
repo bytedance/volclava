@@ -27,6 +27,7 @@
 #include "../lib/lsb.h"
 #include <netdb.h>
 #include <errno.h>
+#include <math.h>
 #include "../../lsf/intlib/cJSON.h"
 #include "../../lsf/intlib/outfields.h"
 #define NL_SETN 8
@@ -54,7 +55,7 @@ static int *numJobs;
 static int numJids;
 static int foundJids;
 
-#define MAX_TIMERSTRLEN         20
+#define MAX_TIMERSTRLEN         64
 #define MAX_TIMESTRLEN          64
 int uflag = FALSE;
 int Wflag = FALSE;
@@ -121,6 +122,7 @@ main (int argc, char **argv)
     LS_LONG_INT jobId;
     int  jobDisplayed = 0;
     float cpuFactor = -1;
+    int normalizeCpu = FALSE;
     char prline[MAXLINELEN];
     char defaultJobName[8] = "/";
     static char lsfUserName[MAXLINELEN];
@@ -130,7 +132,7 @@ main (int argc, char **argv)
     char jobidStr[MAXLINELEN];
     char *jobInfoErrMsg = NULL;
 
-    int numQueues;
+    int numQueues = 0;
     char **queues = NULL;
     struct queueInfoEnt *queueInfo;
     char *qHost = NULL;
@@ -163,6 +165,8 @@ main (int argc, char **argv)
             lsb_perror("fmt_output_fields_dup");
             exit(-1);
         }
+        normalizeCpu = cpuFactor > 0
+                       && fmt_output_field_requested(&formatRequest, "CPU_USED");
     }
 
     if ((format == LONG_FORMAT || format == UF_FORMAT) && (options & PEND_JOB))
@@ -205,7 +209,7 @@ main (int argc, char **argv)
                                                  queue,
                                                  host,
                                                  options,
-                                                 outputFields)),
+                                                 normalizeCpu ? NULL : outputFields)),
            "lsb_openjobinfo_a_fields");
     free(outputFields);
     outputFields = NULL;
@@ -301,6 +305,14 @@ main (int argc, char **argv)
                 }
             }
             continue;
+        }
+
+        /* Normalization needs hostSpec, absent from compact replies. */
+        if (normalizeCpu) {
+            float cpuTime = job->cpuTime > 0 ? job->cpuTime
+                           : job->runRusage.utime + job->runRusage.stime;
+            job->cpuTime = normalizeCpuTime(cpuTime,
+                                           getJobHostFactor(job, NULL), cpuFactor);
         }
 
         if (format ==  LONG_FORMAT || format == UF_FORMAT) {
@@ -543,14 +555,15 @@ do_options (int argc, char **argv, int *options, char **user, char **queue,
             *format = LONG_FORMAT;
         TIMEIT(0, (tempPtr = getCpuFactor (norOp, FALSE)), "getCpuFactor");
         if (tempPtr == NULL)
-            if ((tempPtr = getCpuFactor (norOp, TRUE)) == NULL)
-                if (!isanumber_(norOp)
-                    || (*cpuFactor = atof(norOp)) <= 0) {
-                    fprintf(stderr, (_i18n_msg_get(ls_catd,NL_SETN,1458, "<%s> is neither a host model, nor a host name, nor a CPU factor\n")), norOp); /* catgets  1458  */
-                    exit(-1);
-                }
+            tempPtr = getCpuFactor(norOp, TRUE);
         if (tempPtr)
             *cpuFactor = *tempPtr;
+        else if (isanumber_(norOp))
+            *cpuFactor = atof(norOp);
+        if (!isfinite(*cpuFactor) || *cpuFactor <= 0) {
+            fprintf(stderr, (_i18n_msg_get(ls_catd,NL_SETN,1458, "<%s> is neither a host model, nor a host name, nor a CPU factor\n")), norOp); /* catgets  1458  */
+            exit(-1);
+        }
     }
 
 }
@@ -1263,19 +1276,14 @@ static char *
 Timer2String(float timer)
 {
     static char TimerStr[MAX_TIMERSTRLEN];
-    int         Hour, Minute, Second, Point, Time;
+    double time = timer;
 
-    Point   = timer*100.0;
-    Point   = Point%100;
-    Time    = timer;
-    Hour    = Time/3600;
-    Minute  = (Time%3600)/60;
-    Second  = (Time%3600)%60;
-    sprintf(TimerStr,"%03d:%02d:%02d.%02d",
-            Hour,
-            Minute,
-            Second,
-            Point);
+    if (!isfinite(time) || time < 0)
+        return "-";
+    /* Small normalization factors can exceed the integer seconds range. */
+    snprintf(TimerStr, sizeof(TimerStr), "%03.0f:%02d:%02d.%02d",
+             floor(time / 3600), (int)fmod(floor(time / 60), 60),
+             (int)fmod(floor(time), 60), (int)fmod(time * 100, 100));
     return(TimerStr);
 }
 

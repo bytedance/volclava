@@ -148,7 +148,7 @@ lsb_openjobinfo_a_fields(LS_LONG_INT jobId, char *jobName, char *userName,
     static __thread struct jobInfoReq jobInfoReq;
     static __thread struct jobInfoHead jobInfoHead;
     mbdReqType mbdReqtype;
-    int useOutput, requestVersion, fallbackAttempted = 0;
+    int useOutput, fallbackAttempted = 0;
     XDR xdrs, xdrs2;
     char *request_buf = NULL;
     char *reply_buf, *clusterName = NULL;
@@ -264,16 +264,14 @@ lsb_openjobinfo_a_fields(LS_LONG_INT jobId, char *jobName, char *userName,
     useOutput = outputFields && outputFields[0] != '\0';
 retryOutput:
     mbdReqtype = useOutput ? BATCH_OUTPUT : BATCH_JOB_INFO;
-    requestVersion = useOutput ? VOLCLAVA_VERSION : _VOLCLAVA_VERSION2_2_;
     xdrmem_create(&xdrs, request_buf, (u_int)requestSize, XDR_ENCODE);
 
     initLSFHeader_(&hdr);
     hdr.opCode = mbdReqtype;
     hdr.reserved = useOutput ? (compactJobOutput ? OUTPUT_JOB : OUTPUT_JOB_GROUP) : 0;
-    TIMEIT(1, (aa = xdr_encodeMsgVersion(&xdrs,
+    TIMEIT(1, (aa = xdr_encodeMsg(&xdrs,
                            (char *) &jobInfoReq, &hdr,
-                           xdr_jobInfoReq, 0, NULL,
-                           requestVersion)), "xdr_encodeMsgVersion");
+                           xdr_jobInfoReq, 0, NULL)), "xdr_encodeMsg");
     if (aa == FALSE) {
         lsberrno = LSBE_XDR;
         xdr_destroy(&xdrs);

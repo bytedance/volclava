@@ -659,8 +659,8 @@ ls_gethostinfo_fields(char *resReq, int *numhosts, char **hostlist,
              * Legacy LIM TCP dispatchers silently drop unknown opcodes, so we probe
              * LIM_GET_INFO with capability payload first before invoking LIM_HOST_OUTPUT.
              */
-            cc = callLimVersion_(LIM_GET_INFO, &capability, xdr_int, NULL, NULL,
-                                 NULL, _USE_TCP_, VOLCLAVA_VERSION, &replyHeader);
+            cc = callLim_(LIM_GET_INFO, &capability, xdr_int, NULL, NULL,
+                          NULL, _USE_TCP_, &replyHeader);
             if (cc < 0 && replyHeader.opCode != LIME_BAD_REQ_CODE)
                 goto hostOutputDone;
             custom = cc >= 0 && replyHeader.reserved == LIM_OUTPUT_CAPABILITY;
@@ -668,9 +668,9 @@ ls_gethostinfo_fields(char *resReq, int *numhosts, char **hostlist,
         if (custom) {
             hostInfoReply.shortLsInfo = &lsInfo;
             memset(&replyHeader, 0, sizeof(replyHeader));
-            cc = callLimVersion_(LIM_HOST_OUTPUT, &hostInfoReq, xdr_decisionReq,
-                                 &hostInfoReply, xdr_hostOutputInfoReply,
-                                 NULL, _USE_TCP_, VOLCLAVA_VERSION, &replyHeader);
+            cc = callLim_(LIM_HOST_OUTPUT, &hostInfoReq, xdr_decisionReq,
+                          &hostInfoReply, xdr_hostOutputInfoReply,
+                          NULL, _USE_TCP_, &replyHeader);
             if (replyHeader.opCode == LIME_BAD_REQ_CODE) {
                 xdr_lsffree(xdr_hostOutputInfoReply, (char *)&hostInfoReply, &replyHeader);
                 memset(&hostInfoReply, 0, sizeof(hostInfoReply));
@@ -687,9 +687,9 @@ ls_gethostinfo_fields(char *resReq, int *numhosts, char **hostlist,
         if (!custom) {
             hostInfoReply.shortLsInfo = &lsInfo;
             memset(&replyHeader, 0, sizeof(replyHeader));
-            cc = callLimVersion_(LIM_GET_HOSTINFO, &hostInfoReq, xdr_decisionReq,
-                                 &hostInfoReply, xdr_hostInfoReply,
-                                 NULL, _USE_TCP_, _VOLCLAVA_VERSION2_2_, &replyHeader);
+            cc = callLim_(LIM_GET_HOSTINFO, &hostInfoReq, xdr_decisionReq,
+                          &hostInfoReply, xdr_hostInfoReply,
+                          NULL, _USE_TCP_, &replyHeader);
             if (cc >= 0) {
                 prevFreeXdr = xdr_hostInfoReply;
                 prevHeader = replyHeader;

@@ -830,8 +830,7 @@ selectQmbdShmSyncJgrps(struct jobInfoReq *jobInfoReq,
  * @return: 0 on success, -1 on write failure.
  */
 int
-chanWriteQmbdShmJobXdr(int chfd, struct jobMetaData *jobMeta, int remain,
-                        int version)
+chanWriteQmbdShmJobXdr(int chfd, struct jobMetaData *jobMeta, int remain)
 {
     struct LSFHeader hdr;
     XDR xdrs;
@@ -858,7 +857,6 @@ chanWriteQmbdShmJobXdr(int chfd, struct jobMetaData *jobMeta, int remain,
     xdr_destroy(&xdrs);
     if (result) {
         hdr.reserved = MIN(remain, USHRT_MAX);
-        hdr.version = MIN(version, VOLCLAVA_VERSION);
         xdrmem_create(&xdrs, packet, LSF_HEADER_LEN, XDR_ENCODE);
         result = xdr_LSFHeader(&xdrs, &hdr);
         xdr_destroy(&xdrs);
@@ -1001,7 +999,7 @@ getBufferUsedBytes(struct bufferQueue *queue)
 /* Copy the ring entry before decoding, including entries crossing its end. */
 int
 chanWriteQmbdShmJobOutput(int chfd, struct jobMetaData *meta, int remain,
-                         int version, const char *fields)
+                         const char *fields)
 {
     char *packet, *output = NULL;
     int first, length, result = -1;
@@ -1014,8 +1012,7 @@ chanWriteQmbdShmJobOutput(int chfd, struct jobMetaData *meta, int remain,
     first = MIN(meta->xdrLen, shm->xdrBuffer->capacity - meta->xdrOffset);
     memcpy(packet, shm->xdrBuffer->buff + meta->xdrOffset, first);
     memcpy(packet + first, shm->xdrBuffer->buff, meta->xdrLen - first);
-    length = transcodeJobOutput(packet, meta->xdrLen, remain, &output,
-                               version, fields);
+    length = transcodeJobOutput(packet, meta->xdrLen, remain, &output, fields);
     free(packet);
     if (length > 0 && chanWriteNonBlock_(chfd, output, length,
                                         DEF_WRITE_TIMEOUT) == length)

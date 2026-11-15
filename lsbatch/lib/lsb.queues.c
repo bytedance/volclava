@@ -159,9 +159,8 @@ retryOutput:
     initLSFHeader_(&hdr); 
     hdr.opCode = mbdReqtype;
     hdr.reserved = useOutput ? OUTPUT_QUEUE : 0;
-    if (!xdr_encodeMsgVersion(&xdrs, (char*) &queueInfoReq, &hdr, xdr_infoReq,
-		              0, NULL,
-                              useOutput ? VOLCLAVA_VERSION : _VOLCLAVA_VERSION2_2_)) {
+    if (!xdr_encodeMsg(&xdrs, (char*) &queueInfoReq, &hdr, xdr_infoReq,
+		              0, NULL)) {
         lsberrno = LSBE_XDR;
         xdr_destroy(&xdrs);
         free (request_buf);

@@ -100,19 +100,18 @@ xdr_packLSFHeader (char *buf, struct LSFHeader *header)
 }
 
 bool_t
-xdr_encodeMsgVersion(XDR *xdrs,
-                     char *data,
-                     struct LSFHeader *hdr,
-                     bool_t (*xdr_func)(),
-                     int options,
-                     struct lsfAuth *auth,
-                     int version)
+xdr_encodeMsg(XDR *xdrs,
+              char *data,
+              struct LSFHeader *hdr,
+              bool_t (*xdr_func)(),
+              int options,
+              struct lsfAuth *auth)
 {
     int len;
 
     XDR_SETPOS(xdrs, LSF_HEADER_LEN);
 
-    hdr->version = version;
+    hdr->version = VOLCLAVA_VERSION;
 
     if (auth) {
         if (!xdr_lsfAuth(xdrs, auth, hdr))
@@ -133,18 +132,6 @@ xdr_encodeMsgVersion(XDR *xdrs,
 
     XDR_SETPOS(xdrs, len);
     return TRUE;
-}
-
-bool_t
-xdr_encodeMsg(XDR *xdrs,
-              char *data,
-              struct LSFHeader *hdr,
-              bool_t (*xdr_func)(),
-              int options,
-              struct lsfAuth *auth)
-{
-    return xdr_encodeMsgVersion(xdrs, data, hdr, xdr_func, options, auth,
-                                VOLCLAVA_VERSION);
 }
 
 bool_t

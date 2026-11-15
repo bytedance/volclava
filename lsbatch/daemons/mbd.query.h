@@ -132,7 +132,7 @@ extern int            selectQmbdShmSyncJobs(struct jobInfoReq *,
                                             struct jobMetaData ***, int *);
 extern int            selectQmbdShmSyncJgrps(struct jobInfoReq *,
                                              struct jobMetaData ***, int *);
-extern int            chanWriteQmbdShmJobXdr(int, struct jobMetaData *, int, int);
+extern int            chanWriteQmbdShmJobXdr(int, struct jobMetaData *, int);
 /*---------------- shared-memory job synchronization end -------------------*/
 
 /*------------------ socket job synchronization start ----------------------*/
@@ -158,7 +158,7 @@ extern int            selectQmbdSocketSyncJgrps(struct jobInfoReq *,
                                                 struct nodeList **, int *);
 /*------------------- socket job synchronization end -----------------------*/
 
-extern int chanWriteQmbdShmJobOutput(int, struct jobMetaData *, int, int, const char *);
-extern int transcodeJobOutput(char *, int, int, char **, int, const char *);
+extern int chanWriteQmbdShmJobOutput(int, struct jobMetaData *, int, const char *);
+extern int transcodeJobOutput(char *, int, int, char **, const char *);
 
 #endif
