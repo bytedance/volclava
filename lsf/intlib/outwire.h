@@ -105,7 +105,7 @@
 #define LIM_OUTPUT_SERVER      (1u << 7)
 #define LIM_OUTPUT_RESOURCES   (1u << 8)
 #define LIM_OUTPUT_MAX_TMP     (1u << 9)
-#define LIM_OUTPUT_N_DISKS     (1u << 10)
+#define LIM_OUTPUT_N_PROCS     (1u << 10)
 #define LIM_OUTPUT_WINDOWS     (1u << 11)
 
 #define LIM_OUTPUT_VALID_MASK  0xfffu

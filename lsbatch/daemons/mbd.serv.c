@@ -4053,10 +4053,6 @@ int
 do_outputReq(XDR *xdrs, int chfd, struct sockaddr_in *from,
               struct LSFHeader *hdr, int schedule)
 {
-    if (hdr->version < _VOLCLAVA_VERSION2_2_) {
-        errorBack(chfd, LSBE_PROTOCOL, from);
-        return -1;
-    }
     switch (hdr->reserved) {
     case OUTPUT_JOB:
     case OUTPUT_JOB_GROUP:

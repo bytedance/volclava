@@ -354,7 +354,7 @@ _Static_assert((1u << 6) == LIM_OUTPUT_MAX_SWAP, "bit drift LIM MAX_SWAP");
 _Static_assert((1u << 7) == LIM_OUTPUT_SERVER, "bit drift LIM SERVER");
 _Static_assert((1u << 8) == LIM_OUTPUT_RESOURCES, "bit drift LIM RESOURCES");
 _Static_assert((1u << 9) == LIM_OUTPUT_MAX_TMP, "bit drift LIM MAX_TMP");
-_Static_assert((1u << 10) == LIM_OUTPUT_N_DISKS, "bit drift LIM N_DISKS");
+_Static_assert((1u << 10) == LIM_OUTPUT_N_PROCS, "bit drift LIM N_PROCS");
 _Static_assert((1u << 11) == LIM_OUTPUT_WINDOWS, "bit drift LIM WINDOWS");
 _Static_assert(((1u << 12) - 1) == LIM_OUTPUT_VALID_MASK, "bit drift LIM_VALID_MASK");
 #endif

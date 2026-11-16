@@ -107,7 +107,7 @@ const struct fmt_field_def output_lim_fields[OUTPUT_LIM_FIELDS_COUNT] = {
     {"SERVER", NULL, "server", 10, 0, NULL, LIM_OUTPUT_SERVER},
     {"RESOURCES", "RES", "RESOURCES", 20, 0, NULL, LIM_OUTPUT_RESOURCES},
     {"MAXTMP", NULL, "maxtmp", 10, 0, NULL, LIM_OUTPUT_MAX_TMP},
-    {"NPROCS", NULL, "nprocs", 8, 0, NULL, LIM_OUTPUT_N_DISKS},
+    {"NPROCS", NULL, "nprocs", 8, 0, NULL, LIM_OUTPUT_N_PROCS},
     {"RUN_WINDOWS", "RUNWIN", "RUN_WINDOWS", 20, 0, NULL, LIM_OUTPUT_WINDOWS}};
 
 static int

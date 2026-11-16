@@ -35,7 +35,7 @@ lsb_queueinfo_fields(char **queues, int *numQueues, char *hosts, char *users,
                      int options, const char *outputFields)
 {
     mbdReqType mbdReqtype;
-    int useOutput, fallbackAttempted = 0;
+    int useOutput;
     static __thread struct infoReq queueInfoReq;
     static __thread struct queueInfoReply reply;
     static __thread struct queueInfoReply outputReply;
@@ -143,7 +143,6 @@ lsb_queueinfo_fields(char **queues, int *numQueues, char *hosts, char *users,
     
 
     useOutput = outputFields && outputFields[0];
-    mbdReqtype = useOutput ? BATCH_OUTPUT : BATCH_QUE_INFO;
     outputFieldsLength = strlen(queueInfoReq.outputFields);
     requestSize = sizeof(struct infoReq)
                   + (size_t)cc * (MAXHOSTNAMELEN + 1)
@@ -153,7 +152,6 @@ lsb_queueinfo_fields(char **queues, int *numQueues, char *hosts, char *users,
         lsberrno = LSBE_NO_MEM;
         return(NULL);
     }
-retryOutput:
     mbdReqtype = useOutput ? BATCH_OUTPUT : BATCH_QUE_INFO;
     xdrmem_create(&xdrs, request_buf, (u_int)requestSize, XDR_ENCODE);
     initLSFHeader_(&hdr); 
@@ -176,14 +174,6 @@ retryOutput:
 	return (NULL);
     }
 
-    if (useOutput && !fallbackAttempted && (hdr.opCode == LSBE_PROTOCOL)) {
-        if (cc) free(reply_buf);
-        reply_buf = NULL;
-        xdr_destroy(&xdrs);
-        useOutput = 0;
-        fallbackAttempted = 1;
-        goto retryOutput;
-    }
     xdr_destroy(&xdrs);
     free (request_buf);
 

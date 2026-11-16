@@ -661,9 +661,13 @@ ls_gethostinfo_fields(char *resReq, int *numhosts, char **hostlist,
              */
             cc = callLim_(LIM_GET_INFO, &capability, xdr_int, NULL, NULL,
                           NULL, _USE_TCP_, &replyHeader);
-            if (cc < 0 && replyHeader.opCode != LIME_BAD_REQ_CODE)
+            if (cc < 0)
                 goto hostOutputDone;
-            custom = cc >= 0 && replyHeader.reserved == LIM_OUTPUT_CAPABILITY;
+            if (replyHeader.reserved != LIM_OUTPUT_CAPABILITY) {
+                lserrno = LSE_PROTOC_LIM;
+                cc = -1;
+                goto hostOutputDone;
+            }
         }
         if (custom) {
             hostInfoReply.shortLsInfo = &lsInfo;
@@ -671,20 +675,14 @@ ls_gethostinfo_fields(char *resReq, int *numhosts, char **hostlist,
             cc = callLim_(LIM_HOST_OUTPUT, &hostInfoReq, xdr_decisionReq,
                           &hostInfoReply, xdr_hostOutputInfoReply,
                           NULL, _USE_TCP_, &replyHeader);
-            if (replyHeader.opCode == LIME_BAD_REQ_CODE) {
-                xdr_lsffree(xdr_hostOutputInfoReply, (char *)&hostInfoReply, &replyHeader);
-                memset(&hostInfoReply, 0, sizeof(hostInfoReply));
-                custom = 0;
-            } else if (cc >= 0) {
+            if (cc >= 0) {
                 prevFreeXdr = xdr_hostOutputInfoReply;
                 prevHeader = replyHeader;
             } else {
                 xdr_lsffree(xdr_hostOutputInfoReply, (char *)&hostInfoReply, &replyHeader);
                 memset(&hostInfoReply, 0, sizeof(hostInfoReply));
             }
-        }
-        /* Fall back to legacy full host info query if custom output is unsupported. */
-        if (!custom) {
+        } else {
             hostInfoReply.shortLsInfo = &lsInfo;
             memset(&replyHeader, 0, sizeof(replyHeader));
             cc = callLim_(LIM_GET_HOSTINFO, &hostInfoReq, xdr_decisionReq,

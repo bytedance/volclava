@@ -552,7 +552,7 @@ hostInfoReq(XDR *xdrs,
                 infoPtr->hTypeIndx = -1;
             if (!needsModel)
                 infoPtr->hModelIndx = -1;
-            if (!(mask & (LIM_OUTPUT_MAX_CPUS | LIM_OUTPUT_N_DISKS)))
+            if (!(mask & (LIM_OUTPUT_MAX_CPUS | LIM_OUTPUT_N_PROCS)))
                 infoPtr->maxCpus = 0;
             if (!(mask & LIM_OUTPUT_MAX_MEM))
                 infoPtr->maxMem = 0;

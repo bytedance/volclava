@@ -44,7 +44,7 @@ lsb_hostinfo_ex_fields(char **hosts, int *numHosts, char *resReq, int options,
                        const char *outputFields)
 {
     mbdReqType mbdReqtype;
-    int useOutput, fallbackAttempted = 0;
+    int useOutput;
     XDR xdrs;
     struct LSFHeader hdr;
     char *request_buf;
@@ -143,7 +143,6 @@ lsb_hostinfo_ex_fields(char **hosts, int *numHosts, char *resReq, int options,
     hostInfoReq.outputFields = (char *)(outputFields ? outputFields : "");
 
     useOutput = outputFields && outputFields[0];
-    mbdReqtype = useOutput ? BATCH_OUTPUT : BATCH_HOST_INFO;
     outputFieldsLength = strlen(hostInfoReq.outputFields);
     requestSize = sizeof(struct infoReq)
                   + (size_t)cc * (MAXHOSTNAMELEN + 1)
@@ -153,7 +152,6 @@ lsb_hostinfo_ex_fields(char **hosts, int *numHosts, char *resReq, int options,
         lsberrno = LSBE_NO_MEM;
         return(NULL);
     }
-retryOutput:
     mbdReqtype = useOutput ? BATCH_OUTPUT : BATCH_HOST_INFO;
     xdrmem_create(&xdrs, request_buf, (u_int)requestSize, XDR_ENCODE);
 
@@ -174,14 +172,6 @@ retryOutput:
         xdr_destroy(&xdrs);
         free (request_buf);
 	return (NULL);
-    }
-    if (useOutput && !fallbackAttempted && (hdr.opCode == LSBE_PROTOCOL)) {
-        if (cc) free(reply_buf);
-        reply_buf = NULL;
-        xdr_destroy(&xdrs);
-        useOutput = 0;
-        fallbackAttempted = 1;
-        goto retryOutput;
     }
     xdr_destroy(&xdrs);
     free (request_buf);

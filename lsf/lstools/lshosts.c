@@ -667,6 +667,10 @@ main(int argc, char **argv)
                                                         outputFields)),
                    "ls_gethostinfo_fields");
             if (hostinfo == NULL) {
+                if (oflag && lserrno == LSE_PROTOC_LIM) {
+                    fprintf(stderr, "Server version does not support custom output.\n");
+                    exit(-1);
+                }
                 if (oflag)
                     fmt_output_free(&formatRequest);
                 ls_perror("ls_gethostinfo()");
@@ -678,6 +682,10 @@ main(int argc, char **argv)
                                                         outputFields)),
                    "ls_gethostinfo_fields");
 	    if (hostinfo == NULL) {
+	        if (oflag && lserrno == LSE_PROTOC_LIM) {
+	            fprintf(stderr, "Server version does not support custom output.\n");
+	            exit(-1);
+	        }
 	        if (oflag)
 	            fmt_output_free(&formatRequest);
 	        ls_perror("ls_gethostinfo");

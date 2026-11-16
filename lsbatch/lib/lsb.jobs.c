@@ -148,7 +148,7 @@ lsb_openjobinfo_a_fields(LS_LONG_INT jobId, char *jobName, char *userName,
     static __thread struct jobInfoReq jobInfoReq;
     static __thread struct jobInfoHead jobInfoHead;
     mbdReqType mbdReqtype;
-    int useOutput, fallbackAttempted = 0;
+    int useOutput;
     XDR xdrs, xdrs2;
     char *request_buf = NULL;
     char *reply_buf, *clusterName = NULL;
@@ -262,7 +262,6 @@ lsb_openjobinfo_a_fields(LS_LONG_INT jobId, char *jobName, char *userName,
     compactJobOutput = outputFields && outputFields[0] != '\0'
                        && !(options & JGRP_ARRAY_INFO);
     useOutput = outputFields && outputFields[0] != '\0';
-retryOutput:
     mbdReqtype = useOutput ? BATCH_OUTPUT : BATCH_JOB_INFO;
     xdrmem_create(&xdrs, request_buf, (u_int)requestSize, XDR_ENCODE);
 
@@ -289,23 +288,14 @@ retryOutput:
 	return (NULL);
     }
 
-    /* Fallback to legacy batch RPC if custom output opcode is unsupported */
-    if (useOutput && !fallbackAttempted && (hdr.opCode == LSBE_PROTOCOL)) {
-        if (cc) free(reply_buf);
-        reply_buf = NULL;
-        xdr_destroy(&xdrs);
-        useOutput = 0;
-        fallbackAttempted = 1;
-        lsb_closejobinfo();
-        compactJobOutput = FALSE;
-        goto retryOutput;
-    }
     xdr_destroy(&xdrs);
     free(request_buf);
 
 
 
     lsberrno = hdr.opCode;
+    if (useOutput && lsberrno == LSBE_PROTOCOL)
+        lsb_closejobinfo();
     if (lsberrno == LSBE_NO_ERROR) {
 
 

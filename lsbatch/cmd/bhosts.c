@@ -243,6 +243,10 @@ main(int argc, char **argv)
     free(outputFields);
     outputFields = NULL;
     if (!hInfo) {
+        if (oflag && lsberrno == LSBE_PROTOCOL) {
+            fprintf(stderr, "Server version does not support custom output.\n");
+            exit(-1);
+        }
         if (oflag)
             fmt_output_free(&formatRequest);
         if (lsberrno == LSBE_BAD_HOST && hostPoint)

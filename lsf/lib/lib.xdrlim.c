@@ -1408,7 +1408,7 @@ xdr_hostOutputInfoReply(XDR *xdrs, struct hostInfoReply *reply,
         if ((reply->outputMask & (bits)) && !xdr_int(xdrs, &row->member)) return FALSE;
         LIM_MEMBER(LIM_OUTPUT_TYPE, hTypeIndx)
         LIM_MEMBER(LIM_OUTPUT_MODEL | LIM_OUTPUT_CPU_FACTOR, hModelIndx)
-        LIM_MEMBER(LIM_OUTPUT_MAX_CPUS | LIM_OUTPUT_N_DISKS, maxCpus)
+        LIM_MEMBER(LIM_OUTPUT_MAX_CPUS | LIM_OUTPUT_N_PROCS, maxCpus)
         LIM_MEMBER(LIM_OUTPUT_MAX_MEM, maxMem)
         LIM_MEMBER(LIM_OUTPUT_MAX_SWAP, maxSwap)
         LIM_MEMBER(LIM_OUTPUT_SERVER | LIM_OUTPUT_WINDOWS, flags)
