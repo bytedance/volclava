@@ -136,7 +136,7 @@ usage (char *cmd)
 int
 main(int argc, char **argv)
 {
-    int i, cc, local = FALSE;
+    int cc, local = FALSE;
     struct hostInfoEnt *hInfo;
     char **hosts=NULL, **hostPoint, *resReq = NULL, *fieldName = NULL;
     char lflag = FALSE, sOption = FALSE, otherOption = FALSE, oflag = FALSE;
@@ -154,40 +154,17 @@ main(int argc, char **argv)
 	exit(-1);
     }
 
-    for  (i = 1; i < argc; i++) {
-        if (strcmp(argv[i], "-h") == 0) {
-            usage(argv[0]);
-            _i18n_end ( ls_catd );
-            exit (0);
-        } else if (strcmp(argv[i], "-V") == 0) {
-            fputs(_LS_VERSION_, stdout);
-            _i18n_end ( ls_catd );
-            exit(0);
-        } else if (strcmp(argv[i], "-s") == 0) {
-            if (otherOption == TRUE) {
-                usage(argv[0]);
-                _i18n_end ( ls_catd );
-                exit(-1);
-            }
-            sOption = TRUE;
-            optind = i + 1;
-        } else if (strcmp(argv[i], "-R") == 0 || strcmp(argv[i], "-l") == 0
-                   || strcmp(argv[i], "-w") == 0 || strcmp(argv[i], "-o") == 0 || strcmp(argv[i], "-json") == 0) {
-            otherOption = TRUE;
-            if (sOption == TRUE) {
-                usage(argv[0]);
-                _i18n_end ( ls_catd );
-                exit(-1);
-            }
-        }
-    }
-
-    if (sOption) {
-        displayShareRes(argc, argv, optind);
-        return (0);
-    }
-    while ((cc = getopt(argc, argv, "lwR:o:j:")) != EOF) {
+    while ((cc = getopt(argc, argv, "hVslwR:o:j:")) != EOF) {
         switch (cc) {
+            case 'h':
+                usage(argv[0]);
+                exit(0);
+            case 'V':
+                fputs(_LS_VERSION_, stdout);
+                exit(0);
+            case 's':
+                sOption = TRUE;
+                continue;
             case 'j':
                 if (strcmp(optarg, "son") != 0) usage(argv[0]);
                 jsonflag = 1;
@@ -214,6 +191,13 @@ main(int argc, char **argv)
         default:
             usage(argv[0]);
 	}
+        otherOption = TRUE;
+    }
+    if (sOption) {
+        if (otherOption)
+            usage(argv[0]);
+        displayShareRes(argc, argv, optind);
+        return 0;
     }
     if (jsonflag && !oflag) {
         fprintf(stderr, "bhosts: -json requires -o.\n");

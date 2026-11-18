@@ -1651,6 +1651,8 @@ extern int lsb_openjobinfo P_((LS_LONG_INT, char *, char *, char *, char *,
 			       int));
 extern struct jobInfoHead *lsb_openjobinfo_a P_((LS_LONG_INT, char *,char *,
 					 char *, char *, int));
+/* A nonempty projection requires BATCH_OUTPUT. A missing normalization
+ * context is reported as LSBE_PROTOCOL by open or by lsb_readjobinfo. */
 extern struct jobInfoHead *lsb_openjobinfo_a_fields P_((LS_LONG_INT, char *,
                                                         char *, char *, char *,
                                                         int, const char *));

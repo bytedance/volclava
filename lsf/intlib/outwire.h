@@ -43,6 +43,8 @@
 #define JOB_OUTPUT_REASONS     (1ULL << 15)
 #define JOB_OUTPUT_MAX_MEM     (1ULL << 16)
 #define JOB_OUTPUT_AVG_MEM     (1ULL << 17)
+#define JOB_OUTPUT_HOST_SPEC   (1ULL << 18)
+#define JOB_OUTPUT_VALID_MASK  ((1ULL << 19) - 1)
 
 /* Host output fields wire bits */
 #define HOST_OUTPUT_HOST_NAME       (1ULL << 0)

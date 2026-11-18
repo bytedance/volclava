@@ -157,16 +157,28 @@ main (int argc, char **argv)
     }
 
     if (format == O_FORMAT) {
+        int needed;
+
         if (parseJobOutputFormat(fieldName, &formatRequest) < 0)
             exit(-1);
-        outputFields = fmt_output_fields_dup(&formatRequest);
-        if (!outputFields) {
-            fmt_output_free(&formatRequest);
-            lsb_perror("fmt_output_fields_dup");
-            exit(-1);
-        }
         normalizeCpu = cpuFactor > 0
                        && fmt_output_field_requested(&formatRequest, "CPU_USED");
+        needed = fmt_output_fields_string(&formatRequest, NULL, 0);
+        outputFields = needed > 0 ? malloc((size_t)needed +
+            (normalizeCpu ? sizeof(" STAT EXEC_HOST HOST_SPEC") : 0)) : NULL;
+        if (!outputFields) {
+            fmt_output_free(&formatRequest);
+            perror("job output fields");
+            exit(-1);
+        }
+        fmt_output_fields_string(&formatRequest, outputFields, needed);
+        if (normalizeCpu) {
+            if (!fmt_output_field_requested(&formatRequest, "STAT"))
+                strcat(outputFields, " STAT");
+            if (!fmt_output_field_requested(&formatRequest, "EXEC_HOST"))
+                strcat(outputFields, " EXEC_HOST");
+            strcat(outputFields, " HOST_SPEC");
+        }
     }
 
     if ((format == LONG_FORMAT || format == UF_FORMAT) && (options & PEND_JOB))
@@ -209,12 +221,12 @@ main (int argc, char **argv)
                                                  queue,
                                                  host,
                                                  options,
-                                                 normalizeCpu ? NULL : outputFields)),
+                                                 outputFields)),
            "lsb_openjobinfo_a_fields");
     free(outputFields);
     outputFields = NULL;
     if (jInfoH == NULL) {
-        if (format == O_FORMAT && !normalizeCpu && lsberrno == LSBE_PROTOCOL) {
+        if (format == O_FORMAT && lsberrno == LSBE_PROTOCOL) {
             fprintf(stderr, "Server version does not support custom output.\n");
             exit(-1);
         }
@@ -274,7 +286,10 @@ main (int argc, char **argv)
 
         TIMEIT(0, (job = lsb_readjobinfo(NULL)), "lsb_readjobinfo");
         if (job == NULL) {
-            lsb_perror("lsb_readjobinfo");
+            if (format == O_FORMAT && lsberrno == LSBE_PROTOCOL)
+                fprintf(stderr, "Server version does not support custom output.\n");
+            else
+                lsb_perror("lsb_readjobinfo");
             exit(-1);
         }
 
@@ -311,7 +326,6 @@ main (int argc, char **argv)
             continue;
         }
 
-        /* Normalization needs hostSpec, absent from compact replies. */
         if (normalizeCpu) {
             float cpuTime = job->cpuTime > 0 ? job->cpuTime
                            : job->runRusage.utime + job->runRusage.stime;

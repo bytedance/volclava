@@ -196,7 +196,8 @@ pruneJobInfoReplyFields(struct jobInfoReply *reply, const char *fields)
     clearStringField(&bill->chkpntDir);
     clearStringField(&bill->subHomeDir);
     clearStringField(&bill->cwd);
-    clearStringField(&bill->hostSpec);
+    if (!fmt_fields_requested(fields, "HOST_SPEC"))
+        clearStringField(&bill->hostSpec);
     if (bill->numAskedHosts > 0) {
         for (i = 0; i < bill->numAskedHosts; i++)
             FREEUP(bill->askedHosts[i]);
@@ -1082,6 +1083,15 @@ toLimitDetailEnt(const struct limitDetail *d)
     return e;
 }
 
+static struct hData *
+jobCpuFactorHost(const struct jData *job)
+{
+    if (job->numHostPtr <= 0 || !job->hPtr || !job->hPtr[0]
+        || IS_PEND(job->jStatus) || (job->hPtr[0]->flags & HOST_LOST_FOUND))
+        return NULL;
+    return job->hPtr[0];
+}
+
 int
 packJobInfo(struct jData * jobData,
             int remain,
@@ -1375,12 +1385,11 @@ packJobInfo(struct jData * jobData,
 
 
     cpuFactor = NULL;
-    if ((jobData->numHostPtr > 0) && (jobData->hPtr[0] != NULL)
-        && !IS_PEND (jobData->jStatus)
-        && ! (jobData->hPtr[0]->flags & HOST_LOST_FOUND)) {
-        cpuFactor = &jobData->hPtr[0]->cpuFactor;
+    hPtr = jobCpuFactorHost(jobData);
+    if (hPtr) {
+        cpuFactor = &hPtr->cpuFactor;
         FREEUP (jobInfoReply.jobBill->hostSpec);
-        jobInfoReply.jobBill->hostSpec = safeSave(jobData->hPtr[0]->host);
+        jobInfoReply.jobBill->hostSpec = safeSave(hPtr->host);
     } else {
         if (getModelFactor_r(jobInfoReply.jobBill->hostSpec, &cpuF) < 0) {
             cpuFactor = getHostFactor(jobInfoReply.jobBill->hostSpec);
@@ -1474,6 +1483,8 @@ jobOutputFieldMask(const char *fields)
     unsigned int mask = (unsigned int)OUTPUT_MASK(fields, job);
 
     /* USER and project are needed by client visibility filters. */
+    if (fmt_fields_requested(fields, "HOST_SPEC"))
+        mask |= JOB_OUTPUT_HOST_SPEC;
     return mask | JOB_OUTPUT_USER | JOB_OUTPUT_PROJ_NAME;
 }
 
@@ -1504,6 +1515,12 @@ packJobOutput(struct jData *jobData, int remain, char **replyBuf,
     bill = &jobData->shared->jobBill;
     reply.jobId = jobData->jobId;
     reply.fields = jobOutputFieldMask(outputFields);
+    if (reply.fields & JOB_OUTPUT_HOST_SPEC) {
+        struct hData *host = jobCpuFactorHost(jobData);
+        reply.hostSpec = host ? host->host : bill->hostSpec;
+        if (!reply.hostSpec)
+            reply.hostSpec = "";
+    }
     reply.userName = jobData->userName ? jobData->userName : "";
     reply.status = (jobData->jStatus & JOB_STAT_UNKWN)
                    ? JOB_STAT_UNKWN
@@ -1563,6 +1580,9 @@ encodeJobOutput(struct jobOutputReply *reply, int remain, char **replyBuf)
             || (reply->npids > 0 && !reply->pidInfo))) {
         return -1;
     }
+    if ((reply->fields & JOB_OUTPUT_HOST_SPEC)
+        && addJobOutputStringSize(&needed, reply->hostSpec) < 0)
+        goto sizeError;
     if (addJobOutputStringSize(&needed, reply->userName) < 0
         || addJobOutputStringSize(&needed, reply->projectName) < 0)
         goto sizeError;
@@ -1671,6 +1691,7 @@ transcodeJobOutput(char *packet, int length, int remain, char **output,
     }
     xdr_destroy(&xdrs);
     compact.fields = jobOutputFieldMask(fields);
+    compact.hostSpec = bill.hostSpec;
     compact.jobId = job.jobId;
     compact.userName = job.userName;
     compact.status = job.status;
@@ -4055,6 +4076,7 @@ do_outputReq(XDR *xdrs, int chfd, struct sockaddr_in *from,
 {
     switch (hdr->reserved) {
     case OUTPUT_JOB:
+    case OUTPUT_JOB_GROUP_CPU:
     case OUTPUT_JOB_GROUP:
         return do_jobInfoReq(xdrs, chfd, from, hdr, schedule);
     case OUTPUT_HOST:

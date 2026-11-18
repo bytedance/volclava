@@ -314,7 +314,8 @@ static void processQueryRequestByThread(struct clientNode *client) {
      Therefore, we allocate a dedicated thread pool to handle BATCH_JOB_INFO requests to prevent BATCH_QUE_INFO requests from being unprocessed.
     */
     if (reqHdr.opCode == BATCH_JOB_INFO || IS_JOB_OUTPUT(&reqHdr) ||
-        (reqHdr.opCode == BATCH_OUTPUT && reqHdr.reserved == OUTPUT_JOB_GROUP)) {
+        (reqHdr.opCode == BATCH_OUTPUT && (reqHdr.reserved == OUTPUT_JOB_GROUP ||
+                                         reqHdr.reserved == OUTPUT_JOB_GROUP_CPU))) {
         ret = addTaskToThreadPool(heavyQueryPool, processRequest, reqContext);
     }else{
         ret = addTaskToThreadPool(lightQueryPool, processRequest, reqContext);

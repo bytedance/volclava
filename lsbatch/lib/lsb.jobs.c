@@ -25,6 +25,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "lsb.h"
+#include "../../lsf/intlib/fmtout.h"
 
 extern int errno;
 
@@ -35,6 +36,7 @@ extern int _lsb_recvtimeout;
 static int mbdSock = -1;
 static __thread int compactJobOutput = FALSE;
 static __thread struct jobOutputReply compactReply;
+static __thread unsigned int requiredJobFields;
 static __thread int jobInfoRemaining;
 
 static void
@@ -64,6 +66,11 @@ readCompactJobOutput(char *buffer, struct LSFHeader *hdr, int *more)
         return NULL;
     }
     xdr_destroy(&xdrs);
+
+    if ((compactReply.fields & requiredJobFields) != requiredJobFields) {
+        lsberrno = LSBE_PROTOCOL;
+        return NULL;
+    }
 
     memset(&jobInfo, 0, sizeof(jobInfo));
     jobInfo.jobId = compactReply.jobId;
@@ -95,7 +102,7 @@ readCompactJobOutput(char *buffer, struct LSFHeader *hdr, int *more)
     jobInfo.submit.inFile = empty;
     jobInfo.submit.outFile = empty;
     jobInfo.submit.errFile = empty;
-    jobInfo.submit.hostSpec = empty;
+    jobInfo.submit.hostSpec = compactReply.hostSpec ? compactReply.hostSpec : empty;
     jobInfo.submit.chkpntDir = empty;
     jobInfo.submit.dependCond = empty;
     jobInfo.submit.preExecCmd = empty;
@@ -261,6 +268,8 @@ lsb_openjobinfo_a_fields(LS_LONG_INT jobId, char *jobName, char *userName,
 
     compactJobOutput = outputFields && outputFields[0] != '\0'
                        && !(options & JGRP_ARRAY_INFO);
+    requiredJobFields = fmt_fields_requested(outputFields, "HOST_SPEC")
+        ? JOB_OUTPUT_CPU_USED | JOB_OUTPUT_STAT | JOB_OUTPUT_EXEC_HOST | JOB_OUTPUT_HOST_SPEC : 0;
     useOutput = outputFields && outputFields[0] != '\0';
     mbdReqtype = useOutput ? BATCH_OUTPUT : BATCH_JOB_INFO;
     xdrmem_create(&xdrs, request_buf, (u_int)requestSize, XDR_ENCODE);
@@ -268,6 +277,8 @@ lsb_openjobinfo_a_fields(LS_LONG_INT jobId, char *jobName, char *userName,
     initLSFHeader_(&hdr);
     hdr.opCode = mbdReqtype;
     hdr.reserved = useOutput ? (compactJobOutput ? OUTPUT_JOB : OUTPUT_JOB_GROUP) : 0;
+    if (hdr.reserved == OUTPUT_JOB_GROUP && requiredJobFields)
+        hdr.reserved = OUTPUT_JOB_GROUP_CPU;
     TIMEIT(1, (aa = xdr_encodeMsg(&xdrs,
                            (char *) &jobInfoReq, &hdr,
                            xdr_jobInfoReq, 0, NULL)), "xdr_encodeMsg");
@@ -294,6 +305,8 @@ lsb_openjobinfo_a_fields(LS_LONG_INT jobId, char *jobName, char *userName,
 
 
     lsberrno = hdr.opCode;
+    if (!compactJobOutput && requiredJobFields && lsberrno == LSBE_BAD_ARG)
+        lsberrno = LSBE_PROTOCOL;
     if (useOutput && lsberrno == LSBE_PROTOCOL)
         lsb_closejobinfo();
     if (lsberrno == LSBE_NO_ERROR) {
@@ -341,7 +354,7 @@ lsb_readjobinfo(int *more)
     TIMEIT(0, (num = readNextPacket(&buffer, _lsb_recvtimeout, &hdr,
 				    mbdSock)), "readNextPacket");
     if (num < 0) {
-	closeSession(mbdSock);
+        lsb_closejobinfo();
         lsberrno = LSBE_EOF;
 	return NULL;
     }
@@ -351,6 +364,11 @@ lsb_readjobinfo(int *more)
 
         compactInfo = readCompactJobOutput(buffer, &hdr, more);
         free(buffer);
+        if (!compactInfo) {
+            int error = lsberrno;
+            lsb_closejobinfo();
+            lsberrno = error;
+        }
         return compactInfo;
     }
 

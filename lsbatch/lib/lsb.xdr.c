@@ -1218,6 +1218,7 @@ xdr_jobOutputReply(XDR *xdrs, struct jobOutputReply *reply,
         FREEUP(reply->exHosts);
         FREEUP(reply->jobName);
         FREEUP(reply->projectName);
+        FREEUP(reply->hostSpec);
         FREEUP(reply->pidInfo);
         reply->numExHosts = 0;
         reply->npids = 0;
@@ -1235,7 +1236,7 @@ xdr_jobOutputReply(XDR *xdrs, struct jobOutputReply *reply,
         || !xdr_u_int(xdrs, &reply->fields))
         return FALSE;
 
-    if (reply->fields & ~0x3ffffu)
+    if (reply->fields & ~JOB_OUTPUT_VALID_MASK)
         return FALSE;
     if (xdrs->x_op == XDR_DECODE)
         jobId32To64(&reply->jobId, jobId, arrayIndex);
@@ -1317,6 +1318,9 @@ xdr_jobOutputReply(XDR *xdrs, struct jobOutputReply *reply,
         return FALSE;
     if ((reply->fields & JOB_OUTPUT_AVG_MEM)
         && !xdr_int(xdrs, &reply->avgMem))
+        return FALSE;
+    if ((reply->fields & JOB_OUTPUT_HOST_SPEC)
+        && !xdr_string(xdrs, &reply->hostSpec, MAXHOSTNAMELEN))
         return FALSE;
 
     return TRUE;

@@ -48,6 +48,13 @@
 #define MAX(x,y)        ((x) > (y) ? (x) : (y))
 #endif 
 
+struct queryOutputReplies {
+    struct hostDataReply hosts;
+    struct queueInfoReply queues;
+};
+
+struct queryOutputReplies *getQueryOutputReplies(void);
+
 #define DEF_COMMITTED_RUN_TIME_FACTOR 0.0
 
 extern struct config_param lsbParams[];

@@ -89,6 +89,7 @@ typedef enum {
 #define OUTPUT_HOST  2
 #define OUTPUT_QUEUE 3
 #define OUTPUT_JOB_GROUP 4 /* Group records retain the legacy record shape. */
+#define OUTPUT_JOB_GROUP_CPU 5 /* Group projection preserves normalization context. */
 #define IS_JOB_OUTPUT(h) ((h)->opCode == BATCH_OUTPUT && \
     (h)->reserved == OUTPUT_JOB)
 
@@ -292,6 +293,7 @@ _Static_assert((1ULL << 14) == JOB_OUTPUT_EXIT_CODE, "bit drift EXIT_CODE");
 _Static_assert((1ULL << 15) == JOB_OUTPUT_REASONS, "bit drift REASONS");
 _Static_assert((1ULL << 16) == JOB_OUTPUT_MAX_MEM, "bit drift MAX_MEM");
 _Static_assert((1ULL << 17) == JOB_OUTPUT_AVG_MEM, "bit drift AVG_MEM");
+_Static_assert((1ULL << 18) == JOB_OUTPUT_HOST_SPEC, "bit drift HOST_SPEC");
 
 /* Host domain bit drift assertions */
 _Static_assert((1ULL << 0) == HOST_OUTPUT_HOST_NAME, "bit drift HOST_NAME");
@@ -382,6 +384,7 @@ struct jobOutputReply {
     time_t startTime;
     time_t endTime;
     int exitStatus;
+    char *hostSpec;
 };
 
 struct infoReq {

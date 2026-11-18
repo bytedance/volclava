@@ -36,9 +36,8 @@ lsb_queueinfo_fields(char **queues, int *numQueues, char *hosts, char *users,
 {
     mbdReqType mbdReqtype;
     int useOutput;
-    static __thread struct infoReq queueInfoReq;
+    struct infoReq queueInfoReq = {0};
     static __thread struct queueInfoReply reply;
-    static __thread struct queueInfoReply outputReply;
     static __thread struct queueInfoEnt **qInfo = NULL;
     struct queueInfoEnt **qTmp;
     XDR xdrs, xdrs2;
@@ -69,10 +68,6 @@ lsb_queueinfo_fields(char **queues, int *numQueues, char *hosts, char *users,
     }
 
     queueInfoReq.options = 0;                
-
-    if (queueInfoReq.names) {
-        FREEUP (queueInfoReq.names);           
-    }
 
     if (numQueues == NULL || *numQueues == 0)
         queueInfoReq.options |= ALL_QUEUE;
@@ -115,6 +110,7 @@ lsb_queueinfo_fields(char **queues, int *numQueues, char *hosts, char *users,
             queueInfoReq.names[cc] = users;
             cc++;
         } else {
+            free(queueInfoReq.names);
             lsberrno = LSBE_BAD_USER;
             *numQueues = 0;
             return (NULL);
@@ -128,6 +124,7 @@ lsb_queueinfo_fields(char **queues, int *numQueues, char *hosts, char *users,
                 queueInfoReq.names[cc] = hosts;
                 cc++;
             } else {
+                free(queueInfoReq.names);
                 lsberrno = LSBE_BAD_HOST;
                 *numQueues = 0;
                 return (NULL);
@@ -149,6 +146,7 @@ lsb_queueinfo_fields(char **queues, int *numQueues, char *hosts, char *users,
                   + outputFieldsLength + strlen(queueInfoReq.resReq) + 116;
     if (requestSize > UINT_MAX
         || (request_buf = malloc(requestSize)) == NULL) {
+        free(queueInfoReq.names);
         lsberrno = LSBE_NO_MEM;
         return(NULL);
     }
@@ -157,8 +155,10 @@ lsb_queueinfo_fields(char **queues, int *numQueues, char *hosts, char *users,
     initLSFHeader_(&hdr); 
     hdr.opCode = mbdReqtype;
     hdr.reserved = useOutput ? OUTPUT_QUEUE : 0;
-    if (!xdr_encodeMsg(&xdrs, (char*) &queueInfoReq, &hdr, xdr_infoReq,
-		              0, NULL)) {
+    i = xdr_encodeMsg(&xdrs, (char*) &queueInfoReq, &hdr, xdr_infoReq,
+		              0, NULL);
+    free(queueInfoReq.names);
+    if (!i) {
         lsberrno = LSBE_XDR;
         xdr_destroy(&xdrs);
         free (request_buf);
@@ -181,23 +181,31 @@ lsb_queueinfo_fields(char **queues, int *numQueues, char *hosts, char *users,
     lsberrno = hdr.opCode;
     if (lsberrno == LSBE_NO_ERROR || lsberrno == LSBE_BAD_QUEUE) {
         if (useOutput) {
-            xdr_lsffree(xdr_queueOutputReply, (char *)&outputReply, &hdr);
-            memset(&outputReply, 0, sizeof(outputReply));
+            struct queryOutputReplies *replies = getQueryOutputReplies();
+            struct queueInfoReply *outputReply;
+
+            if (!replies) {
+                free(reply_buf);
+                return NULL;
+            }
+            outputReply = &replies->queues;
+            xdr_lsffree(xdr_queueOutputReply, (char *)outputReply, &hdr);
+            memset(outputReply, 0, sizeof(*outputReply));
             xdrmem_create(&xdrs2, reply_buf, XDR_DECODE_SIZE_(cc), XDR_DECODE);
-            i = xdr_queueOutputReply(&xdrs2, &outputReply, &hdr);
+            i = xdr_queueOutputReply(&xdrs2, outputReply, &hdr);
             xdr_destroy(&xdrs2);
             free(reply_buf);
             if (!i) {
-                xdr_lsffree(xdr_queueOutputReply, (char *)&outputReply, &hdr);
+                xdr_lsffree(xdr_queueOutputReply, (char *)outputReply, &hdr);
                 lsberrno = LSBE_XDR;
                 return NULL;
             }
             if (lsberrno == LSBE_BAD_QUEUE) {
-                *numQueues = outputReply.badQueue;
+                *numQueues = outputReply->badQueue;
                 return NULL;
             }
-            *numQueues = outputReply.numQueues;
-            return outputReply.queues;
+            *numQueues = outputReply->numQueues;
+            return outputReply->queues;
         }
 	xdrmem_create(&xdrs2, reply_buf, XDR_DECODE_SIZE_(cc), XDR_DECODE);	
         if (!xdr_queueInfoReply(&xdrs2, &reply, &hdr)) {

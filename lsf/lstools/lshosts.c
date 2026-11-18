@@ -523,48 +523,24 @@ main(int argc, char **argv)
     if (logclass & (LC_TRACE))
         ls_syslog(LOG_DEBUG, "%s: Entering this routine...", fname);
 
-    for (i = 1; i < argc; i++) {
-        if (strcmp(argv[i], "-h") == 0) {
-            usage(argv[0]);
-            exit (0);
-        } else if (strcmp(argv[i], "-V") == 0) {
-            fputs(_LS_VERSION_, stdout);
-            exit(0);
-        } else if (strcmp(argv[i], "-s") == 0) {
-            if (otherOption == TRUE) {
+    while ((achar = getopt(argc, argv, "hVseR:lwo:j:")) != EOF) {
+        switch (achar) {
+            case 'h':
                 usage(argv[0]);
-                exit(-1);
-            }
-            staticResource = TRUE;
-            optind = i + 1;
-        } else if (strcmp(argv[i], "-e") == 0) {
-            if (otherOption == TRUE || staticResource == FALSE) {
-                usage(argv[0]);
-                exit(-1);
-            }
-            optind = i + 1;
-            extView = TRUE;
-        } else if (strcmp(argv[i], "-R") == 0 || strcmp(argv[i], "-l") == 0
-                  || strcmp(argv[i], "-w") == 0 || strcmp(argv[i], "-o") == 0 || strcmp(argv[i], "-json") == 0) {
-            otherOption = TRUE;
-            if (staticResource == TRUE) {
-                usage(argv[0]);
-                exit(-1);
-            }
-        }
-    }
-
-    if (staticResource == TRUE) {
-        displayShareResource(argc, argv, optind, TRUE, extView );
-    } else {
-        namebufs = calloc((size_t)argc + 1, sizeof(char *));
-        if (!namebufs) {
-            lserrno = LSE_MALLOC;
-            ls_perror("calloc");
-            exit(-1);
-        }
-        while ((achar = getopt(argc, argv, "R:lwo:j:")) != EOF) {
- 	    switch (achar) {
+                exit(0);
+            case 'V':
+                fputs(_LS_VERSION_, stdout);
+                exit(0);
+            case 's':
+                staticResource = TRUE;
+                continue;
+            case 'e':
+                if (!staticResource) {
+                    usage(argv[0]);
+                    exit(-1);
+                }
+                extView = TRUE;
+                continue;
             case 'j':
                 if (strcmp(optarg, "son") != 0) {
                     usage(argv[0]);
@@ -604,8 +580,22 @@ main(int argc, char **argv)
             default:
 	        usage(argv[0]);
 	        exit(-1);
-		    }
-	        }
+        }
+        otherOption = TRUE;
+    }
+    if (staticResource && otherOption) {
+        usage(argv[0]);
+        exit(-1);
+    }
+    if (staticResource) {
+        displayShareResource(argc, argv, optind, TRUE, extView);
+    } else {
+        namebufs = calloc((size_t)argc + 1, sizeof(char *));
+        if (!namebufs) {
+            lserrno = LSE_MALLOC;
+            ls_perror("calloc");
+            exit(-1);
+        }
         if (jsonflag && !oflag) {
             fprintf(stderr, "lshosts: -json requires -o.\n");
             exit(-1);

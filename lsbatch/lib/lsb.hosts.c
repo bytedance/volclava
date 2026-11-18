@@ -53,9 +53,8 @@ lsb_hostinfo_ex_fields(char **hosts, int *numHosts, char *resReq, int options,
     size_t outputFieldsLength;
     size_t requestSize;
     char *clusterName =NULL;
-    static __thread struct infoReq hostInfoReq;
+    struct infoReq hostInfoReq = {0};
     struct hostDataReply reply;
-    static __thread struct hostDataReply outputReply;
 
     if (numHosts) {
         numReq = *numHosts;                     
@@ -66,7 +65,6 @@ lsb_hostinfo_ex_fields(char **hosts, int *numHosts, char *resReq, int options,
 	return(NULL);
     }
 
-    FREEUP (hostInfoReq.names);              
     if (numHosts == NULL || numReq == 0) {      
         hostInfoReq.numNames = 0;
         if ((hostInfoReq.names = (char **) malloc (sizeof(char *))) == NULL) {
@@ -131,6 +129,7 @@ lsb_hostinfo_ex_fields(char **hosts, int *numHosts, char *resReq, int options,
     hostInfoReq.options = options;
     if (resReq != NULL) {
 	if (strlen(resReq) > MAXLINELEN -1) {
+	    free(hostInfoReq.names);
 	    lsberrno = LSBE_BAD_RESREQ;
 	    return(NULL);
         } else {
@@ -149,6 +148,7 @@ lsb_hostinfo_ex_fields(char **hosts, int *numHosts, char *resReq, int options,
                   + outputFieldsLength + strlen(hostInfoReq.resReq) + 116;
     if (requestSize > UINT_MAX
         || (request_buf = malloc(requestSize)) == NULL) {
+        free(hostInfoReq.names);
         lsberrno = LSBE_NO_MEM;
         return(NULL);
     }
@@ -158,8 +158,10 @@ lsb_hostinfo_ex_fields(char **hosts, int *numHosts, char *resReq, int options,
     initLSFHeader_(&hdr);
     hdr.opCode = mbdReqtype;
     hdr.reserved = useOutput ? OUTPUT_HOST : 0;
-    if (!xdr_encodeMsg(&xdrs, (char *)&hostInfoReq, &hdr, xdr_infoReq,
-		              0, NULL)) {
+    i = xdr_encodeMsg(&xdrs, (char *)&hostInfoReq, &hdr, xdr_infoReq,
+		              0, NULL);
+    free(hostInfoReq.names);
+    if (!i) {
         xdr_destroy(&xdrs);
         free (request_buf);
 	lsberrno = LSBE_XDR;
@@ -181,23 +183,31 @@ lsb_hostinfo_ex_fields(char **hosts, int *numHosts, char *resReq, int options,
     lsberrno = hdr.opCode;
     if (lsberrno == LSBE_NO_ERROR || lsberrno == LSBE_BAD_HOST) {
         if (useOutput) {
-            xdr_lsffree(xdr_hostOutputReply, (char *)&outputReply, &hdr);
-            memset(&outputReply, 0, sizeof(outputReply));
+            struct queryOutputReplies *replies = getQueryOutputReplies();
+            struct hostDataReply *outputReply;
+
+            if (!replies) {
+                free(reply_buf);
+                return NULL;
+            }
+            outputReply = &replies->hosts;
+            xdr_lsffree(xdr_hostOutputReply, (char *)outputReply, &hdr);
+            memset(outputReply, 0, sizeof(*outputReply));
             xdrmem_create(&xdrs, reply_buf, XDR_DECODE_SIZE_(cc), XDR_DECODE);
-            i = xdr_hostOutputReply(&xdrs, &outputReply, &hdr);
+            i = xdr_hostOutputReply(&xdrs, outputReply, &hdr);
             xdr_destroy(&xdrs);
             free(reply_buf);
             if (!i) {
-                xdr_lsffree(xdr_hostOutputReply, (char *)&outputReply, &hdr);
+                xdr_lsffree(xdr_hostOutputReply, (char *)outputReply, &hdr);
                 lsberrno = LSBE_XDR;
                 return NULL;
             }
             if (lsberrno == LSBE_BAD_HOST) {
-                *numHosts = outputReply.badHost;
+                *numHosts = outputReply->badHost;
                 return NULL;
             }
-            *numHosts = outputReply.numHosts;
-            return outputReply.hosts;
+            *numHosts = outputReply->numHosts;
+            return outputReply->hosts;
         }
 	xdrmem_create(&xdrs, reply_buf, XDR_DECODE_SIZE_(cc), XDR_DECODE);
 	
