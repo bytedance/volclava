@@ -549,26 +549,26 @@ main(int argc, char **argv)
                 jsonflag = 1;
                 break;
             case 'R':
-	        if (strlen(optarg) > MAXLINELEN) {
-                        printf(" %s", I18N(1645, "The resource requirement string exceeds the maximum length of 512 characters. Specify a shorter resource requirement.\n")); /* catgets  1645  */
-		        exit (-1);
-	        }
-	        resReq = optarg;
-	        break;
+                if (strlen(optarg) > MAXLINELEN) {
+                    printf(" %s", I18N(1645, "The resource requirement string exceeds the maximum length of 512 characters. Specify a shorter resource requirement.\n")); /* catgets  1645  */
+                    exit (-1);
+                }
+                resReq = optarg;
+                break;
             case 'l':
                 if (longname || oflag) {
                     usage(argv[0]);
                     exit(-1);
                 }
-	        longformat = TRUE;
-	        break;
+                longformat = TRUE;
+                break;
             case 'w':
                 if (longformat || oflag) {
                     usage(argv[0]);
                     exit(-1);
                 }
-	        longname = TRUE;
-	        break;
+                longname = TRUE;
+                break;
             case 'o':
                 if (longformat || longname || oflag || *optarg == '\0') {
                     usage(argv[0]);
@@ -578,8 +578,8 @@ main(int argc, char **argv)
                 fieldName = optarg;
                 break;
             default:
-	        usage(argv[0]);
-	        exit(-1);
+                usage(argv[0]);
+                exit(-1);
         }
         otherOption = TRUE;
     }

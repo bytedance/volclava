@@ -169,28 +169,28 @@ main(int argc, char **argv)
                 if (strcmp(optarg, "son") != 0) usage(argv[0]);
                 jsonflag = 1;
                 break;
-	case 'l':
-	    lflag = TRUE;
-            if (wflag || oflag)
+            case 'l':
+                lflag = TRUE;
+                if (wflag || oflag)
+                    usage(argv[0]);
+                break;
+            case 'w':
+                wflag = TRUE;
+                if (lflag || oflag)
+                    usage(argv[0]);
+                break;
+            case 'R':
+                resReq = optarg;
+                break;
+            case 'o':
+                if (oflag || lflag || wflag || *optarg == '\0')
+                    usage(argv[0]);
+                oflag = TRUE;
+                fieldName = optarg;
+                break;
+            default:
                 usage(argv[0]);
-	    break;
-	case 'w':
-	    wflag = TRUE;
-            if (lflag || oflag)
-                usage(argv[0]);
-	    break;
-	case 'R':
-	    resReq = optarg;
-	    break;
-	case 'o':
-	    if (oflag || lflag || wflag || *optarg == '\0')
-                usage(argv[0]);
-            oflag = TRUE;
-            fieldName = optarg;
-	    break;
-        default:
-            usage(argv[0]);
-	}
+        }
         otherOption = TRUE;
     }
     if (sOption) {
