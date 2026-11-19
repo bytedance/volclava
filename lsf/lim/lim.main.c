@@ -488,6 +488,7 @@ processUDPMsg(void)
         case LIM_PING:
             pingReq(&xdrs, &from, &reqHdr);
             break;
+        case LIM_HOST_OUTPUT:
         case LIM_GET_HOSTINFO:
             hostInfoReq(&xdrs, fromHost, &from, &reqHdr, -1);
             break;

@@ -542,6 +542,7 @@ extern void lsb_merr(char *s);
 extern void merr_user(char *user, char *host, char *msg, char *type);
 extern int portok(struct sockaddr_in *from);
 extern char *safeSave(char *);
+extern void clearStringField(char **);
 extern void lsb_mperr(char *msg);
 extern void mclose(FILE *file);
 extern void relife(char *call_func, char *call_reason);

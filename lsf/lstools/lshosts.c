@@ -30,6 +30,9 @@
 
 #include "../lib/lproto.h"
 #include "../intlib/intlibout.h"
+#include "../intlib/outfields.h"
+
+static int jsonflag = 0;
 
 #include <math.h>
 
@@ -38,6 +41,8 @@
 
 static void usage(char *);
 static void print_long(struct hostInfo *hostInfo);
+static void print_o(struct hostInfo *hostInfo, int numHosts,
+                    const struct fmt_request *request);
 static char *stripSpaces(char *);
 
 
@@ -66,6 +71,11 @@ struct indexFmt fmt1[] = {
 {  NULL,  "%7s", "*%6.1f"  , " %6.1f",      1.0 }
 }, *fmt;
 
+#define host_output_fields output_lim_fields
+
+#define NUM_HOST_OUTPUT_FIELDS \
+    ((int)(sizeof(host_output_fields) / sizeof(host_output_fields[0])))
+
 static char *
 stripSpaces(char *field)
 {
@@ -88,7 +98,7 @@ stripSpaces(char *field)
 static void
 usage(char *cmd)
 {
-    fprintf(stderr, "%s: %s [-h] [-V] [-w | -l] [-R res_req] [host_name ...]\n", I18N_Usage, cmd);
+    fprintf(stderr, "%s: %s [-h] [-V] [-w | -l | -o output_format [-json]] [-R res_req] [host_name ...]\n", I18N_Usage, cmd);
     fprintf(stderr, "%s\n %s [-h] [-V] -s [static_resouce_name ...]\n", I18N_or, cmd);
 }
 
@@ -100,7 +110,6 @@ print_long(struct hostInfo *hostInfo)
     char  *sp;
     static char first = TRUE;
     static char line[132];
-    static char newFmt[10];
     int newIndexLen, retVal;
     static char **indxnames;
     char **shareNames, **shareValues, **formats;
@@ -133,8 +142,8 @@ print_long(struct hostInfo *hostInfo)
                 fmtid = i;
 
             if ((fmtid == MEM +1) && (newIndexLen = strlen(indxnames[i])) >= 7) {
-	        sprintf(newFmt, "%s%d%s", "%", newIndexLen+1, "s");
-		sprintf(tmpbuf, newFmt, indxnames[i]);
+		snprintf(tmpbuf, sizeof(tmpbuf), "%*s", newIndexLen + 1,
+                         indxnames[i]);
 	    }
             else
                 sprintf(tmpbuf, fmt[fmtid].hdr, indxnames[i]);
@@ -274,8 +283,7 @@ print_long(struct hostInfo *hostInfo)
             sp = stripSpaces(tmpfield);
         }
 	if ((id == MEM + 1) && (newIndexLen = strlen (indxnames[i])) >= 7 ){
-	    sprintf(newFmt, "%s%d%s", "%", newIndexLen+1, "s");
-            printf(newFmt, sp);
+            printf("%*s", newIndexLen + 1, sp);
         }
 	else
             printf(fmt[id].hdr, sp);
@@ -284,28 +292,229 @@ print_long(struct hostInfo *hostInfo)
     printf("\n");
 }
 
+static unitTypes
+get_unit_for_limits(void)
+{
+    return unitForLimits;
+}
+
+static const char *
+get_unit_suffix(unitTypes unit)
+{
+    switch (unit) {
+    case Gigabytes:
+        return "G";
+    case Terabytes:
+        return "T";
+    case Petabytes:
+        return "P";
+    case Exabytes:
+        return "E";
+    case Megabytes:
+    default:
+        return "M";
+    }
+}
+
+static double
+get_unit_scale(unitTypes unit)
+{
+    double scale = 1.0;
+    int i;
+
+    for (i = 0; i < (int)unit; i++)
+        scale *= 1024.0;
+
+    return scale;
+}
+
+static void
+format_space(int value, unitTypes unit, char *buf, size_t buflen)
+{
+    double scaled;
+
+    if (value <= 0) {
+        snprintf(buf, buflen, "-");
+        return;
+    }
+
+    scaled = (double)value / get_unit_scale(unit);
+    snprintf(buf, buflen, "%g%s", scaled, get_unit_suffix(unit));
+}
+
+static void
+format_int(int value, char *buf, size_t buflen)
+{
+    if (value > 0)
+        snprintf(buf, buflen, "%d", value);
+    else
+        snprintf(buf, buflen, "-");
+}
+
+static char *
+make_resource_string(struct hostInfo *hostInfo)
+{
+    int i;
+    size_t needed = 3;
+    size_t used = 0;
+    char *value;
+
+    if (hostInfo->nRes <= 0 || !hostInfo->resources)
+        return strdup("-");
+
+    for (i = 0; i < hostInfo->nRes; i++) {
+        const char *resource = hostInfo->resources[i];
+        size_t length;
+
+        if (!resource || resource[0] == '\0')
+            resource = "-";
+        length = strlen(resource);
+        if (length > (size_t)-1 - needed - (i > 0 ? 1 : 0))
+            return NULL;
+        needed += length + (i > 0 ? 1 : 0);
+    }
+
+    value = malloc(needed);
+    if (!value)
+        return NULL;
+
+    value[used++] = '(';
+    for (i = 0; i < hostInfo->nRes; i++) {
+        const char *resource = hostInfo->resources[i];
+        size_t length;
+
+        if (!resource || resource[0] == '\0')
+            resource = "-";
+        length = strlen(resource);
+        if (i > 0)
+            value[used++] = ' ';
+        memcpy(value + used, resource, length);
+        used += length;
+    }
+    value[used++] = ')';
+    value[used] = '\0';
+    return value;
+}
+
+
+static const char *
+get_host_field_value(struct hostInfo *hostInfo, const char *field,
+                     unitTypes unit, const char *resources,
+                     char *buf, size_t buflen)
+{
+    if (strcmp(field, "HOST_NAME") == 0) {
+        return hostInfo->hostName[0] ? hostInfo->hostName : "-";
+    } else if (strcmp(field, "TYPE") == 0) {
+        return hostInfo->hostType && hostInfo->hostType[0]
+               ? hostInfo->hostType : "-";
+    } else if (strcmp(field, "MODEL") == 0) {
+        return hostInfo->hostModel && hostInfo->hostModel[0]
+               ? hostInfo->hostModel : "-";
+    } else if (strcmp(field, "CPUF") == 0) {
+        snprintf(buf, buflen, "%.1f", hostInfo->cpuFactor);
+    } else if (strcmp(field, "NCPUS") == 0) {
+        format_int(hostInfo->maxCpus, buf, buflen);
+    } else if (strcmp(field, "MAXMEM") == 0) {
+        format_space(hostInfo->maxMem, unit, buf, buflen);
+    } else if (strcmp(field, "MAXSWP") == 0) {
+        format_space(hostInfo->maxSwap, unit, buf, buflen);
+    } else if (strcmp(field, "SERVER") == 0) {
+        snprintf(buf, buflen, "%s", hostInfo->isServer ? I18N_Yes : I18N_No);
+    } else if (strcmp(field, "RESOURCES") == 0) {
+        return resources;
+    } else if (strcmp(field, "MAXTMP") == 0) {
+        format_space(hostInfo->maxTmp, unit, buf, buflen);
+    } else if (strcmp(field, "NPROCS") == 0) {
+        format_int(hostInfo->maxCpus, buf, buflen);
+    } else if (strcmp(field, "RUN_WINDOWS") == 0) {
+        if (hostInfo->isServer)
+            return hostInfo->windows && hostInfo->windows[0] &&
+                   strcmp(hostInfo->windows, "-") != 0
+                   ? hostInfo->windows : "always open";
+        else
+            snprintf(buf, buflen, "-");
+    } else {
+        snprintf(buf, buflen, "-");
+    }
+    return buf;
+}
+
+static void
+print_o(struct hostInfo *hostInfo, int numHosts,
+        const struct fmt_request *request)
+{
+    cJSON *records = jsonflag ? cJSON_CreateArray() : NULL;
+    cJSON *record = NULL;
+    char value[MAXLINELEN];
+    unitTypes unit;
+    int needResources, i, j;
+
+    unit = get_unit_for_limits();
+    needResources = fmt_output_field_requested(request, "RESOURCES");
+    if (jsonflag && !records) exit(-1);
+    if (!jsonflag) fmt_output_print_header(stdout, request);
+    for (i = 0; i < numHosts; i++) {
+        char *resources = NULL;
+
+        if (needResources)
+            resources = make_resource_string(&hostInfo[i]);
+        if (needResources && !resources) {
+            lserrno = LSE_MALLOC;
+            ls_perror("make_resource_string");
+            exit(-1);
+        }
+        if (jsonflag) {
+            record = cJSON_CreateObject();
+            if (!record) { cJSON_Delete(records); exit(-1); }
+            cJSON_AddItemToArray(records, record);
+        }
+        for (j = 0; j < request->num_columns; j++) {
+            const char *fieldValue;
+
+            fieldValue = get_host_field_value(
+                &hostInfo[i], request->columns[j].field->name,
+                unit, resources ? resources : "-", value, sizeof(value));
+            if (jsonflag) {
+                if (fmt_json_value(record, request, j, fieldValue) < 0) {
+                    cJSON_Delete(records);
+                    exit(-1);
+                }
+            } else fmt_output_print_value(stdout, request, j, fieldValue);
+        }
+        if (!jsonflag) fmt_output_print_eol(stdout);
+        free(resources);
+    }
+
+    if (jsonflag && fmt_json_print(stdout, "lshosts", "HOSTS", records) < 0)
+        exit(-1);
+}
+
 int
 main(int argc, char **argv)
 {
     static char fname[] = "lshosts/main";
-    char   *namebufs[256];
+    char   **namebufs = NULL;
     struct hostInfo *hostinfo;
     int    numhosts = 0;
     struct hostent *hp;
     int    i, j;
     char   *resReq = NULL;
+    char   *fieldName = NULL;
     char   longformat = FALSE;
     char   longname = FALSE;
+    char   oflag = FALSE;
     char   staticResource = FALSE, otherOption = FALSE;
     int extView = FALSE;
     int achar;
     int     unknown;
     int     options=0;
     int isClus;
-    int rc;
+    struct fmt_request formatRequest = {0};
+    char fmtErrbuf[MAXLINELEN];
+    char *outputFields = NULL;
 
 
-    rc = _i18n_init ( I18N_CAT_MIN );
+    _i18n_init ( I18N_CAT_MIN );
 
     if (ls_initdebug(argv[0]) < 0) {
         ls_perror("ls_initdebug");
@@ -314,62 +523,100 @@ main(int argc, char **argv)
     if (logclass & (LC_TRACE))
         ls_syslog(LOG_DEBUG, "%s: Entering this routine...", fname);
 
-    for (i = 1; i < argc; i++) {
-        if (strcmp(argv[i], "-h") == 0) {
-            usage(argv[0]);
-            exit (0);
-        } else if (strcmp(argv[i], "-V") == 0) {
-            fputs(_LS_VERSION_, stdout);
-            exit(0);
-        } else if (strcmp(argv[i], "-s") == 0) {
-            if (otherOption == TRUE) {
+    while ((achar = getopt(argc, argv, "hVseR:lwo:j:")) != EOF) {
+        switch (achar) {
+            case 'h':
                 usage(argv[0]);
-                exit(-1);
-            }
-            staticResource = TRUE;
-            optind = i + 1;
-        } else if (strcmp(argv[i], "-e") == 0) {
-            if (otherOption == TRUE || staticResource == FALSE) {
-                usage(argv[0]);
-                exit(-1);
-            }
-            optind = i + 1;
-            extView = TRUE;
-        } else if (strcmp(argv[i], "-R") == 0 || strcmp(argv[i], "-l") == 0
-                  || strcmp(argv[i], "-w") == 0) {
-            otherOption = TRUE;
-            if (staticResource == TRUE) {
-                usage(argv[0]);
-                exit(-1);
-            }
-        }
-    }
-
-    if (staticResource == TRUE) {
-        displayShareResource(argc, argv, optind, TRUE, extView );
-    } else {
-        while ((achar = getopt(argc, argv, "R:lw")) != EOF) {
- 	    switch (achar) {
+                exit(0);
+            case 'V':
+                fputs(_LS_VERSION_, stdout);
+                exit(0);
+            case 's':
+                staticResource = TRUE;
+                continue;
+            case 'e':
+                if (!staticResource) {
+                    usage(argv[0]);
+                    exit(-1);
+                }
+                extView = TRUE;
+                continue;
+            case 'j':
+                if (strcmp(optarg, "son") != 0) {
+                    usage(argv[0]);
+                    exit(-1);
+                }
+                jsonflag = 1;
+                break;
             case 'R':
-	        if (strlen(optarg) > MAXLINELEN) {
-                        printf(" %s", I18N(1645, "The resource requirement string exceeds the maximum length of 512 characters. Specify a shorter resource requirement.\n")); /* catgets  1645  */
-		        exit (-1);
-	        }
-	        resReq = optarg;
-	        break;
+                if (strlen(optarg) > MAXLINELEN) {
+                    printf(" %s", I18N(1645, "The resource requirement string exceeds the maximum length of 512 characters. Specify a shorter resource requirement.\n")); /* catgets  1645  */
+                    exit (-1);
+                }
+                resReq = optarg;
+                break;
             case 'l':
-	        longformat = TRUE;
-	        break;
+                if (longname || oflag) {
+                    usage(argv[0]);
+                    exit(-1);
+                }
+                longformat = TRUE;
+                break;
             case 'w':
-	        longname = TRUE;
-	        break;
+                if (longformat || oflag) {
+                    usage(argv[0]);
+                    exit(-1);
+                }
+                longname = TRUE;
+                break;
+            case 'o':
+                if (longformat || longname || oflag || *optarg == '\0') {
+                    usage(argv[0]);
+                    exit(-1);
+                }
+                oflag = TRUE;
+                fieldName = optarg;
+                break;
             default:
-	        usage(argv[0]);
-	        exit(-1);
-	    }
+                usage(argv[0]);
+                exit(-1);
+        }
+        otherOption = TRUE;
+    }
+    if (staticResource && otherOption) {
+        usage(argv[0]);
+        exit(-1);
+    }
+    if (staticResource) {
+        displayShareResource(argc, argv, optind, TRUE, extView);
+    } else {
+        namebufs = calloc((size_t)argc + 1, sizeof(char *));
+        if (!namebufs) {
+            lserrno = LSE_MALLOC;
+            ls_perror("calloc");
+            exit(-1);
+        }
+        if (jsonflag && !oflag) {
+            fprintf(stderr, "lshosts: -json requires -o.\n");
+            exit(-1);
+        }
+        if (oflag) {
+            if (fmt_output_parse(fieldName, host_output_fields,
+                                 NUM_HOST_OUTPUT_FIELDS,
+                                 &formatRequest, fmtErrbuf,
+                                 sizeof(fmtErrbuf)) < 0) {
+                fprintf(stderr, "%s\n", fmtErrbuf);
+                exit(-1);
+            }
+            outputFields = fmt_output_fields_dup(&formatRequest);
+            if (!outputFields) {
+                fmt_output_free(&formatRequest);
+                ls_perror("fmt_output_fields_dup");
+                exit(-1);
+            }
         }
 
-        i=0;
+	        i=0;
         unknown = 0;
         for ( ; optind < argc ; optind++) {
     	    if (strcmp(argv[optind],"allclusters") == 0) {
@@ -388,34 +635,67 @@ main(int argc, char **argv)
                 unknown = 1;
                 continue;
             }
-            namebufs[i] = strdup(hp->h_name);
+            namebufs[i] = strdup(isClus ? argv[optind] : hp->h_name);
             if (namebufs[i] == NULL) {
+                if (oflag)
+                    fmt_output_free(&formatRequest);
                 perror("strdup()");
                 exit(-1);
             }
             i++;
         }
 
-        if (i == 0 && unknown == 1)
+        if (i == 0 && unknown == 1) {
+            if (oflag)
+                fmt_output_free(&formatRequest);
             exit(-1);
+        }
 
         if (i == 0) {
-            TIMEIT(0, (hostinfo = ls_gethostinfo(resReq, &numhosts, NULL, 0,
-                                                 options)), "ls_gethostinfo");
+            TIMEIT(0, (hostinfo = ls_gethostinfo_fields(resReq, &numhosts,
+                                                        NULL, 0, options,
+                                                        outputFields)),
+                   "ls_gethostinfo_fields");
             if (hostinfo == NULL) {
+                if (oflag && lserrno == LSE_PROTOC_LIM) {
+                    fprintf(stderr, "Server version does not support custom output.\n");
+                    exit(-1);
+                }
+                if (oflag)
+                    fmt_output_free(&formatRequest);
                 ls_perror("ls_gethostinfo()");
                 exit(-1);
             }
         } else {
-    	    TIMEIT(0, (hostinfo = ls_gethostinfo(resReq, &numhosts, namebufs,
-                                                 i, 0)), "ls_gethostinfo");
+	    TIMEIT(0, (hostinfo = ls_gethostinfo_fields(resReq, &numhosts,
+                                                        namebufs, i, 0,
+                                                        outputFields)),
+                   "ls_gethostinfo_fields");
 	    if (hostinfo == NULL) {
+	        if (oflag && lserrno == LSE_PROTOC_LIM) {
+	            fprintf(stderr, "Server version does not support custom output.\n");
+	            exit(-1);
+	        }
+	        if (oflag)
+	            fmt_output_free(&formatRequest);
 	        ls_perror("ls_gethostinfo");
 	        exit(-1);
 	    }
         }
 
-        if (!longformat && !longname) {
+        for (j = 0; j < i; j++)
+            free(namebufs[j]);
+        free(namebufs);
+        namebufs = NULL;
+
+        if (oflag) {
+            free(outputFields);
+            outputFields = NULL;
+            print_o(hostinfo, numhosts, &formatRequest);
+            fmt_output_free(&formatRequest);
+            _i18n_end ( ls_catd );
+            exit(0);
+        } else if (!longformat && !longname) {
 	    char *buf1, *buf2, *buf3, *buf4, *buf5;
 	    char *buf6, *buf7, *buf8, *buf9;
 
@@ -531,4 +811,3 @@ main(int argc, char **argv)
     _i18n_end ( ls_catd );
     return(0);
 }
-

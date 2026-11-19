@@ -57,6 +57,10 @@ AC_SEARCH_LIBS([xdrmem_create], [tirpc], [], [AC_MSG_ERROR([missing -ltirpc])])
 # Check for libnsl (NIS)
 AC_CHECK_LIB([nsl], [yp_get_default_domain], [LIBS="$LIBS -lnsl"], [AC_MSG_ERROR([missing libnsl])])
 
+# Keep pthread in LIBS for consumers of the static liblsbatch archive.
+AC_SEARCH_LIBS([pthread_once], [pthread], [],
+              [AC_MSG_ERROR([missing pthread support required by liblsbatch])])
+
 # Check Tcl headers
 AC_CHECK_HEADERS([tcl.h], [], [
   AC_CHECK_HEADERS([tcl/tcl.h], [], [AC_MSG_ERROR([missing tcl.h])])

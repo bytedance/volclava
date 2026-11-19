@@ -259,6 +259,12 @@ mkHostTab(void)
         name = getNextWord_(&buf);
         if (name == NULL)
             continue;
+        /* getNextWord_ reuses its buffer while parsing the aliases. */
+        name = strdup(name);
+        if (name == NULL) {
+            fclose(fp);
+            return -1;
+        }
 
         cc = 0;
         while ((p = getNextWord_(&buf))
@@ -277,6 +283,7 @@ mkHostTab(void)
          *     ...
          */
         addHost2Tab(name, addr, alias);
+        FREEUP(name);
 
         cc = 0;
         while (alias[cc]) {

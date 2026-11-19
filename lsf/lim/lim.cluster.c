@@ -150,6 +150,7 @@ processMsg(int chanfd)
     switch(hdr.opCode) {
 
         case LIM_LOAD_REQ:
+        case LIM_HOST_OUTPUT:
         case LIM_GET_HOSTINFO:
         case LIM_PLACEMENT:
         case LIM_GET_RESOUINFO:
@@ -195,7 +196,7 @@ processMsg(int chanfd)
 static void
 clientReq(XDR *xdrs, struct LSFHeader *hdr, int chfd)
 {
-    struct decisionReq decisionRequest;
+    struct decisionReq decisionRequest = {0};
     int oldpos, i;
 
     clientMap[chfd]->clientMasks = 0;
@@ -215,11 +216,8 @@ clientReq(XDR *xdrs, struct LSFHeader *hdr, int chfd)
         }
     }
 
-    for(i = 0; i < decisionRequest.numPrefs; i++)
-        free(decisionRequest.preferredHosts[i]);
-    free(decisionRequest.preferredHosts);
-
 Reply1:
+    xdr_lsffree(xdr_decisionReq, (char *) &decisionRequest, hdr);
 
     {
         pid_t pid = 0;
@@ -242,6 +240,7 @@ Reply1:
             io_block_(chanSock_(chfd));
 
             switch(hdr->opCode) {
+                case LIM_HOST_OUTPUT:
                 case LIM_GET_HOSTINFO:
                     hostInfoReq(xdrs,
                                 clientMap[chfd]->fromHost,

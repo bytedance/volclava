@@ -58,7 +58,7 @@ callLim_(enum limReqCode reqCode,
     XDR    xdrs;
     char   sbuf[8*MSGSIZE];
     char   rbuf[MAXMSGLEN];
-    char   *repBuf;
+    char   *repBuf = NULL;
     enum limReplyCode limReplyCode;
     static char first = TRUE;
     int reqLen;
@@ -122,6 +122,8 @@ callLim_(enum limReqCode reqCode,
         }
     }
 
+    if (hdr != NULL)
+        *hdr = replyHdr;
     limReplyCode = replyHdr.opCode;
 
     lsf_lim_version = (int)replyHdr.version;
@@ -638,4 +640,3 @@ err_return_(enum limReplyCode limReplyCode)
             return;
     }
 }
-

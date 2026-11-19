@@ -9,7 +9,7 @@
 .BR
 .PP
 .PP
-\fBbhosts \fR[\fB-w | -l\fR] [\fB-R "\fR\fIres_req\fR\fB"\fR] [\fIhost_name\fR\fI | \fR\fIhost_group\fR] ...
+\fBbhosts \fR[\fB-w | -l | -o\fR \fIoutput_format\fR [\fB-json\fR]] [\fB-R "\fR\fIres_req\fR\fB"\fR] [\fIhost_name\fR\fI | \fR\fIhost_group\fR] ...
 .PP
 \fBbhosts\fR\fB \fR\fB-s\fR [\fIshared_resource_name\fR ...] 
 .PP
@@ -43,6 +43,14 @@ truncation.
 Displays host information in a (long) multi-line format. In addition to 
 the default fields, displays information about the CPU factor, the 
 dispatch windows, the current load, and the load thresholds.
+
+
+.TP
+\fB-o\fR \fIoutput_format\fR
+\fR
+.IP
+Displays only the requested custom output fields. The \fB-o\fR option
+cannot be used with \fB-w\fR, \fB-l\fR, or \fB-s\fR. See CUSTOM OUTPUT.
 
 
 .TP 
@@ -468,6 +476,62 @@ LOCATION
 The hosts that are associated with the shared resource. 
 
 .RE
+.TP
+\fB-json\fR
+.IP
+Requires \fB-o\fR and prints a JSON object containing COMMAND, a record
+count (HOSTS or QUEUES), and a RECORDS array. Values are strings; output
+width and delimiter settings do not pad or truncate JSON values. Repeated
+fields appear once. Strings are escaped for JSON.
+
+.SH CUSTOM OUTPUT
+.BR
+.PP
+.PP
+The \fB-o\fR option accepts a blank-separated output format:
+
+.IP
+\fIfield_name\fR[:[-]\fIoutput_width\fR] ... [delimiter='\fIcharacter\fR']
+.br
+\fIfield_name\fR%[-]\fIoutput_width\fR ... [delimiter='\fIcharacter\fR']
+
+.PP
+Field names and aliases are case-insensitive. A field without a width is
+unlimited and left-aligned. A colon or percent sign without a number uses
+the recommended width. A hyphen selects right alignment; otherwise output
+is left-aligned. Widths are limited to 1 through 4096 characters, and values
+longer than the selected width are truncated at UTF-8 character boundaries.
+Widths count bytes, not terminal display columns. Without \fBdelimiter\fR,
+fields are separated by one space. With \fBdelimiter\fR, the specified
+single character is used between fields.
+
+.PP
+Supported fields are:
+
+.IP
+HOST_NAME(HNAME), STATUS(STAT), JL_U(JLU), MAX, NJOBS, RUN, SSUSP,
+USUSP, RSV, DISPATCH_WINDOW(DISPWIN), AVAILABLE_MEM, RESERVED_MEM,
+TOTAL_MEM.
+
+.PP
+AVAILABLE_MEM is the current available memory load reported by LIM.
+RESERVED_MEM is the absolute difference between the current available load
+and the corresponding real load. TOTAL_MEM is their sum. An unavailable
+memory load, an unlimited job limit, or a negative job limit is displayed as
+a hyphen.
+
+.PP
+The delimiter is emitted literally between fields. The command does not add
+CSV quoting or escaping when a field contains the delimiter.
+
+.PP
+Examples:
+
+.IP
+\fBbhosts -o "hname stat max run"\fR
+.br
+\fBbhosts -R "select[type==X86_64]" -o "host_name:-24 available_mem reserved_mem total_mem delimiter='|'"\fR
+
 .SH SEE ALSO
 .BR
 .PP

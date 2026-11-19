@@ -19,6 +19,7 @@
  *
  */
 
+#include <pthread.h>
 #include <string.h>
 #include <sys/time.h>
 #include <sys/resource.h>
@@ -31,6 +32,52 @@
 #define NL_SETN     13   
 
 #define MEMBERSTRLEN   20
+
+static pthread_once_t replyKeyOnce = PTHREAD_ONCE_INIT;
+static pthread_key_t replyKey;
+static int replyKeyError;
+
+static void
+freeQueryOutputReplies(void *data)
+{
+    struct queryOutputReplies *replies = data;
+
+    xdr_lsffree(xdr_hostOutputReply, (char *)&replies->hosts, NULL);
+    xdr_lsffree(xdr_queueOutputReply, (char *)&replies->queues, NULL);
+    free(replies);
+}
+
+static void
+createReplyKey(void)
+{
+    replyKeyError = pthread_key_create(&replyKey, freeQueryOutputReplies);
+}
+
+struct queryOutputReplies *
+getQueryOutputReplies(void)
+{
+    struct queryOutputReplies *replies;
+
+    pthread_once(&replyKeyOnce, createReplyKey);
+    if (replyKeyError) {
+        lsberrno = LSBE_SYS_CALL;
+        return NULL;
+    }
+    replies = pthread_getspecific(replyKey);
+    if (!replies) {
+        replies = calloc(1, sizeof(*replies));
+        if (!replies) {
+            lsberrno = LSBE_NO_MEM;
+            return NULL;
+        }
+        if (pthread_setspecific(replyKey, replies)) {
+            free(replies);
+            lsberrno = LSBE_SYS_CALL;
+            return NULL;
+        }
+    }
+    return replies;
+}
 
 void
 initTab(struct hTab *tabPtr)

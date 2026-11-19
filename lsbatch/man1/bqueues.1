@@ -9,7 +9,7 @@
 .BR
 .PP
 .PP
-\fBbqueues \fR[\fB-w\fR | \fB-l\fR | \fB-r\fR] [\fB-m\fR \fIhost_name\fR\fI \fR|\fI \fR\fB-m\fR\fI host_group\fR\fI | \fR\fB-m all\fR] 
+\fBbqueues \fR[\fB-w\fR | \fB-l\fR | \fB-r\fR | \fB-o\fR \fIoutput_format\fR [\fB-json\fR]] [\fB-m\fR \fIhost_name\fR\fI \fR|\fI \fR\fB-m\fR\fI host_group\fR\fI | \fR\fB-m all\fR]
 [\fB-u\fR\fB \fR\fIuser_name \fR|\fI \fR\fB-u\fR\fI user_group | \fR\fB-u all\fR] [\fIqueue_name\fR ...] 
 .PP
 \fBbqueues \fR[\fB-h\fR | \fB-V\fR]
@@ -52,6 +52,13 @@ associated commands, and job controls.
 Displays the same information as the -l option. In addition, if fairshare
 is defined for this queue, displays recursively the share account tree of
 the fairshare queue. The share accounts are only created for active users.
+
+.TP
+\fB-o\fR \fIoutput_format\fR
+\fR
+.IP
+Displays only the requested custom output fields. The \fB-o\fR option
+cannot be used with \fB-w\fR, \fB-l\fR, or \fB-r\fR. See CUSTOM OUTPUT.
 
 .TP 
 \fB-m\fR \fIhost_name \fR|\fI \fR\fB-m\fR\fI host_group \fR| \fB-m\fR\fI \fR\fBall\fR 
@@ -998,6 +1005,67 @@ The configured actions are displayed in the format [\fIaction_type\fR,
 TERMINATE. 
 
 .RE
+.TP
+\fB-json\fR
+.IP
+Requires \fB-o\fR and prints a JSON object containing COMMAND, a record
+count (HOSTS or QUEUES), and a RECORDS array. Values are strings; output
+width and delimiter settings do not pad or truncate JSON values. Repeated
+fields appear once. Strings are escaped for JSON.
+
+.SH CUSTOM OUTPUT
+.BR
+.PP
+.PP
+The \fB-o\fR option accepts a blank-separated output format:
+
+.IP
+\fIfield_name\fR[:[-]\fIoutput_width\fR] ... [delimiter='\fIcharacter\fR']
+.br
+\fIfield_name\fR%[-]\fIoutput_width\fR ... [delimiter='\fIcharacter\fR']
+
+.PP
+Field names and aliases are case-insensitive. A field without a width is
+unlimited and left-aligned. A colon or percent sign without a number uses
+the recommended width. A hyphen selects right alignment; otherwise output
+is left-aligned. Widths are limited to 1 through 4096 characters, and values
+longer than the selected width are truncated at UTF-8 character boundaries.
+Widths count bytes, not terminal display columns. Without \fBdelimiter\fR,
+fields are separated by one space. With \fBdelimiter\fR, the specified
+single character is used between fields.
+
+.PP
+Supported fields are:
+
+.IP
+QUEUE_NAME(QNAME), DESCRIPTION(DESC), PRIORITY(PRIO), STATUS(STAT),
+MAX, JL_U(JLU), JL_P(JLP), JL_H(JLH), NJOBS, PEND, RUN, SUSP, RSV,
+USUSP, SSUSP, NICE, HOSTS, RES_REQ, MAX_CORELIMIT(CORELIMIT),
+MAX_CPULIMIT(CPULIMIT), DEFAULT_CPULIMIT(DEF_CPULIMIT),
+MAX_DATALIMIT(DATALIMIT), DEFAULT_DATALIMIT(DEF_DATALIMIT),
+MAX_FILELIMIT(FILELIMIT), MAX_MEMLIMIT(MEMLIMIT),
+DEFAULT_MEMLIMIT(DEF_MEMLIMIT), MAX_PROCESSLIMIT(PROCESSLIMIT),
+DEFAULT_PROCESSLIMIT(DEF_PROCESSLIMIT), MAX_STACKLIMIT(STACKLIMIT),
+MAX_SWAPLIMIT(SWAPLIMIT), MAX_TASKLIMIT(TASKLIMIT), MIN_TASKLIMIT,
+DEFAULT_TASKLIMIT(DEF_TASKLIMIT).
+
+.PP
+An empty or whitespace-only string is displayed as a hyphen. Unlimited,
+unset, or negative limit values are also displayed as a hyphen. Zero remains
+a valid value for limits whose queue definition permits zero.
+
+.PP
+The delimiter is emitted literally between fields. The command does not add
+CSV quoting or escaping when a field contains the delimiter.
+
+.PP
+Examples:
+
+.IP
+\fBbqueues -o "qname prio stat max pend run susp"\fR
+.br
+\fBbqueues -m all -o "queue_name desc res_req delimiter=','"\fR
+
 .SH SEE ALSO
 .BR
 .PP

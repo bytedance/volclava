@@ -96,4 +96,3 @@ extern bool_t xdr_lsfAuth(XDR *, struct lsfAuth *, struct LSFHeader *);
 extern int xdr_lsfAuthSize(struct lsfAuth *);
 extern bool_t xdr_jRusage(XDR *, struct jRusage *, struct LSFHeader *);
 #endif
-

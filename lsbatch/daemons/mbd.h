@@ -1679,4 +1679,6 @@ extern void                 detachJobEffeResReqEntry(struct jData *);
 extern char*                resVal2Str(struct resVal *resVal);
 extern struct resVal*       dupResVal(struct resVal *src);
 
+extern int do_outputReq(XDR *, int, struct sockaddr_in *, struct LSFHeader *, int);
+
 #endif

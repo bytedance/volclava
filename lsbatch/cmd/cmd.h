@@ -109,6 +109,8 @@ extern void prtJobReserv(struct jobInfoEnt *);
 extern void prtJobReservUF(struct jobInfoEnt *);
 extern void displayLong(struct jobInfoEnt *, struct jobInfoHead *, float);
 extern void displayUF(struct jobInfoEnt *, struct jobInfoHead *, float, int, struct queueInfoEnt *);
+extern float getJobHostFactor(struct jobInfoEnt *, char **);
+extern float normalizeCpuTime(float, float, float);
 
 extern int lsbMode_;
 
