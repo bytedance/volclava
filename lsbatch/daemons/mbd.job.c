@@ -2052,13 +2052,17 @@ sigPFjob (struct jData *jData, int sigValue, time_t chkPeriod, int role, int log
                 jData->termCode = getTermCode(SIG_TERM_FORCE, role);
                 return (LSBE_NO_ERROR);
             }
+            /* FALLTHROUGH: 非 zombie 场景（如 PEND 作业）继续保持强制终止语义 */
         case SIG_TERM_USER:
         case SIGTERM:
         case SIGINT:
             if (!IS_PEND(jData->jStatus))
                 return(LSBE_JOB_FINISH);
             jData->newReason = EXIT_NORMAL;
-            jData->termCode = getTermCode(SIG_TERM_USER, role);
+            if (sigValue == SIG_TERM_FORCE)
+                jData->termCode = getTermCode(SIG_TERM_FORCE, role);
+            else
+                jData->termCode = getTermCode(SIG_TERM_USER, role);
             jStatusChange(jData, JOB_STAT_EXIT, logIt, fname);
             return (LSBE_NO_ERROR);
 
@@ -4057,6 +4061,7 @@ handleRequeueJob(struct jData *jData, time_t requeueTime)
     updJgrpCountByJStatus(jData, jData->jStatus, JOB_STAT_PEND);
     jData->jStatus = JOB_STAT_PEND;
     jData->cpuTime = 0;
+    jData->termCode = TERM_NULL;
 
     FREEUP(jData->lsfRusage);
 

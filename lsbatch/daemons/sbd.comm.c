@@ -128,35 +128,34 @@ status_job(mbdReqType reqType,
     if (jp->termCode == TERM_NULL) {
         int cpuLimitKilled = FALSE;
 
-#ifdef SIGXCPU
-        /* OS 内核 RLIMIT_CPU 软限制超限：作业被 SIGXCPU 直接终止，
-         * 或经 shell 转成 128+SIGXCPU 退出码 */
-        if (WIFSIGNALED(statusReq.exitStatus)
-            && WTERMSIG(statusReq.exitStatus) == SIGXCPU) {
-            cpuLimitKilled = TRUE;
-        } else if (WIFEXITED(statusReq.exitStatus)
-                   && (WEXITSTATUS(statusReq.exitStatus) & 0xff)
-                      == (128 + SIGXCPU)) {
-            cpuLimitKilled = TRUE;
-        }
-#endif
-
-        /* OS 内核 RLIMIT_CPU 硬限制超限（队列配置 CPULIMIT 时 soft==hard）：
-         * 内核直接发 SIGKILL，作业被 SIGKILL 直接终止或经 shell 转成
-         * 128+SIGKILL 退出码。SIGKILL 含义较宽，需结合“确已配置 CPU 限制
-         * 且用量达到该限制”来区分外部 SIGKILL 与 CPULIMIT 硬限制。 */
-        if (!cpuLimitKilled) {
+        /* OS 内核 RLIMIT_CPU 强制超限时，作业可能被 SIGXCPU（软限制）或
+         * SIGKILL（硬限制）终止，shell 会将其转换为 128+signal 退出码。
+         * 仅当“确已配置 CPU 限制且 cpuTime 达到该限制”时才可判定为
+         * TERM_CPULIMIT，避免把作业自身以 128+SIGXCPU/SIGKILL 退出被误判
+         * 为被系统 CPU 限制终止。 */
+        {
+            int cpuSig = 0;
             int sigKilled = 0;
+
             if (WIFSIGNALED(statusReq.exitStatus)) {
+#ifdef SIGXCPU
+                if (WTERMSIG(statusReq.exitStatus) == SIGXCPU)
+                    cpuSig = 1;
+#endif
                 if (WTERMSIG(statusReq.exitStatus) == SIGKILL)
                     sigKilled = 1;
-            } else if (WIFEXITED(statusReq.exitStatus)
-                       && (WEXITSTATUS(statusReq.exitStatus) & 0xff)
-                          == (128 + SIGKILL)) {
-                sigKilled = 1;
+            } else if (WIFEXITED(statusReq.exitStatus)) {
+#ifdef SIGXCPU
+                if ((WEXITSTATUS(statusReq.exitStatus) & 0xff)
+                    == (128 + SIGXCPU))
+                    cpuSig = 1;
+#endif
+                if ((WEXITSTATUS(statusReq.exitStatus) & 0xff)
+                    == (128 + SIGKILL))
+                    sigKilled = 1;
             }
 
-            if (sigKilled) {
+            if (cpuSig || sigKilled) {
                 struct rlimit rlimit;
                 rlimitDecode_(&jp->jobSpecs.lsfLimits[LSF_RLIMIT_CPU],
                               &rlimit, LSF_RLIMIT_CPU);
