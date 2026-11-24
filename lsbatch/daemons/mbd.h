@@ -50,6 +50,7 @@
 #define DEF_PRE_EXEC_DELAY    -1
 #define DEF_EADMIN_TRIGGER_DURATION  1
 #define DEF_EADMIN_TRIGGER_INTERVAL  0
+#define DEF_MIN_SWITCH_PERIOD        600
 
 /* Global MBD job lists
  */
@@ -1012,6 +1013,7 @@ extern float                  clsDecay;
 extern int                    detectIdleJobAfter;
 extern int                    eadminTriggerDuration;
 extern int                    eadminTriggerInterval;
+extern int                    minSwitchPeriod;
 
 
 extern int                    numofqueues;
@@ -1502,6 +1504,11 @@ extern void                 replay_requeuejob(struct jData *);
 extern int                  init_log(void);
 extern void                 switchELog(void);
 extern int                  switch_log(void);
+extern void                 switchLogChildReaped(pid_t, int);
+extern void                 switchLogCheckChild(void);
+extern int                  switchLogChildRunning(void);
+extern void                 switchLogKillChild(void);
+extern int                  mbdCreateThread(pthread_t *, void *(*)(void *), void *);
 extern void                 checkAcctLog(void);
 extern int                  switchAcctLog(void);
 extern void                 logJobInfo(struct submitReq *, struct jData *,

@@ -1341,6 +1341,30 @@ checkParams (struct infoReq *req, struct parameterInfo *reply)
     reply->detectIdleJobAfter = detectIdleJobAfter;
     reply->eadminTriggerDuration = eadminTriggerDuration;
     reply->eadminTriggerInterval = eadminTriggerInterval;
+    reply->minSwitchPeriod = minSwitchPeriod;
+}
+
+/*
+ * Create a thread of mbatchd with SIGCHLD blocked: SIGCHLD must only be
+ * handled by the main thread.
+ * @param[out] tid: Created thread id.
+ * @param[in] start: Thread function.
+ * @param[in] arg: Argument of the thread function.
+ * @return: the pthread_create() result, 0 on success.
+ */
+int
+mbdCreateThread(pthread_t *tid, void *(*start)(void *), void *arg)
+{
+    sigset_t block, old;
+    int      rc;
+
+    sigemptyset(&block);
+    sigaddset(&block, SIGCHLD);
+    pthread_sigmask(SIG_BLOCK, &block, &old);
+    rc = pthread_create(tid, NULL, start, arg);
+    pthread_sigmask(SIG_SETMASK, &old, NULL);
+
+    return rc;
 }
 
 void
@@ -1356,6 +1380,15 @@ mbdDie (int sig)
     sigaddset(&newmask, SIGTERM);
     sigaddset(&newmask, SIGINT);
     sigprocmask(SIG_BLOCK, &newmask, NULL);
+
+    /*
+     * Stop a running switch child before any shutdown event is logged
+     * and before die() releases the event log lock, so that the child
+     * cannot rotate archives in parallel with the next mbatchd.  The
+     * events logged below still go to lsb.events.delta if a switch was
+     * in flight; the next mbatchd merges them during recovery.
+     */
+    switchLogKillChild();
 
     for (list = 0; list < NJLIST; list++) {
         if (jDataList[list] != NULL) {

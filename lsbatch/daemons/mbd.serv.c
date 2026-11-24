@@ -1904,11 +1904,15 @@ do_userInfoReq(XDR * xdrs,
     reply_buf = my_calloc(count, sizeof(char), __func__);
     xdrmem_create(&xdrs2, reply_buf, count, XDR_ENCODE);
 
-    xdr_lsffree(xdr_infoReq, (char *)&userInfoReq, reqHdr);
     initLSFHeader_(&hdr);
 
     hdr.opCode = reply;
 
+    /*
+     * userInfoReq must stay alive until the reply is encoded:
+     * checkUsers() points the entries of users unknown to mbatchd at
+     * userInfoReq.names[], so freeing it here printed garbage.
+     */
     if (reply == LSBE_NO_ERROR
         || reply == LSBE_BAD_USER)
         replyStruct = (char *)&userInfoReply;
@@ -1927,10 +1931,11 @@ do_userInfoReq(XDR * xdrs,
         xdr_destroy(&xdrs2);
         FREEUP(reply_buf);
         FREEUP (userInfoReply.users );
-        if (userInfoReply.users)
-            free(userInfoReply.users);
+        xdr_lsffree(xdr_infoReq, (char *)&userInfoReq, reqHdr);
         return -1;
     }
+
+    xdr_lsffree(xdr_infoReq, (char *)&userInfoReq, reqHdr);
 
     if (chanWrite_(chfd, reply_buf, XDR_GETPOS(&xdrs2)) <= 0) {
         ls_syslog(LOG_ERR, "\

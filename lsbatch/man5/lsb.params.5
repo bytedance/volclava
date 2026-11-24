@@ -799,6 +799,9 @@ Once the limit is reached, MBD starts a new event log file. The old
 event log file is saved as lsb.events.\fIn\fR, with subsequent sequence 
 number suffixes incremented by 1 each time a new log file is started. 
 Event logging continues in the new lsb.events file.
+.PP
+The switch runs in a child process, so mbatchd keeps serving requests
+meanwhile. An interrupted switch is completed automatically.
 .SS Default
 .BR
 .PP
@@ -909,6 +912,35 @@ Undefined
 .PP
 .PP
 bsub, bmod, btop, bbot, JOB_PRIORITY_OVER_TIME
+.SH MIN_SWITCH_PERIOD
+.BR
+.PP
+.SS Syntax
+.BR
+.PP
+.PP
+\fBMIN_SWITCH_PERIOD\fR \fB=\fR \fIseconds
+\fR
+.SS Description
+.BR
+.PP
+.PP
+The minimum time in seconds between the completion of one event log
+switch and the start of the next one; 600 or more, and counted from the
+start of mbatchd for the first switch. A switch needs both
+\fBMAX_JOB_NUM\fR cleaned finished jobs and this much time since the last
+one, so that a burst of expiring jobs cannot make mbatchd switch back to
+back. The value in effect is shown by \fBbparams -l\fR.
+.SS See Also
+.BR
+.PP
+.PP
+MAX_JOB_NUM
+.SS Default
+.BR
+.PP
+.PP
+600
 .SH MBD_SLEEP_TIME
 .BR
 .PP

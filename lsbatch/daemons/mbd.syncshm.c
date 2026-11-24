@@ -930,7 +930,7 @@ createShmCleanerThread(void)
     pthread_t tid;
     int rc;
 
-    rc = pthread_create(&tid, NULL, shmCleaner, NULL);
+    rc = mbdCreateThread(&tid, shmCleaner, NULL);
     if (rc != 0)
         return -1;
     pthread_detach(tid);

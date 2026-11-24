@@ -54,6 +54,9 @@
     (_i18n_msg_get(ls_catd, NL_SETN, 5055, LSB_IN_SEND_RCV_STR))
 #define MAX_SELECTED_LOADS 4
 
+/* lower bound, and mbatchd default, of MIN_SWITCH_PERIOD in seconds */
+#define MIN_SWITCH_PERIOD_LOW   600
+
 static struct paramConf *pConf= NULL;
 static struct userConf *uConf = NULL;
 static struct hostConf *hConf = NULL;
@@ -433,6 +436,7 @@ do_Param(struct lsConf *conf, char *fname, int *lineNum)
         {"DETECT_IDLE_JOB_AFTER", NULL, 0}, /* 46 */
         {"EADMIN_TRIGGER_DURATION", NULL, 0},   /* 47 */
         {"EADMIN_TRIGGER_INTERVAL", NULL, 0},   /* 48 */
+        {"MIN_SWITCH_PERIOD", NULL, 0},         /* 49 */
         {NULL, NULL, 0}
     };
 
@@ -784,6 +788,27 @@ do_Param(struct lsConf *conf, char *fname, int *lineNum)
                 } else {
                     pConf->param->detectIdleJobAfter = value;
                 }
+            } else if (i == 49) {
+                /* MIN_SWITCH_PERIOD: at least 600 seconds, up to INT_MAX */
+                char *endp;
+                long  period;
+
+                errno = 0;
+                period = strtol(keylist[i].val, &endp, 10);
+                if (errno != 0 || endp == keylist[i].val || *endp != '\0'
+                    || period < MIN_SWITCH_PERIOD_LOW
+                    || period > INFINIT_INT) {
+                    ls_syslog(LOG_ERR, "%s: File %s in section Parameters ending at line %d: Value <%s> of %s isn't an integer between %d and %d; ignored",
+                              pname, fname, *lineNum, keylist[i].val,
+                              keylist[i].key, MIN_SWITCH_PERIOD_LOW,
+                              INFINIT_INT);
+                    lsberrno = LSBE_CONF_WARNING;
+                } else {
+                    /* INFINIT_INT means "not set"; one second less is
+                     * the same period in practice */
+                    pConf->param->minSwitchPeriod = (period == INFINIT_INT)
+                        ? INFINIT_INT - 1 : (int)period;
+                }
             } else if (i == 47 || i == 48) {
                 value = my_atoi(keylist[i].val, INFINIT_INT, -1);
                 if (value == INFINIT_INT) {
@@ -993,6 +1018,7 @@ initParameterInfo(struct parameterInfo *param)
         param->detectIdleJobAfter = INFINIT_INT;
         param->eadminTriggerDuration = INFINIT_INT;
         param->eadminTriggerInterval = INFINIT_INT;
+        param->minSwitchPeriod = INFINIT_INT;
     }
 }
 
