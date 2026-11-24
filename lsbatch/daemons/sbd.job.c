@@ -96,6 +96,7 @@ static void writePidInfoFile(const struct jobCard *,
 extern void ls_closelog_ext(void);
 extern int cpHostent(struct hostent *, const struct hostent *);
 
+extern char *termCode2Str(termcode_t termCode);
 
 struct passwd *
 my_getpwnam(const char *name, char *caller)
@@ -168,6 +169,7 @@ job_exec(struct jobCard *jobCardPtr, int chfd)
 
 
     jobSpecsPtr->jobPid = pid;
+    addPidHT(pid, jobCardPtr);
 
 
 
@@ -391,8 +393,12 @@ execJob(struct jobCard *jobCardPtr, int chfd)
 
     {
         int pathRc = initPaths(jobCardPtr, fromHp, &jf);
-        if (pathRc == -2)
+        if (pathRc == -2) {
+            if (jobCardPtr->termCode == TERM_CWD_NOTEXIST) {
+                jobSetupStatus(JOB_STAT_EXIT, EXIT_CWD, jobCardPtr);
+            } 
             exit(2);
+        }
         if (pathRc < 0)
             jobSetupStatus(JOB_STAT_PEND, PEND_JOB_PATHS, jobCardPtr);
     }
@@ -1106,8 +1112,10 @@ job_finish (struct jobCard *jobCard, int report)
 
 
             jobCard->postJobStarted = 1;
+            removePidHT(jobCard->jobSpecs.jobPid);
             jobCard->jobSpecs.jobPid = pid;
             jobCard->jobSpecs.jobPGid = pid;
+            addPidHT(pid, jobCard);
             jobCard->jobSpecs.jStatus = JOB_STAT_RUN;
             return(0);
         }
@@ -1846,6 +1854,9 @@ send_results (struct jobCard *jp)
                 int sig = WTERMSIG(w_status);
 
                 if (sig > LSF_NSIG) {
+                    if (jp->termCode != TERM_NULL){
+                        fprintf(notif, "%s.\n", termCode2Str(jp->termCode)); 
+                    }
                     fprintf(notif, "\
 Exited with unknown status 0%o", jp->w_status);
                 } else {
@@ -1856,10 +1867,18 @@ Exited with signal termination: %s", strsignal(sig));
                     fprintf(notif, ", and core dumped");
             } else {
                 if (jp->jobSpecs.reasons & EXIT_REQUEUE) {
-                    fprintf(notif, "\
-Job was killed by user or admin, and will be re-queued with the same jobid.");
-                }
-                else {
+                    if ((jp->termCode == TERM_REQUEUE_OWNER)    || 
+                        (jp->termCode == TERM_REQUEUE_ADMIN)    ||
+                        (jp->termCode == TERM_REQUEUE_ROOT)     ||
+                        (jp->termCode == TERM_REQUEUE_UG_ADMIN) ||
+                        (jp->termCode == TERM_REQUEUE_QUEUE_ADMIN)) {
+                        fprintf(notif, "%s", termCode2Str(jp->termCode));
+                    } else {
+                        fprintf(notif, "Job was killed by user or admin, and will be re-queued with the same jobid.");
+                    }
+                } else {
+                    if (jp->termCode != TERM_NULL)
+			            fprintf(notif, "%s.\n", termCode2Str(jp->termCode)); 
                     fprintf(notif, "\
 Exited with exit code %d", WEXITSTATUS(w_status));
                 }
@@ -2402,7 +2421,7 @@ jobGone (struct jobCard *jp)
                     }
                 }
                 else {
-                    if (jp->w_status) {
+                    if (jp->w_status || jp->termCode != TERM_NULL) {
                         SBD_SET_STATE(jp, JOB_STAT_EXIT);
                     }
                     else {
@@ -2700,6 +2719,7 @@ deallocJobCard(struct jobCard *jobCard)
                   fileBuf);
     removeJobRusageFile(jobCard);
 
+    removePidHT(jobCard->jobSpecs.jobPid);
     offList ((struct listEntry *)jobCard);
     freeWeek (jobCard->week);
     freeToHostsEtc (&jobCard->jobSpecs);
@@ -3336,10 +3356,12 @@ runQPost(struct jobCard *jp)
 {
     int i;
     int pid;
+    int waitResult;
     int maxfds;
     char val[MAXLINELEN];
     char *myargv[6];
     sigset_t newmask;
+    LS_WAIT_T status;
 
     if (logclass & LC_TRACE) {
         chuser(batchId);
@@ -3353,7 +3375,7 @@ runQPost(struct jobCard *jp)
     }
 
     if (!jp->jobSpecs.postCmd || jp->jobSpecs.postCmd[0] == '\0')
-        return -1;
+        return 0;
 
     if (jp->jobSpecs.preCmd && jp->jobSpecs.preCmd[0] != '\0') {
 
@@ -3361,8 +3383,9 @@ runQPost(struct jobCard *jp)
 
             chuser(batchId);
             ls_syslog(LOG_WARNING, "\
-%s: qpost is not run for job %d because status of qpre unknown",
+%s: qpost is not run for job %d because the status of qpre is unknown",
                       __func__, jp->jobSpecs.jobId);
+            chuser(jp->jobSpecs.execUid);
             return -1;
         }
 
@@ -3370,10 +3393,10 @@ runQPost(struct jobCard *jp)
 
             chuser(batchId);
             ls_syslog(LOG_WARNING, "\
-%s: qpost is not run for job % because qpre failed",
+%s: qpost is not run for job %s because qpre failed",
                       __func__,
-                      lsb_jobid2str(jp->jobSpecs.jobId),
-                      chuser(jp->jobSpecs.execUid));
+                      lsb_jobid2str(jp->jobSpecs.jobId));
+            chuser(jp->jobSpecs.execUid);
             return -1;
         }
     }
@@ -3388,14 +3411,44 @@ runQPost(struct jobCard *jp)
     }
 
     if (pid) {
-        if (waitpid(pid, NULL, 0) < 0) {
+        while ((waitResult = waitpid(pid, &status, 0)) < 0
+               && errno == EINTR)
+            ;
+        
+        if (waitResult < 0) {
             chuser(batchId);
             ls_syslog(LOG_ERR, "\
-%s: waitpid(%d) failed for qpre for job <%d>: %m",
+%s: waitpid(%d) failed for qpost for job <%d>: %m",
                       __func__, pid, jp->jobSpecs.jobId);
             chuser(jp->jobSpecs.execUid);
         }
-        return -1;
+
+        if (WIFEXITED(status) && WEXITSTATUS(status) == 0) {
+            return 0;
+        }
+
+        if (WIFEXITED(status)) {
+            chuser(batchId);
+            ls_syslog(LOG_ERR, "\
+%s: queue's post-exec command for job <%d> exited with status <%d>",
+                      __func__, jp->jobSpecs.jobId, WEXITSTATUS(status));
+            chuser(jp->jobSpecs.execUid);
+            return -1;
+        } else if (WIFSIGNALED(status)) {
+            chuser(batchId);
+            ls_syslog(LOG_ERR, "\
+%s: queue's post-exec command for job <%d> terminated by signal <%d>",
+                      __func__, jp->jobSpecs.jobId, WTERMSIG(status));
+            chuser(jp->jobSpecs.execUid);
+            return -1;
+        } else {
+            chuser(batchId);
+            ls_syslog(LOG_ERR, "\
+%s: queue's post-exec command for job <%d> ended with status <%d>",
+                      __func__, jp->jobSpecs.jobId, LS_STATUS(status));
+            chuser(jp->jobSpecs.execUid);
+            return -1;
+        }
     }
 
     chdir("/tmp");
@@ -3450,7 +3503,7 @@ runQPost(struct jobCard *jp)
 
         exit(-1);
     }
-
+    return 0;
 }
 
 /* chPrePostUser()
@@ -3568,6 +3621,9 @@ postJobSetup(struct jobCard *jp)
     chuser(jp->jobSpecs.execUid);
 
     if (initPaths(jp, hp, NULL) < 0) {
+        if (jp->termCode == TERM_CWD_NOTEXIST) {
+            jobSetupStatus(JOB_STAT_EXIT, EXIT_CWD, jp);
+        }
         if (!(jp->jobSpecs.jStatus & JOB_STAT_PRE_EXEC)
             && jp->jobSpecs.reasons != PEND_QUE_PRE_FAIL) {
 
@@ -3630,8 +3686,10 @@ runUPost(struct jobCard *jp)
 {
     static char fname[]="runUPost";
     int pid, i;
+    int waitResult;
     char val[MAXLINELEN];
     char errMsg[MAXLINELEN];
+    LS_WAIT_T status;
 
     if ((pid = fork()) < 0) {
         sprintf(errMsg, I18N_JOB_FAIL_S_M, fname,
@@ -3673,11 +3731,42 @@ runUPost(struct jobCard *jp)
     }
 
     if (pid) {
-        if (waitpid(pid, NULL, 0) < 0) {
+        while ((waitResult = waitpid(pid, &status, 0)) < 0
+               && errno == EINTR)
+            ;
+        
+        if (waitResult < 0) {
             chuser(batchId);
             ls_syslog(LOG_ERR, "\
 %s: waitpid(%d) failed for upost for job <%d>: %m",
                       __func__, pid, jp->jobSpecs.jobId);
+            chuser(jp->jobSpecs.execUid);
+            return -1;
+        }
+        
+        if (WIFEXITED(status) && WEXITSTATUS(status) == 0) {
+            return 0;
+        }
+        
+        if (WIFEXITED(status)) {
+            chuser(batchId);
+            ls_syslog(LOG_ERR, "\
+%s: user's post-exec command for job <%d> exited with status <%d>",
+                      __func__, jp->jobSpecs.jobId, WEXITSTATUS(status));
+            chuser(jp->jobSpecs.execUid);
+            return -1;
+        } else if (WIFSIGNALED(status)) {
+            chuser(batchId);
+            ls_syslog(LOG_ERR, "\
+%s: user's post-exec command for job <%d> terminated by signal <%d>",
+                      __func__, jp->jobSpecs.jobId, WTERMSIG(status));
+            chuser(jp->jobSpecs.execUid);
+            return -1;
+        } else {
+            chuser(batchId);
+            ls_syslog(LOG_ERR, "\
+%s: user's post-exec command for job <%d> ended with status <%d>",
+                      __func__, jp->jobSpecs.jobId, LS_STATUS(status));
             chuser(jp->jobSpecs.execUid);
             return -1;
         }
@@ -4249,6 +4338,7 @@ initJobCard(struct jobCard *jp, struct jobSpecs *jobSpecs, int *reply)
     jp->avgMemLastCalcTime = 0;
     jp->avgMem = 0;
     jp->avgMemMbd = 0;
+    jp->termCode = TERM_NULL;
     recoverJobRusageFile(jp);
 
     ls_syslog(LOG_DEBUG, "options2=%x ", jobSpecs->options2);

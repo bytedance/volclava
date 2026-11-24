@@ -205,9 +205,18 @@ xdr_array_string(XDR *xdrs, char **astring, int maxlen, int arraysize)
 bool_t
 xdr_time_t(XDR *xdrs, time_t *t)
 {
-    return(xdr_u_long(xdrs, (unsigned long *)t));
+    int tmp;
 
+    if (xdrs->x_op == XDR_ENCODE)
+        tmp = (int) *t;
 
+    if (!xdr_int(xdrs, &tmp))
+        return FALSE;
+
+    if (xdrs->x_op == XDR_DECODE)
+        *t = (time_t) tmp;
+
+    return TRUE;
 }
 
 int

@@ -37,6 +37,7 @@
 #include "daemons.h"
 #include "../../lsf/lib/lib.rf.h"
 #include "../../lsf/lib/lib.osal.h"
+#include "../../lsf/lib/lib.table.h"
 
 #define NULLFILE "/dev/null"
 #define JOBFILEEXT ""
@@ -115,6 +116,7 @@ struct jobCard {
     int    avgMemLastCalcTime;
     int    avgMemMbd;
     int    avgMem;
+    termcode_t termCode;
 };
 
 typedef enum {
@@ -312,7 +314,19 @@ extern int isAbsolutePathExec(const char *);
 extern void milliSleep( int msec );
 extern char window_ok(struct jobCard *jobPtr);
 extern void child_handler(int);
-extern void shout_err(struct jobCard *jobPtr, char *);
+extern void shout_err(struct jobCard *jobPtr, char *msg);
+
+extern int sigchldPipeRd;
+extern int sigchldPipeWr;
+extern int sigchldPipeChfd;
+extern int initSigchldPipe(void);
+extern void processReapedChildren(void);
+
+extern struct hTab pidHT;
+extern void initPidHT(void);
+extern void addPidHT(pid_t pid, struct jobCard *jp);
+extern void removePidHT(pid_t pid);
+extern struct jobCard *getJobCardByPid(pid_t pid);
 extern int  fcp(char *, char *, struct hostent *);
 extern int rmDir(char *);
 extern void closeBatchSocket (void);

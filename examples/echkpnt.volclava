@@ -1,0 +1,660 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+echkpnt - volclava 应用级检查点触发程序
+=========================================
+
+功能说明：
+    这是一个符合 IBM LSF 规范的应用级检查点程序 (echkpnt)。
+    volclava 在执行 bchkpnt 命令或达到检查点周期时，会调用此程序。
+
+    支持两种触发模式：
+    1. 信号模式 (signal) - 向目标进程发送 SIGUSR1/SIGUSR2 信号
+    2. 文件模式 (file)   - 在检查点目录中创建触发文件 (.check / .exit)
+
+volclava 调用约定：
+    volclava 调用 echkpnt 时，标准参数格式为：
+        echkpnt [options] <pid> <checkpoint_dir>
+
+    volclava 设置的环境变量：
+        LSB_CHKPNT_DIR   - 检查点目录
+        LSB_JOBID         - 作业 ID
+        LSB_JOBINDEX      - 作业数组索引
+        LSB_JOBPID        - 作业进程 PID (某些版本)
+
+命令行参数：
+    -k              checkpoint-and-exit 模式（检查点后终止作业）
+    -p <pid>        目标进程 PID（也可作为位置参数）
+    -d <dir>        检查点目录（也可作为位置参数）
+    -m <method>     触发方式: signal | file (默认: signal)
+    -t <seconds>    等待检查点完成的超时时间 (默认: 60秒)
+    -v              详细输出模式
+
+退出码：
+    0  - 检查点成功
+    1  - 检查点失败
+    2  - 参数错误
+    126 - 目标进程不存在
+    124 - 检查点超时
+
+参考文档：
+    https://www.ibm.com/docs/en/spectrum-lsf/10.1.0?topic=restart-configuration-enable-job-checkpoint
+"""
+
+import os
+import sys
+import time
+import signal
+import argparse
+import logging
+import os.path
+
+# ============================================================
+# 配置
+# ============================================================
+
+TRIGGER_CHECK = ".check"
+TRIGGER_EXIT = ".exit"
+CHECKPOINT_FILENAME = "checkpoint.json"
+
+# 默认超时（秒）
+DEFAULT_TIMEOUT = 60
+
+# 轮询间隔（秒）
+POLL_INTERVAL = 0.5
+
+
+# ============================================================
+# 日志配置
+# ============================================================
+
+def get_log_file_path(checkpoint_dir=None):
+    """
+    确定日志文件路径
+    优先使用检查点目录下的 echkpnt_volclava.log，否则使用 /tmp/echkpnt_volclava.log
+    """
+    if checkpoint_dir:
+        # 只要有目录路径就用，目录不存在会在写日志时创建
+        return os.path.join(checkpoint_dir, "echkpnt_volclava.log")
+    # 从环境变量尝试
+    chkpnt_dir = os.environ.get("LSB_CHKPNT_DIR")
+    if chkpnt_dir:
+        return os.path.join(chkpnt_dir, "echkpnt_volclava.log")
+    return "/tmp/echkpnt_volclava.log"
+
+
+def get_caller_info():
+    """
+    获取调用者身份信息
+    """
+    info = {}
+    try:
+        info["pid"] = os.getpid()
+        info["ppid"] = os.getppid()
+        info["uid"] = os.getuid()
+        info["gid"] = os.getgid()
+        info["euid"] = os.geteuid()
+        info["egid"] = os.getegid()
+    except (AttributeError, OSError):
+        pass
+
+    # 获取用户名
+    try:
+        import pwd
+        info["username"] = pwd.getpwuid(os.getuid()).pw_name
+    except (ImportError, OSError, KeyError):
+        info["username"] = os.environ.get("USER", "unknown")
+
+    # 获取主机名
+    try:
+        import socket
+        info["hostname"] = socket.gethostname()
+    except (ImportError, OSError):
+        info["hostname"] = "unknown"
+
+    # 父进程信息（从 /proc 读取，Linux only）
+    try:
+        ppid = os.getppid()
+        proc_exe = f"/proc/{ppid}/comm"
+        if os.path.exists(proc_exe):
+            with open(proc_exe, "r") as f:
+                info["parent_process"] = f.read().strip()
+        proc_cmdline = f"/proc/{ppid}/cmdline"
+        if os.path.exists(proc_cmdline):
+            with open(proc_cmdline, "r") as f:
+                info["parent_cmdline"] = f.read().replace("\x00", " ").strip()
+    except (OSError, IOError):
+        pass
+
+    return info
+
+
+def setup_logging(log_file, verbose=False):
+    """
+    配置日志输出到文件
+    同时也输出到 stderr 便于 LSF 捕获
+    """
+    level = logging.DEBUG if verbose else logging.INFO
+
+    logger = logging.getLogger("echkpnt")
+    logger.setLevel(level)
+    logger.handlers.clear()  # 清除已有处理器
+
+    # 文件处理器
+    try:
+        os.makedirs(os.path.dirname(log_file), exist_ok=True)
+        file_handler = logging.FileHandler(log_file, mode="a")
+        file_handler.setLevel(level)
+        file_formatter = logging.Formatter(
+            fmt="%(asctime)s [echkpnt] [%(levelname)s] %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S",
+        )
+        file_handler.setFormatter(file_formatter)
+        logger.addHandler(file_handler)
+    except (OSError, IOError) as e:
+        # 如果无法写文件，至少输出到 stderr
+        pass
+
+    # stderr 处理器（便于 LSF 实时捕获）
+    stderr_handler = logging.StreamHandler(sys.stderr)
+    stderr_handler.setLevel(level)
+    stderr_formatter = logging.Formatter(
+        fmt="%(asctime)s [echkpnt] [%(levelname)s] %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
+    stderr_handler.setFormatter(stderr_formatter)
+    logger.addHandler(stderr_handler)
+
+    return logger
+
+
+# ============================================================
+# 信号触发模式
+# ============================================================
+
+def get_process_group_members(pgid):
+    """
+    获取进程组中的所有进程 PID 列表
+    从 /proc 读取（Linux only），失败返回空列表
+    """
+    members = []
+    try:
+        import glob
+        for proc_dir in glob.glob("/proc/[0-9]*"):
+            try:
+                pid_str = os.path.basename(proc_dir)
+                pid_num = int(pid_str)
+                # 读取 /proc/<pid>/stat 中的 pgrp 字段（第 5 个字段）
+                stat_path = os.path.join(proc_dir, "stat")
+                with open(stat_path, "r") as f:
+                    stat_line = f.read()
+                # stat 格式: pid (comm) state ppid pgrp ...
+                # comm 可能包含空格和括号，所以从后往前数更可靠
+                # pgrp 是第 5 个字段，从末尾数也是固定位置
+                parts = stat_line.rsplit(")", 1)
+                if len(parts) == 2:
+                    after_comm = parts[1].strip().split()
+                    # after_comm: [0]=state, [1]=ppid, [2]=pgrp
+                    if len(after_comm) >= 3:
+                        pgrp = int(after_comm[2])
+                        if pgrp == pgid:
+                            members.append(pid_num)
+            except (ValueError, OSError, IOError, IndexError):
+                continue
+    except Exception:
+        pass
+    return sorted(members)
+
+
+def trigger_by_signal(pid, and_exit=False, timeout=DEFAULT_TIMEOUT,
+                      use_process_group=True, logger=None):
+    """
+    通过信号触发检查点
+
+    注意：
+        LSF 作业以进程组方式运行，传入的 pid 是进程组首进程 PID。
+        检查点信号需要发送给进程组中的所有进程，否则子进程可能
+        无法收到检查点通知，导致数据不一致或残留子进程。
+
+    Args:
+        pid: 目标进程 PID（进程组首进程 PID）
+        and_exit: True=检查点并退出 (SIGUSR2), False=检查点并继续 (SIGUSR1)
+        timeout: 等待超时时间（秒）
+        use_process_group: 是否向整个进程组发送信号（默认 True）
+        logger: 日志对象
+
+    Returns:
+        退出码: 0 成功, 其他失败
+    """
+    if logger is None:
+        logger = logging.getLogger(__name__)
+
+    sig = signal.SIGUSR2 if and_exit else signal.SIGUSR1
+    sig_name = "SIGUSR2" if and_exit else "SIGUSR1"
+
+    # 检查进程是否存在
+    try:
+        os.kill(pid, 0)  # 发送信号 0，仅检查进程是否存在
+    except OSError:
+        logger.error("进程 %d 不存在或无权限访问", pid)
+        return 126
+
+    # 确定进程组 ID（通常等于首进程 PID）
+    pgid = os.getpgid(pid) if hasattr(os, "getpgid") else pid
+    target_is_group = use_process_group and pgid == pid
+
+    if target_is_group:
+        # 获取进程组成员（用于日志和等待退出时的检查）
+        members = get_process_group_members(pgid)
+        if members:
+            logger.info(
+                "进程组 %d 包含 %d 个进程: %s",
+                pgid, len(members), members,
+            )
+        else:
+            logger.info("进程组 %d (无法枚举成员)", pgid)
+
+        logger.info("向进程组 %d 发送 %s 信号（首进程: %d）", pgid, sig_name, pid)
+
+        try:
+            os.killpg(pgid, sig)
+        except OSError as e:
+            logger.error("向进程组发送信号失败: %s，降级为向首进程发送", e)
+            try:
+                os.kill(pid, sig)
+            except OSError as e2:
+                logger.error("向首进程发送信号也失败: %s", e2)
+                return 1
+    else:
+        if use_process_group:
+            logger.warning(
+                "PID %d 不是进程组首进程 (pgid=%d)，仅向该进程发送信号",
+                pid, pgid,
+            )
+        logger.info("向进程 %d 发送 %s 信号", pid, sig_name)
+
+        try:
+            os.kill(pid, sig)
+        except OSError as e:
+            logger.error("发送信号失败: %s", e)
+            return 1
+
+    # 如果是 checkpoint-and-continue 模式，发送信号后即可返回
+    # LSF 只需要确认信号已发送
+    if not and_exit:
+        logger.info("检查点信号已发送 (checkpoint-and-continue)")
+        return 0
+
+    # 如果是 checkpoint-and-exit 模式，等待进程退出
+    if target_is_group:
+        logger.info("等待进程组 %d 所有进程退出 (超时: %d 秒)", pgid, timeout)
+    else:
+        logger.info("等待进程 %d 退出 (超时: %d 秒)", pid, timeout)
+    start_time = time.time()
+
+    while time.time() - start_time < timeout:
+        if target_is_group:
+            # 检查进程组是否还有存活进程
+            members = get_process_group_members(pgid)
+            if not members:
+                elapsed = time.time() - start_time
+                logger.info(
+                    "进程组 %d 所有进程已退出 (耗时 %.2f 秒)", pgid, elapsed
+                )
+                return 0
+            # 同时确认首进程已退出（首进程退出后组可能已改变）
+            try:
+                os.kill(pid, 0)
+            except OSError:
+                # 首进程已退出，再等一小会儿让子进程退出
+                time.sleep(0.2)
+                remaining = get_process_group_members(pgid)
+                if not remaining:
+                    elapsed = time.time() - start_time
+                    logger.info(
+                        "进程组 %d 所有进程已退出 (耗时 %.2f 秒)", pgid, elapsed
+                    )
+                    return 0
+        else:
+            # 只检查单个进程
+            try:
+                os.kill(pid, 0)  # 进程仍在运行
+            except OSError:
+                # 进程已退出
+                elapsed = time.time() - start_time
+                logger.info("进程 %d 已退出 (耗时 %.2f 秒)", pid, elapsed)
+                return 0
+
+        time.sleep(POLL_INTERVAL)
+
+    # 超时
+    if target_is_group:
+        remaining = get_process_group_members(pgid)
+        logger.error(
+            "等待进程组 %d 退出超时 (%d 秒), 剩余进程: %s",
+            pgid, timeout, remaining,
+        )
+    else:
+        logger.error("等待进程 %d 退出超时 (%d 秒)", pid, timeout)
+    return 124
+
+
+# ============================================================
+# 文件触发模式
+# ============================================================
+
+def trigger_by_file(checkpoint_dir, and_exit=False, timeout=DEFAULT_TIMEOUT, logger=None):
+    """
+    通过创建触发文件触发检查点（FLUENT 风格）
+
+    Args:
+        checkpoint_dir: 检查点目录
+        and_exit: True=检查点并退出 (.exit), False=检查点并继续 (.check)
+        timeout: 等待超时时间（秒）
+        logger: 日志对象
+
+    Returns:
+        退出码: 0 成功, 其他失败
+    """
+    if logger is None:
+        logger = logging.getLogger(__name__)
+
+    if not checkpoint_dir:
+        logger.error("未指定检查点目录")
+        return 2
+
+    # 确保目录存在
+    os.makedirs(checkpoint_dir, exist_ok=True)
+
+    trigger_name = TRIGGER_EXIT if and_exit else TRIGGER_CHECK
+    trigger_file = os.path.join(checkpoint_dir, trigger_name)
+
+    logger.info("创建触发文件: %s", trigger_file)
+
+    try:
+        # 创建触发文件
+        with open(trigger_file, "w") as f:
+            f.write(f"triggered_at: {time.time()}\n")
+            f.write(f"mode: {'exit' if and_exit else 'check'}\n")
+    except OSError as e:
+        logger.error("创建触发文件失败: %s", e)
+        return 1
+
+    # 如果是 checkpoint-and-continue 模式，等待触发文件被应用程序删除
+    # （表示应用程序已处理检查点请求）
+    if not and_exit:
+        logger.info("等待应用程序处理检查点 (超时: %d 秒)", timeout)
+        start_time = time.time()
+
+        while time.time() - start_time < timeout:
+            if not os.path.exists(trigger_file):
+                elapsed = time.time() - start_time
+                logger.info("检查点完成 (耗时 %.2f 秒)", elapsed)
+                return 0
+            time.sleep(POLL_INTERVAL)
+
+        logger.error("检查点超时 (%d 秒)", timeout)
+        return 124
+
+    # checkpoint-and-exit 模式，等待 checkpoint.json 的 mtime 更新
+    # 或者等待 .exit 文件被删除
+    else:
+        logger.info("等待应用程序检查点并退出 (超时: %d 秒)", timeout)
+        checkpoint_file = os.path.join(checkpoint_dir, CHECKPOINT_FILENAME)
+        start_time = time.time()
+        initial_mtime = 0
+        if os.path.exists(checkpoint_file):
+            initial_mtime = os.path.getmtime(checkpoint_file)
+
+        while time.time() - start_time < timeout:
+            # 检查触发文件是否被删除
+            if not os.path.exists(trigger_file):
+                elapsed = time.time() - start_time
+                logger.info("触发文件已被处理 (耗时 %.2f 秒)", elapsed)
+                return 0
+            # 检查 checkpoint.json 是否更新
+            if os.path.exists(checkpoint_file):
+                current_mtime = os.path.getmtime(checkpoint_file)
+                if current_mtime > initial_mtime:
+                    elapsed = time.time() - start_time
+                    logger.info("检查点文件已更新 (耗时 %.2f 秒)", elapsed)
+                    return 0
+            time.sleep(POLL_INTERVAL)
+
+        logger.error("检查点超时 (%d 秒)", timeout)
+        return 124
+
+
+# ============================================================
+# 主函数
+# ============================================================
+
+def main():
+    # --------------------------------------------------------
+    # 预处理 -c 参数：LSF 可能传入 -c 及检查点周期值
+    # 本程序当前忽略该参数，但需确保不报错
+    # 支持格式: -c 60  |  -c60  |  -c (无值)
+    # --------------------------------------------------------
+    _c_value = None
+    filtered_argv = []
+    i = 0
+    argv = sys.argv[1:]
+    while i < len(argv):
+        arg = argv[i]
+        if arg == "-c":
+            # 下一个参数如果不以 - 开头，视为 -c 的值
+            if i + 1 < len(argv) and not argv[i + 1].startswith("-"):
+                _c_value = argv[i + 1]
+                i += 2
+            else:
+                _c_value = ""
+                i += 1
+        elif arg.startswith("-c") and len(arg) > 2 and arg[2] not in ("h",):
+            # -c60 这种紧凑格式
+            _c_value = arg[2:]
+            i += 1
+        else:
+            filtered_argv.append(arg)
+            i += 1
+
+    parser = argparse.ArgumentParser(
+        prog="echkpnt",
+        description="LSF 应用级检查点触发程序",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+volclava 调用示例:
+  echkpnt -k 12345 /path/to/chkpnt_dir
+  echkpnt -p 12345 -d /path/to/chkpnt_dir -m signal -k
+  echkpnt -p 12345 -d /path/to/chkpnt_dir -m file
+
+环境变量:
+  LSB_CHKPNT_DIR   检查点目录 (默认值)
+  LSB_JOBID         volclava 作业 ID
+        """,
+    )
+
+    parser.add_argument(
+        "-k", "--kill",
+        action="store_true",
+        help="checkpoint-and-exit 模式（检查点后终止作业）",
+    )
+    parser.add_argument(
+        "-p", "--pid",
+        type=int,
+        default=None,
+        help="目标进程 PID",
+    )
+    parser.add_argument(
+        "-d", "--dir",
+        default=None,
+        help="检查点目录",
+    )
+    parser.add_argument(
+        "-m", "--method",
+        choices=["signal", "file"],
+        default="signal",
+        help="检查点触发方式 (默认: signal)",
+    )
+    parser.add_argument(
+        "-g", "--process-group",
+        dest="use_process_group",
+        action="store_true",
+        default=True,
+        help="向整个进程组发送信号 (默认开启，仅 signal 模式有效)",
+    )
+    parser.add_argument(
+        "--no-process-group",
+        dest="use_process_group",
+        action="store_false",
+        help="只向指定 PID 发送信号，不向进程组广播",
+    )
+    parser.add_argument(
+        "-t", "--timeout",
+        type=int,
+        default=DEFAULT_TIMEOUT,
+        help=f"等待检查点完成的超时时间，秒 (默认: {DEFAULT_TIMEOUT})",
+    )
+    parser.add_argument(
+        "-v", "--verbose",
+        action="store_true",
+        help="详细输出模式",
+    )
+
+    # 位置参数（兼容 LSF 标准调用方式：echkpnt [options] pid checkpoint_dir）
+    parser.add_argument(
+        "positional_args",
+        nargs="*",
+        help="位置参数: [pid] [checkpoint_dir]",
+    )
+
+    args = parser.parse_args(filtered_argv)
+
+    # --------------------------------------------------------
+    # 先初步解析检查点目录（用于确定日志文件路径）
+    # --------------------------------------------------------
+    checkpoint_dir_prelim = args.dir
+    pos_args = args.positional_args
+    if len(pos_args) >= 1:
+        if pos_args[0].isdigit():
+            if len(pos_args) >= 2:
+                checkpoint_dir_prelim = pos_args[1]
+        else:
+            checkpoint_dir_prelim = pos_args[0]
+    if not checkpoint_dir_prelim:
+        checkpoint_dir_prelim = os.environ.get("LSB_CHKPNT_DIR")
+
+    # 确定日志文件路径
+    log_file = get_log_file_path(checkpoint_dir_prelim)
+
+    # 初始化日志
+    logger = setup_logging(log_file, args.verbose)
+
+    # 记录命令行参数
+    logger.info("=" * 60)
+    logger.info("echkpnt 被调用")
+    logger.info("命令行参数: %s", " ".join(sys.argv))
+    if _c_value is not None:
+        logger.info("-c 参数值: %s (已忽略)", _c_value if _c_value else "(空)")
+    logger.info("日志文件: %s", log_file)
+
+    # 记录调用者身份信息
+    caller_info = get_caller_info()
+    logger.info("调用者信息:")
+    logger.info("  用户名:   %s", caller_info.get("username", "N/A"))
+    logger.info("  主机名:   %s", caller_info.get("hostname", "N/A"))
+    logger.info("  PID:      %s", caller_info.get("pid", "N/A"))
+    logger.info("  父PID:    %s", caller_info.get("ppid", "N/A"))
+    logger.info("  UID:      %s", caller_info.get("uid", "N/A"))
+    logger.info("  GID:      %s", caller_info.get("gid", "N/A"))
+    logger.info("  EUID:     %s", caller_info.get("euid", "N/A"))
+    logger.info("  EGID:     %s", caller_info.get("egid", "N/A"))
+    if "parent_process" in caller_info:
+        logger.info("  父进程:   %s", caller_info["parent_process"])
+    if "parent_cmdline" in caller_info:
+        logger.info("  父进程命令: %s", caller_info["parent_cmdline"])
+
+    # 记录 LSF 相关环境变量
+    lsf_env_vars = [
+        "LSB_CHKPNT_DIR", "LSB_JOBID", "LSB_JOBINDEX",
+        "LSB_JOBPID", "LSB_QUEUE", "LSB_HOSTS",
+        "LSB_JOBUSER", "LSB_EXEC_HOSTLIST",
+    ]
+    logger.info("LSF 环境变量:")
+    for var in lsf_env_vars:
+        val = os.environ.get(var)
+        if val is not None:
+            logger.info("  %s = %s", var, val)
+
+    # --------------------------------------------------------
+    # 解析位置参数（优先位置参数，其次是 -p/-d 选项，最后是环境变量）
+    # --------------------------------------------------------
+    pid = args.pid
+    checkpoint_dir = args.dir
+
+    # 位置参数解析
+    if len(pos_args) >= 1:
+        # 第一个位置参数可能是 PID 或目录
+        if pos_args[0].isdigit():
+            pid = int(pos_args[0])
+            if len(pos_args) >= 2:
+                checkpoint_dir = pos_args[1]
+        else:
+            checkpoint_dir = pos_args[0]
+            if len(pos_args) >= 2 and pos_args[1].isdigit():
+                pid = int(pos_args[1])
+
+    # 从环境变量获取
+    if not checkpoint_dir:
+        checkpoint_dir = os.environ.get("LSB_CHKPNT_DIR")
+
+    if not pid:
+        pid_str = os.environ.get("LSB_JOBPID")
+        if pid_str and pid_str.isdigit():
+            pid = int(pid_str)
+
+    # 日志输出环境信息
+    job_id = os.environ.get("LSB_JOBID", "N/A")
+    logger.debug("LSF 作业ID: %s", job_id)
+    logger.debug("目标PID: %s", pid)
+    logger.debug("检查点目录: %s", checkpoint_dir)
+    logger.debug("触发模式: %s", args.method)
+    logger.debug("checkpoint-and-exit: %s", args.kill)
+
+    # 信号模式需要 PID
+    if args.method == "signal" and not pid:
+        logger.error("信号触发模式需要指定目标进程 PID")
+        print("错误: 信号模式需要 PID 参数", file=sys.stderr)
+        logger.info("echkpnt 异常退出，退出码: 2 (参数错误)")
+        return 2
+
+    # 文件模式需要 checkpoint_dir
+    if args.method == "file" and not checkpoint_dir:
+        logger.error("文件触发模式需要指定检查点目录")
+        print("错误: 文件模式需要 checkpoint_dir 参数", file=sys.stderr)
+        logger.info("echkpnt 异常退出，退出码: 2 (参数错误)")
+        return 2
+
+    # 执行检查点触发
+    if args.method == "signal":
+        exit_code = trigger_by_signal(
+            pid=pid,
+            and_exit=args.kill,
+            timeout=args.timeout,
+            use_process_group=args.use_process_group,
+            logger=logger,
+        )
+    else:  # file mode
+        exit_code = trigger_by_file(
+            checkpoint_dir=checkpoint_dir,
+            and_exit=args.kill,
+            timeout=args.timeout,
+            logger=logger,
+        )
+
+    logger.info("echkpnt 执行完成，退出码: %d", exit_code)
+    logger.info("=" * 60)
+    return exit_code
+
+
+if __name__ == "__main__":
+    sys.exit(main())

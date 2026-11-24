@@ -368,6 +368,8 @@ main (int argc, char **argv)
         struct sockaddr_in from;
         struct clientNode *client;
 
+        now = time(0);
+
 	sigemptyset(&newmask);
 	sigaddset(&newmask, SIGCHLD);
 	sigprocmask(SIG_BLOCK, &newmask, NULL);
@@ -441,6 +443,15 @@ main (int argc, char **argv)
 			  statusChan, chanEventsReady(statusChan,EPOLL_EVENT_READ) ? "yes" : "no");
 	    chanClose_(statusChan);
 	    statusChan = -1;
+	}
+
+	if (sigchldPipeChfd >= 0 &&
+	    (chanEventsReady(sigchldPipeChfd, EPOLL_EVENT_READ) ||
+	     chanEventsReady(sigchldPipeChfd, EPOLL_EVENT_ERROR))) {
+	    if (logclass & LC_COMM)
+		ls_syslog(LOG_DEBUG,
+			  "main: SIGCHLD pipe readable");
+	    processReapedChildren();
 	}
 
     if (!chanEventsReady(batchSock,EPOLL_EVENT_READ)) {
@@ -956,8 +967,15 @@ sinit (void)
         die(SLAVE_FATAL);
     }
 
+
     if (initShowconfParams(daemonParams) < 0) {
         ls_syslog(LOG_ERR, "%s: initShowconfParams() failed", __func__);
+        die(SLAVE_FATAL);
+    }
+
+    initPidHT();
+    if (initSigchldPipe() < 0) {
+        ls_syslog(LOG_ERR, I18N_FUNC_FAIL, fname, "initSigchldPipe");
         die(SLAVE_FATAL);
     }
 

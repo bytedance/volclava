@@ -157,7 +157,6 @@ main(int argc, char **argv){
 	    ||(strcmp(pIsOutput,ECHKPNT_OPEN_OUTPUT_L) == 0))) {
 		initLog("Erestart");
 	}
-
 	
 	if (iReValue == 0){
 		sprintf(logMesgBuf, "%s : the .echkpnt file does not exists during restarting job\n",fname);

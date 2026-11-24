@@ -1,0 +1,471 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+erestart.volclava - 应用级检查点重启程序
+=============================================================
+
+功能说明：
+    这是一个符合 IBM LSF 规范的应用级检查点重启程序 (erestart)。
+    volclava 在执行 brestart 命令重启作业时，会调用此程序。
+
+    erestart.volclava 的职责：
+    1. 验证检查点目录中的检查点数据是否有效
+    2. 构造重新启动应用程序的命令（通常是在原命令基础上添加 -r 参数）
+    3. 设置必要的环境变量
+    4. 将重启命令写入 <checkpoint_dir>/.restart_cmd 文件
+
+volclava 调用约定：
+    volclava 调用 erestart 的标准语法为：
+        erestart [-c] [-f] checkpoint_dir
+
+    参数说明：
+        -c : checkpoint-and-continue 模式（应用继续运行）
+        -f : 强制模式
+        checkpoint_dir : 新作业的检查点目录名（通常为 job_id，如 24）
+                        这是一个相对路径/子目录名，不是完整路径
+
+    真正的检查点根目录从环境变量获取：
+        LSB_CHKPNT_DIR   - 检查点根目录（完整路径）
+        LSB_JOBID         - 新的作业 ID
+        LSB_RESTART_FROM  - 源作业 ID (可选)
+
+    重启命令写入:
+        <LSB_CHKPNT_DIR>/.restart_cmd
+
+命令行参数（LSF 标准语法）:
+    erestart [-c] [-f] checkpoint_dir
+
+    -c              checkpoint-and-continue 模式（应用继续运行）
+    -f              强制模式
+    checkpoint_dir  新作业的检查点子目录名（通常为 job_id）
+
+退出码：
+    0 - 成功生成重启命令文件
+    1 - 重启失败
+    2 - 参数错误/无法确定检查点目录
+    3 - 检查点数据无效/不存在
+
+参考文档：
+    https://www.ibm.com/docs/en/spectrum-lsf/10.1.0?topic=restart-configuration-enable-job-checkpoint
+"""
+
+import os
+import sys
+import json
+import logging
+import os.path
+
+# ============================================================
+# 配置
+# ============================================================
+
+# 检查点文件名（与 checkpoint_volclava.py 保持一致）
+CHECKPOINT_FILENAME = "checkpoint.json"
+
+# 默认应用程序命令
+DEFAULT_APP_CMD = "python3"
+DEFAULT_APP_SCRIPT = "checkpoint_app.py"
+
+
+# ============================================================
+# 日志配置
+# ============================================================
+
+def get_log_file_path(checkpoint_dir=None):
+    """
+    确定日志文件路径
+    优先使用检查点目录下的 erestart_volclava.log，否则使用 /tmp/erestart_volclava.log
+    """
+    if checkpoint_dir:
+        return os.path.join(checkpoint_dir, "erestart_volclava.log")
+    chkpnt_dir = os.environ.get("LSB_CHKPNT_DIR")
+    if chkpnt_dir:
+        return os.path.join(chkpnt_dir, "erestart_volclava.log")
+    return "/tmp/erestart_volclava.log"
+
+
+def get_caller_info():
+    """
+    获取调用者身份信息
+    """
+    info = {}
+    try:
+        info["pid"] = os.getpid()
+        info["ppid"] = os.getppid()
+        info["uid"] = os.getuid()
+        info["gid"] = os.getgid()
+        info["euid"] = os.geteuid()
+        info["egid"] = os.getegid()
+    except (AttributeError, OSError):
+        pass
+
+    try:
+        import pwd
+        info["username"] = pwd.getpwuid(os.getuid()).pw_name
+    except (ImportError, OSError, KeyError):
+        info["username"] = os.environ.get("USER", "unknown")
+
+    try:
+        import socket
+        info["hostname"] = socket.gethostname()
+    except (ImportError, OSError):
+        info["hostname"] = "unknown"
+
+    return info
+
+
+def setup_logging(log_file, verbose=False):
+    """
+    配置日志输出到文件和 stderr
+    """
+    level = logging.DEBUG if verbose else logging.INFO
+
+    logger = logging.getLogger("erestart")
+    logger.setLevel(level)
+    logger.handlers.clear()
+
+    # 文件处理器
+    try:
+        os.makedirs(os.path.dirname(log_file) or ".", exist_ok=True)
+        file_handler = logging.FileHandler(log_file, mode="a")
+        file_handler.setLevel(level)
+        file_formatter = logging.Formatter(
+            fmt="%(asctime)s [erestart] [%(levelname)s] %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S",
+        )
+        file_handler.setFormatter(file_formatter)
+        logger.addHandler(file_handler)
+    except (OSError, IOError):
+        pass
+
+    # stderr 处理器
+    stderr_handler = logging.StreamHandler(sys.stderr)
+    stderr_handler.setLevel(level)
+    stderr_formatter = logging.Formatter(
+        fmt="%(asctime)s [erestart] [%(levelname)s] %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
+    stderr_handler.setFormatter(stderr_formatter)
+    logger.addHandler(stderr_handler)
+
+    return logger
+
+
+# ============================================================
+# 检查点验证
+# ============================================================
+
+def validate_checkpoint(checkpoint_dir, logger):
+    """
+    验证检查点数据是否有效
+
+    Returns:
+        (bool, dict) - (是否有效, 检查点数据)
+    """
+    checkpoint_file = os.path.join(checkpoint_dir, CHECKPOINT_FILENAME)
+
+    if not os.path.exists(checkpoint_file):
+        logger.error("检查点文件不存在: %s", checkpoint_file)
+        return False, None
+
+    try:
+        with open(checkpoint_file, "r") as f:
+            data = json.load(f)
+    except (json.JSONDecodeError, OSError) as e:
+        logger.error("读取检查点文件失败: %s", e)
+        return False, None
+
+    # 基本字段验证
+    required_fields = ["step", "counter"]
+    for field in required_fields:
+        if field not in data:
+            logger.error("检查点数据缺少必要字段: %s", field)
+            return False, None
+
+    logger.info("检查点验证成功: step=%d, counter=%d",
+                data.get("step"), data.get("counter"))
+    return True, data
+
+
+# ============================================================
+# 构造重启命令
+# ============================================================
+
+def build_restart_command(checkpoint_dir, method, app_cmd, extra_args, logger):
+    """
+    构造重启应用程序的命令
+
+    Args:
+        checkpoint_dir: 检查点目录
+        method: 触发方式 (signal/file)
+        app_cmd: 应用程序命令（可为空，使用默认值）
+        extra_args: 额外参数列表
+        logger: 日志对象
+
+    Returns:
+        list - 命令及参数列表（可直接传给 execvp）
+    """
+    if app_cmd:
+        # 用户指定了完整的应用命令
+        # 将命令字符串拆分为列表（简单的空格分割）
+        cmd_parts = app_cmd.split()
+        # 添加 restart 标志和检查点目录
+        cmd = cmd_parts + ["-r", checkpoint_dir, "--mode", method]
+    else:
+        # 使用默认的 Python 演示程序
+        # 假设 checkpoint_app.py 与 erestart 在同一目录
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        app_script = os.path.join(script_dir, DEFAULT_APP_SCRIPT)
+
+        # 如果找不到脚本，尝试在当前目录查找
+        if not os.path.exists(app_script):
+            app_script = os.path.join(os.getcwd(), DEFAULT_APP_SCRIPT)
+
+        cmd = [
+            DEFAULT_APP_CMD,
+            app_script,
+            "-r",
+            checkpoint_dir,
+            "--mode",
+            method,
+        ]
+
+    # 添加额外参数
+    if extra_args:
+        cmd.extend(extra_args)
+
+    logger.debug("重启命令: %s", " ".join(cmd))
+    return cmd
+
+
+# ============================================================
+# 设置环境变量
+# ============================================================
+
+def setup_environment(checkpoint_dir, logger):
+    """
+    设置重启后应用程序所需的环境变量
+
+    确保 LSB_CHKPNT_DIR 正确设置，应用程序可以从中找到检查点数据
+    """
+    # 设置检查点目录环境变量（如果尚未设置）
+    if not os.environ.get("LSB_CHKPNT_DIR"):
+        os.environ["LSB_CHKPNT_DIR"] = checkpoint_dir
+        logger.debug("设置 LSB_CHKPNT_DIR=%s", checkpoint_dir)
+
+    # 标记这是一次重启（可选，供应用程序参考）
+    os.environ["LSF_CHECKPOINT_RESTART"] = "1"
+
+    logger.debug("环境变量已设置")
+
+
+# ============================================================
+# 主函数
+# ============================================================
+
+def main():
+    # 先用 /tmp/erestart_volclava.log 初始化日志（等解析出 checkpoint_dir 后再移过去）
+    initial_log_file = "/tmp/erestart_volclava.log"
+    logger = setup_logging(initial_log_file, verbose=True)  # 始终详细输出
+
+    # 记录启动信息
+    logger.info("=" * 60)
+    logger.info("erestart.volclava 启动")
+    logger.info("命令行参数 (原始): %s", " ".join(sys.argv))
+    logger.info("argc = %d", len(sys.argv))
+    for i, arg in enumerate(sys.argv):
+        logger.info("  argv[%d] = %r", i, arg)
+
+    # 记录全部环境变量
+    logger.info("全部环境变量:")
+    for key in sorted(os.environ.keys()):
+        logger.info("  %s = %s", key, os.environ[key])
+
+    # 记录调用者信息
+    caller_info = get_caller_info()
+    logger.info("调用者信息:")
+    logger.info("  用户名:   %s", caller_info.get("username", "N/A"))
+    logger.info("  主机名:   %s", caller_info.get("hostname", "N/A"))
+    logger.info("  PID:      %s", caller_info.get("pid", "N/A"))
+    logger.info("  父PID:    %s", caller_info.get("ppid", "N/A"))
+    logger.info("  UID:      %s", caller_info.get("uid", "N/A"))
+    logger.info("  GID:      %s", caller_info.get("gid", "N/A"))
+    logger.info("  EUID:     %s", caller_info.get("euid", "N/A"))
+    logger.info("  EGID:     %s", caller_info.get("egid", "N/A"))
+
+    # --------------------------------------------------------
+    # 解析 LSF 标准参数: erestart [-c] [-f] checkpoint_dir
+    # -c 和 -f 是 flag，无值
+    # checkpoint_dir 是位置参数（通常为新作业的 job_id，相对路径）
+    # --------------------------------------------------------
+    c_flag = False
+    f_flag = False
+    positional_args = []
+
+    i = 1  # 跳过 argv[0]
+    while i < len(sys.argv):
+        arg = sys.argv[i]
+        if arg in ("-c",):
+            c_flag = True
+            i += 1
+        elif arg in ("-f",):
+            f_flag = True
+            i += 1
+        elif arg.startswith("-") and len(arg) > 1 and not arg.startswith("--"):
+            # 组合短参数，如 -cf、-fc
+            chars = arg[1:]
+            if all(ch in "cf" for ch in chars):
+                if "c" in chars:
+                    c_flag = True
+                if "f" in chars:
+                    f_flag = True
+                i += 1
+            else:
+                # 未知选项，记录并跳过（不报错，保持兼容性）
+                logger.warning("忽略未知选项: %s", arg)
+                i += 1
+        else:
+            # 位置参数
+            positional_args.append(arg)
+            i += 1
+
+    logger.info("参数解析结果:")
+    logger.info("  -c (continue): %s", c_flag)
+    logger.info("  -f (force):    %s", f_flag)
+    logger.info("  位置参数:       %s", positional_args)
+
+    # ============================================================
+    # 确定检查点目录
+    #
+    # LSF 规范: erestart [-c] [-f] checkpoint_dir
+    # 其中 checkpoint_dir 位置参数传的是新作业的 job_id
+    # （相对路径/子目录名），真正的根目录在 LSB_CHKPNT_DIR
+    # 环境变量中。
+    # ============================================================
+    logger.info("--- checkpoint_dir 解析开始 ---")
+
+    # 1. 从环境变量获取真正的检查点根目录
+    env_chkpnt = os.environ.get("LSB_CHKPNT_DIR")
+    checkpoint_dir = env_chkpnt
+    if checkpoint_dir:
+        logger.info("  使用 LSB_CHKPNT_DIR 环境变量: %s", checkpoint_dir)
+    else:
+        logger.warning("  LSB_CHKPNT_DIR 环境变量未设置")
+
+    # 2. 处理位置参数（通常是新作业的 job_id / 子目录名）
+    pos_job_id = None
+    if positional_args:
+        pos_job_id = positional_args[0]
+        logger.info("  位置参数[0] = %r", pos_job_id)
+
+        # 如果环境变量没设置，位置参数可能是完整路径
+        if not checkpoint_dir and os.sep in pos_job_id:
+            checkpoint_dir = pos_job_id
+            pos_job_id = None
+            logger.info("    → 位置参数含路径分隔符，用作 checkpoint_dir")
+
+    if pos_job_id:
+        logger.info("  位置参数视为新作业 job_id: %s", pos_job_id)
+
+    logger.info("--- checkpoint_dir 解析结束 ---")
+    logger.info("最终 checkpoint_dir = %r", checkpoint_dir)
+
+    # 如果没有环境变量也没有路径型位置参数，报错
+    if not checkpoint_dir:
+        logger.error("无法确定检查点目录（LSB_CHKPNT_DIR 未设置，且无有效路径参数）")
+        print("错误: 无法确定检查点目录，请设置 LSB_CHKPNT_DIR 环境变量",
+              file=sys.stderr)
+        return 2
+
+    # 解析完成后，将日志文件移动到检查点目录
+    new_log_file = os.path.join(checkpoint_dir, "erestart_volclava.log")
+    if new_log_file != initial_log_file:
+        try:
+            os.makedirs(checkpoint_dir, exist_ok=True)
+            new_logger = setup_logging(new_log_file, verbose=True)
+            # 将临时日志内容追加到新文件
+            if os.path.exists(initial_log_file):
+                with open(initial_log_file, "r") as src:
+                    content = src.read()
+                if content:
+                    with open(new_log_file, "a") as dst:
+                        dst.write(content)
+            logger = new_logger
+            logger.info("日志文件已迁移到: %s", new_log_file)
+        except (OSError, IOError) as e:
+            logger.warning("无法迁移日志文件: %s，继续使用 %s", e, initial_log_file)
+
+    # 日志输出环境信息
+    job_id = os.environ.get("LSB_JOBID", "N/A")
+    restart_from = os.environ.get("LSB_RESTART_FROM", "N/A")
+    method = "signal"  # 固定使用 signal 模式（应用级检查点标准方式）
+    logger.info("=" * 60)
+    logger.info("erestart 配置:")
+    logger.info("  新作业ID:    %s", job_id)
+    logger.info("  源作业ID:    %s", restart_from)
+    logger.info("  检查点目录:  %s", checkpoint_dir)
+    logger.info("  触发方式:    %s", method)
+    logger.info("  -c flag:     %s", c_flag)
+    logger.info("  -f flag:     %s", f_flag)
+    logger.info("=" * 60)
+
+    # 1. 验证检查点数据
+    valid, ckpt_data = validate_checkpoint(checkpoint_dir, logger)
+    if not valid:
+        logger.error("检查点数据无效，无法重启")
+        return 3
+
+    # 2. 构造重启命令
+    # 从 LSB_ERESTART_USRCMD 环境变量获取用户命令；未设置则使用默认程序
+    app_cmd = os.environ.get("LSB_ERESTART_USRCMD")
+    if app_cmd:
+        logger.info("从 LSB_ERESTART_USRCMD 获取应用命令: %s", app_cmd)
+    else:
+        logger.info("LSB_ERESTART_USRCMD 未设置，使用默认应用程序")
+
+    cmd = build_restart_command(
+        checkpoint_dir=checkpoint_dir,
+        method=method,
+        app_cmd=app_cmd,
+        extra_args=[],     # 无额外参数
+        logger=logger,
+    )
+
+    # 3. 设置环境变量
+    setup_environment(checkpoint_dir, logger)
+
+    # 4. 确定 .restart_cmd 输出目录
+    restart_dir = checkpoint_dir
+
+    logger.info("生成重启命令文件 (不执行进程)")
+
+    try:
+        # 确保目录存在
+        os.makedirs(restart_dir, exist_ok=True)
+        restart_cmd_file = os.path.join(restart_dir, ".restart_cmd")
+
+        # 写入 shell 脚本格式，可直接执行
+        import shlex
+        with open(restart_cmd_file, "w") as f:
+            f.write("LSB_RESTART_CMD=")
+            f.write(" ".join(shlex.quote(arg) for arg in cmd))
+            f.write('\n')
+
+        # 设置为可执行
+        os.chmod(restart_cmd_file, 0o755)
+
+        logger.info("重启命令已写入: %s", restart_cmd_file)
+        logger.info("重启命令内容: %s", " ".join(cmd))
+
+    except OSError as e:
+        logger.error("写入重启命令文件失败: %s", e)
+        print(f"错误: 无法写入重启命令文件: {e}", file=sys.stderr)
+        return 1
+
+    # 成功返回 0
+    logger.info("erestart 完成，返回 0")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

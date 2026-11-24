@@ -249,7 +249,7 @@ setAddElement(LS_BITSET_T * set, void *obj)
     }
 
     if (x >= set->setSize) {
-        ls_syslog(LOG_DEBUG3,"%s: realloc set when size=%d", fname, value);
+        ls_syslog(LOG_DEBUG3,"%s: realloc set when size=%d", fname, set->setSize);
         setEnlarge(set, x);
         if (set == NULL)
             return (-1);

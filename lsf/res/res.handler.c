@@ -3745,29 +3745,39 @@ copyArray(char **from)
 void
 child_handler(void)
 {
-    static char fname[] = "child_handler";
+    int saved_errno = errno;
+    char byte = 1;
 
-    child_handler_ext();
+    if (sigchldPipeWr >= 0) {
+        while (write(sigchldPipeWr, &byte, 1) < 0 && errno == EINTR)
+            ;
+    }
 
     res_interrupted = 1;
-    if (debug > 1) {
-        printf("%s: Masks Reset: \n", fname);
-        display_masks(&readmask, &writemask, &exceptmask);
-    }
+
+    errno = saved_errno;
 }
 
 void
-child_handler_ext(void)
+processReapedChildren(void)
 {
-    static char       fname[] = "child_handler_ext";
+    static char       fname[] = "processReapedChildren";
     int               pid;
     LS_WAIT_T         status;
     struct rusage     ru;
     int               i;
     int               child_exit;
     int               wait_flags;
+    ssize_t           n;
+    char              buf[256];
 
     memset( (char*)&ru, 0, sizeof( ru ));
+
+    if (sigchldPipeRd >= 0) {
+        do {
+            n = read(sigchldPipeRd, buf, sizeof(buf));
+        } while (n < 0 && errno == EINTR);
+    }
 
     if (debug>1)
         fputs("SIGCHLD: child_handler_ext\n", stdout);
@@ -3844,7 +3854,10 @@ coredumped=<%d> exited=<%d>",
                 }
             }
 
-            lastChildExitStatus = WEXITSTATUS(status);
+            if (WIFSIGNALED(status))
+                lastChildExitStatus = 128 + WTERMSIG(status);
+            else
+                lastChildExitStatus = WEXITSTATUS(status);
 
             if (sbdMode && !(sbdFlags & SBD_FLAG_TERM)) {
                 if (logclass & LC_TRACE) {

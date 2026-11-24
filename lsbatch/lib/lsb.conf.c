@@ -6437,11 +6437,11 @@ terminateWhen (struct queueInfoEnt *qp, char *linep, char *fname,
 
         if ((sigName = getNextWord_(&linep)) != NULL) {
             if (strcmp(sigName, "USER") == 0)
-                qp->sigMap [-sigNameToValue_ ("SIG_SUSP_USER")] = -10;
+                qp->sigMap [-sigNameToValue_ ("SIG_SUSP_USER")] = SIG_TERM_USER - SIG_SUSP_USER;
             else if (strcmp(sigName, "LOAD") == 0)
-                qp->sigMap [-sigNameToValue_ ("SIG_SUSP_LOAD")] = -10;
+                qp->sigMap [-sigNameToValue_ ("SIG_SUSP_LOAD")] = SIG_TERM_LOAD - SIG_SUSP_LOAD;
             else if (strcmp(sigName, "WINDOW") == 0)
-                qp->sigMap [-sigNameToValue_ ("SIG_SUSP_WINDOW")] = -10;
+                qp->sigMap [-sigNameToValue_ ("SIG_SUSP_WINDOW")] = SIG_TERM_WINDOW - SIG_SUSP_WINDOW;
             else {
                 if (fname)
                     ls_syslog(LOG_ERR, I18N(5413,

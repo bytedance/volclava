@@ -85,6 +85,8 @@ extern char magic_str[];
 extern int child_res_port;
 extern int parent_res_port;
 extern fd_set readmask, writemask, exceptmask;
+extern int sigchldPipeRd;
+extern int sigchldPipeWr;
 
 extern int ctrlSock;
 extern struct sockaddr_in ctrlAddr;
@@ -278,7 +280,7 @@ extern int deliver_notifications(LIST_T *);
 extern void term_handler(int);
 extern void sigHandler(int);
 extern void child_handler(void);
-extern void child_handler_ext(void);
+extern void processReapedChildren(void);
 extern void getMaskReady(fd_set *rm, fd_set *wm, fd_set *em);
 extern void display_masks(fd_set *, fd_set *, fd_set *);
 

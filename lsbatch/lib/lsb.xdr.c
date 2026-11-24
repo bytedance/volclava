@@ -1121,6 +1121,7 @@ xdr_jobInfoReply (XDR *xdrs, struct jobInfoReply *jobInfoReply,
         return FALSE;
     }
 
+
     if (!xdr_int(xdrs, &jobInfoReply->numLimitDetail)) {
         return FALSE;
     }
@@ -1162,6 +1163,10 @@ xdr_jobInfoReply (XDR *xdrs, struct jobInfoReply *jobInfoReply,
 
     if (!xdr_float(xdrs, &jobInfoReply->idleFactor)) {
         return (FALSE);
+    }
+
+    if (!xdr_int(xdrs, &jobInfoReply->termCode)) {
+        return FALSE;
     }
 
     return(TRUE);

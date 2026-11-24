@@ -293,7 +293,7 @@ idletime(int *logins)
             }
 
 
-            user.ut_line[sizeof(user.ut_line)] = '\0';
+            user.ut_line[sizeof(user.ut_line) -1] = '\0';
 
 
             if (idleSeconds > 0) {

@@ -1133,6 +1133,13 @@ readJobStatus(char *line, struct jobStatusLog *jobStatusLog)
         cc = sscanf(line, "%d%n", &(jobStatusLog->avgMem), &ccount);
         if (cc != 1)
             return (LSBE_EVENT_FORMAT);
+        line += ccount + 1;
+    }
+
+    if (version >= _VOLCLAVA_VERSION2_3_) {
+        cc = sscanf(line, "%d%n", &(jobStatusLog->termCode), &ccount);
+        if (cc != 1)
+            return (LSBE_EVENT_FORMAT);
     }
 
     return (LSBE_NO_ERROR);
@@ -1164,6 +1171,13 @@ readSbdJobStatus(char *line, struct sbdJobStatusLog *jobStatusLog)
     jobStatusLog->actPeriod = tmpActPeriod;
 
     line += ccount + 1;
+
+    if (version >= _VOLCLAVA_VERSION2_3_) {
+        cc = sscanf(line, "%d%n", &(jobStatusLog->termCode), &ccount);
+        if (cc != 1)
+            return (LSBE_EVENT_FORMAT);
+        line += ccount + 1;
+    }
 
     return (LSBE_NO_ERROR);
 }
@@ -1618,6 +1632,12 @@ readJobFinish(char *line, struct jobFinishLog *jobFinishLog, time_t eventTime)
     if (cc != 2)
         return (LSBE_EVENT_FORMAT);
     line += ccount + 1;
+
+    if (version >= _VOLCLAVA_VERSION2_3_) {
+        cc = sscanf(line, "%d%n", &(jobFinishLog->termCode), &ccount);
+        if (cc != 1)
+            return (LSBE_EVENT_FORMAT);
+    }
 
     copyQStr(line, MAXFILENAMELEN, 0, jobFinishLog->inFileSpool);
     copyQStr(line, MAXFILENAMELEN, 0, jobFinishLog->commandSpool);
@@ -2242,6 +2262,9 @@ writeJobStatus(FILE *log_fp, struct jobStatusLog *jobStatusLog)
     if (fprintf(log_fp, " %d", jobStatusLog->avgMem) < 0 )
         return (LSBE_SYS_CALL);
 
+    if (fprintf(log_fp, " %d", jobStatusLog->termCode) < 0 )
+        return (LSBE_SYS_CALL);
+
     if (fprintf(log_fp, "\n") < 0)
         return (LSBE_SYS_CALL);
 
@@ -2262,6 +2285,9 @@ writeSbdJobStatus(FILE *log_fp, struct sbdJobStatusLog *jobStatusLog)
         return (LSBE_SYS_CALL);
 
     if (fprintf(log_fp, " %d", jobStatusLog->idx) < 0)
+        return (LSBE_SYS_CALL);
+
+    if (fprintf(log_fp, " %d", jobStatusLog->termCode) < 0)
         return (LSBE_SYS_CALL);
 
     return (LSBE_NO_ERROR);
@@ -2572,6 +2598,9 @@ writeJobFinish(FILE *log_fp, struct jobFinishLog *jobFinishLog)
         return (LSBE_SYS_CALL);
 
     if (fprintf(log_fp, " %d", jobFinishLog->maxRSwap) < 0)
+        return (LSBE_SYS_CALL);
+
+    if (fprintf(log_fp, " %d", jobFinishLog->termCode) < 0)
         return (LSBE_SYS_CALL);
 
     if (addQStr(log_fp, jobFinishLog->inFileSpool) < 0)
@@ -3971,4 +4000,138 @@ lsb_getAcctFileTime(char * fileName)
         }
     }
     return lastAcctCreationTime;
+}
+
+/*
+ * termCode2Str - convert term code to string
+ *
+ * @termCode: termination code TERM_*
+ *
+ * Return: term code string
+ */
+char * termCode2Str(termcode_t termCode)
+{
+    static char termString[MAXLINELEN];
+
+    switch (termCode) {
+        case TERM_LOAD:
+	        sprintf(termString, "TERM_LOAD: %s",
+		        I18N(5501, "job killed after load exceeds threshold")); 
+	        break;
+        case TERM_WINDOW:
+	        sprintf(termString, "TERM_WINDOW: %s",
+		        I18N(5502, "job killed after queue run window is closed")); 
+	        break;
+        case TERM_RUNLIMIT:
+	        sprintf(termString, "TERM_RUNLIMIT: %s",
+		        I18N(5503, "job killed after reaching run time limit")); 
+	        break;
+        case TERM_DEADLINE: 
+	        sprintf(termString, "TERM_DEADLINE: %s",
+		        I18N(5504, "job killed after deadline expires")); 
+	        break;
+        case TERM_PROCESSLIMIT:
+	        sprintf(termString, "TERM_PROCESSLIMIT: %s",
+		        I18N(5505, "job killed after reaching process limit")); 
+	        break;
+        case TERM_THREADLIMIT:
+	        sprintf(termString, "TERM_THREADLIMIT: %s",
+		        I18N(5503, "job killed after reaching thread limit")); 
+	        break;
+        case TERM_FORCE_OWNER:
+	        sprintf(termString, "TERM_FORCE_OWNER: %s",
+		        I18N(5506, "job killed by owner without time for cleanup")); 
+	        break;
+        case TERM_FORCE_ROOT:
+	        sprintf(termString, "TERM_FORCE_ROOT: %s",
+		        I18N(5507, "job killed by root without time for cleanup")); 
+	        break;
+        case TERM_FORCE_ADMIN:
+	        sprintf(termString, "TERM_FORCE_ADMIN: %s",
+		        I18N(5508, "job killed by cluster administrator without time for cleanup")); 
+	        break;
+        case TERM_FORCE_QUEUE_ADMIN:
+	        sprintf(termString, "TERM_FORCE_QUEUE_ADMIN: %s",
+		        I18N(5509, "job killed by queue administrator without time for cleanup")); 
+	        break;
+        case TERM_FORCE_UG_ADMIN:
+	        sprintf(termString, "TERM_FORCE_UG_ADMIN: %s",
+		        I18N(5510, "job killed by user group administrator without time for cleanup")); 
+	        break;
+        case TERM_REQUEUE_OWNER:
+	        sprintf(termString, "TERM_REQUEUE_OWNER: %s", 
+		        I18N(5511, "job killed and requeued by owner")); 
+	        break;
+        case TERM_REQUEUE_ROOT:
+	        sprintf(termString, "TERM_REQUEUE_ROOT: %s", 
+		        I18N(5512, "job killed and requeued by root")); 
+	        break;
+        case TERM_REQUEUE_ADMIN:
+	        sprintf(termString, "TERM_REQUEUE_ADMIN: %s",
+		        I18N(5513, "job killed and requeued by cluster administrator")); 
+	        break;
+        case TERM_REQUEUE_QUEUE_ADMIN:
+	        sprintf(termString, "TERM_REQUEUE_QUEUE_ADMIN: %s", 
+		        I18N(5514, "job killed and requeued by queue administrator")); 
+	        break;
+        case TERM_REQUEUE_UG_ADMIN:
+	        sprintf(termString, "TERM_REQUEUE_UG_ADMIN: %s", 
+		        I18N(5515, "job killed and requeued by user group administrator")); 
+	        break;
+        case TERM_CPULIMIT:
+	        sprintf(termString, "TERM_CPULIMIT: %s",
+		        I18N(5516, "job killed after reaching CPU usage limit")); 
+	        break;
+        case TERM_CHKPNT:
+	        sprintf(termString, "TERM_CHKPNT: %s",
+		        I18N(5517, "job killed after checkpointing")); 
+	        break;
+        case TERM_OWNER:
+	        sprintf(termString, "TERM_OWNER: %s",
+		        I18N(5518, "job killed by owner"));  
+	        break;
+        case TERM_ROOT:
+	        sprintf(termString, "TERM_ROOT: %s",
+		        I18N(5519, "job killed by root"));  
+	        break;
+        case TERM_ADMIN:
+	        sprintf(termString, "TERM_ADMIN: %s",
+		        I18N(5520, "job killed by cluster administrator"));  
+	        break;
+        case TERM_UG_ADMIN:
+	        sprintf(termString, "TERM_UG_ADMIN: %s",
+		        I18N(5520, "job killed by user group administrator"));  
+	        break;
+        case TERM_QUEUE_ADMIN:
+	        sprintf(termString, "TERM_QUEUE_ADMIN: %s",
+		        I18N(5520, "job killed by queue administrator"));  
+	        break;
+        case TERM_MEMLIMIT:
+	        sprintf(termString, "TERM_MEMLIMIT: %s",
+		        I18N(5521, "job killed after reaching memory usage limit"));  
+	        break;
+        case TERM_EXTERNAL_SIGNAL:
+	        sprintf(termString, "TERM_EXTERNAL_SIGNAL: %s",
+		        I18N(5522, "job killed by a signal external to volclava"));  
+	        break;
+        case TERM_ZOMBIE:
+	        sprintf(termString, "TERM_ZOMBIE: %s",
+		        I18N(5523, "job killed when volclava is not available"));  
+	        break;
+        case TERM_SWAPLIMIT:
+	        sprintf(termString, "TERM_SWAPLIMIT: %s",
+		        I18N(5524, "job killed after reaching swap usage limit"));  
+	        break;
+        case TERM_CWD_NOTEXIST:
+	        sprintf(termString, "TERM_CWD_NOTEXIST: %s",
+		        I18N(5526, "Current working directory is not accessible or does not exist on the execution host"));  
+	        break;
+        case TERM_NULL:
+        default:    
+	        sprintf(termString, "TERM_NULL: %s",
+		        I18N(5527, "job exited, reason unknown"));  
+	        break;
+    }
+
+    return termString;
 }

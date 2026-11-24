@@ -12,6 +12,12 @@
  */
 
 #include "mbd.h"
+#if defined(HAVE_TCL_TCL_H)
+#include <tcl/tcl.h>
+#endif
+#if defined(HAVE_TCL_H)
+#include <tcl.h>
+#endif
 #include "mbd.query.h"
 #include "daemonout.h"
 #include <sys/prctl.h>

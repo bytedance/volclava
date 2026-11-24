@@ -200,7 +200,7 @@ readconfenv_(struct config_param *pList1,
     FILE *fp;
     char filename[MAXFILENAMELEN];
     struct config_param *plp;
-    int lineNum = 0, saveErrNo;
+    int lineNum = 0, saveErrNo = LSE_NO_ERR;
 
     if (pList1)
         for (plp = pList1; plp->paramName != NULL; plp++) {

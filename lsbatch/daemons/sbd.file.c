@@ -428,6 +428,7 @@ initPaths(struct jobCard *jp, struct hostent *fromHp, struct lenData *jf)
         if (chdir(jp->jobSpecs.execCwd) < 0) {
             char *exitEnv = getenv("LSB_EXIT_IF_CWD_NOTEXIST");
             if (exitEnv != NULL && (exitEnv[0] == 'Y' || exitEnv[0] == 'y')) {
+                jp->termCode = TERM_CWD_NOTEXIST;
                 sprintf(errMsg,
                         "%s: Job <%s> chdir(%s) failed, LSB_EXIT_IF_CWD_NOTEXIST is set, job will exit",
                         fname, lsb_jobidinstr(jp->jobSpecs.jobId),
@@ -698,6 +699,7 @@ cwdJob(struct jobCard *jp, char *cwd, struct hostent *fromHp)
         {
             char *exitEnv = getenv("LSB_EXIT_IF_CWD_NOTEXIST");
             if (exitEnv != NULL && (exitEnv[0] == 'Y' || exitEnv[0] == 'y')) {
+                jp->termCode = TERM_CWD_NOTEXIST;
                 sprintf(errMsg,
                         "cwdJob: CWD <%s> not accessible for job <%s>, LSB_EXIT_IF_CWD_NOTEXIST is set, job will exit",
                         cwd, lsb_jobidinstr(jp->jobSpecs.jobId));
@@ -788,6 +790,7 @@ cwdJob(struct jobCard *jp, char *cwd, struct hostent *fromHp)
     {
         char *exitEnv = getenv("LSB_EXIT_IF_CWD_NOTEXIST");
         if (exitEnv != NULL && (exitEnv[0] == 'Y' || exitEnv[0] == 'y')) {
+            jp->termCode = TERM_CWD_NOTEXIST;
             sprintf(errMsg,
                     "cwdJob: CWD <%s> not accessible for job <%s>, LSB_EXIT_IF_CWD_NOTEXIST is set, job will exit",
                     cwd, lsb_jobidinstr(jp->jobSpecs.jobId));

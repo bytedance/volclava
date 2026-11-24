@@ -141,6 +141,7 @@ extern int chanIndex;
 extern int cherrno;
 extern struct epoll_event *epoll_events;
 extern int chanEpollInit();
+extern int chanRegisterFd_(int, uint32_t);
 extern int chanRegisterEpoll_(int, uint32_t);
 extern int chanUpdateListenEvents(int, uint32_t);
 extern int chanUnRegisterEpoll_(int);

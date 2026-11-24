@@ -307,6 +307,7 @@ struct jobSpecs {
     char  commandSpool[MAXFILENAMELEN];
     int   userPriority;
     char  execUsername[MAX_LSB_NAME_LEN];
+    char  jobDesc[MAX_JOB_DESC_LEN];
 };
 
 struct statusReq {
@@ -335,6 +336,7 @@ struct statusReq {
     int         actStatus;
     int         maxMem;
     int         avgMem;
+    termcode_t termCode;
 };
 
 struct chunkStatusReq {
@@ -372,6 +374,7 @@ struct jobSig {
     int    reasons;
     int    subReasons;
     LS_LONG_INT newJobId;
+    role_t role;  /* which role send the signal */    
 };
 
 struct jobReply {

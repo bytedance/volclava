@@ -287,6 +287,7 @@
 #define SUB_REASON_PROCESSLIMIT 0x00000004
 #define SUB_REASON_CPULIMIT     0x00000008
 #define SUB_REASON_MEMLIMIT     0x00000010
+#define SUB_REASON_SWAPLIMIT    0x00000020
 #define SUSP_SBD_STARTUP        0x00040000
 #define SUSP_HOST_LOCK_MASTER   0x00080000
 #define EXIT_NORMAL         0x00000000
@@ -302,6 +303,41 @@
 #define EXIT_REQUEUE        0x00000400
 #define EXIT_REMOVE         0x00000800
 #define EXIT_VALUE_REQUEUE  0x00001000
+#define EXIT_CWD            0x00002000         
+
+/* Termination reason code */
+typedef enum {
+    TERM_NULL = 0,              
+    TERM_ROOT = 1,                 
+    TERM_OWNER = 2,
+    TERM_QUEUE_ADMIN = 3,
+    TERM_UG_ADMIN = 4,
+    TERM_ADMIN = 5,
+    TERM_LOAD = 6,                
+    TERM_FORCE = 7,                 
+    TERM_WINDOW = 8,                
+    TERM_DEADLINE = 9,              
+    TERM_CPULIMIT = 10,             
+    TERM_MEMLIMIT = 11,             
+    TERM_PROCESSLIMIT = 12,          
+    TERM_RUNLIMIT = 13,         
+    TERM_THREADLIMIT = 14,
+    TERM_FORCE_ADMIN = 15,
+    TERM_FORCE_QUEUE_ADMIN = 16,
+    TERM_FORCE_UG_ADMIN = 17,
+    TERM_FORCE_OWNER = 18,
+    TERM_FORCE_ROOT = 19,
+    TERM_REQUEUE_ADMIN = 20,
+    TERM_REQUEUE_QUEUE_ADMIN = 21,
+    TERM_REQUEUE_UG_ADMIN = 22,  
+    TERM_REQUEUE_OWNER = 23,
+    TERM_REQUEUE_ROOT = 24,
+    TERM_CHKPNT = 25,         
+    TERM_SWAPLIMIT = 26,
+    TERM_ZOMBIE = 27,
+    TERM_CWD_NOTEXIST = 28,
+    TERM_EXTERNAL_SIGNAL = 29,
+} termcode_t;
 
 #define LSB_MODE_BATCH    0x1
 
@@ -744,6 +780,7 @@ struct jobInfoEnt {
     struct  limitDetailEnt *limitDetailTb;
     int     numLimitDetail;
     float   idleFactor;
+    termcode_t termCode;
 };
 
 struct userInfoEnt {
@@ -769,7 +806,7 @@ struct userInfoEnt {
 #define CHECK_USER      0x100
 #define SORT_HOST       0x200
 
-#define LSB_SIG_NUM               23
+#define LSB_SIG_NUM               24
 
 struct fsFactors {
     float cpuTimeFactor;      
@@ -1008,6 +1045,16 @@ struct jobrequeue {
 #define    MBD_RECONFIG      1
 #define    MBD_CKCONFIG      2
 
+/* define user role who send a signal */
+typedef enum {
+    ROLE_NULL = 0,
+    ROLE_CLUSTER_ADMIN = 1,
+    ROLE_QUEUE_ADMIN = 2,
+    ROLE_UG_ADMIN = 3, 
+    ROLE_OWNER = 4,   
+    ROLE_ROOT = 5,
+} role_t;
+
 struct logSwitchLog {
     int lastJobId;
 };
@@ -1171,6 +1218,7 @@ struct jobStatusLog {
     int    idx;
     int    maxMem;
     int    avgMem;
+    termcode_t termCode;
 };
 
 
@@ -1187,6 +1235,7 @@ struct sbdJobStatusLog {
     int    actReasons;
     int    actSubReasons;
     int    idx;
+    termcode_t termCode;
 };
 
 struct jobSwitchLog {
@@ -1302,6 +1351,7 @@ struct unfulfillLog {
     time_t chkPeriod;
     int    notModified;
     int    idx;
+    role_t role;  /* which role send the signal, for pending job signals */
 };
 
 struct jobFinishLog {
@@ -1346,6 +1396,7 @@ struct jobFinishLog {
     int    idx;
     int    maxRMem;
     int    maxRSwap;
+    termcode_t termCode;
 };
 
 struct loadIndexLog {

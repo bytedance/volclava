@@ -840,6 +840,7 @@ replay_newstat(char *filename, int lineNum)
         jp->exitStatus = newStat->exitStatus;
         jp->maxMem = newStat->maxMem;
         jp->avgMem = newStat->avgMem;
+        jp->termCode = newStat->termCode;
     }
 
     jStatusChange(jp, newStat->jStatus, logPtr->eventTime, "replay_newstat");
@@ -933,6 +934,7 @@ replay_mbdStart(char *filename, int lineNum)
             jpbw->pendEvent.sig1 = SIG_NULL;
             jpbw->pendEvent.sig1Flags = 0;
             jpbw->pendEvent.notModified = 0;
+            jpbw->pendEvent.role = 0;
 
             eventPending = FALSE;
 
@@ -972,6 +974,7 @@ replay_unfulfill(char *filename, int lineNum)
     jp->shared->jobBill.chkpntPeriod = logPtr->eventLog.unfulfillLog.chkPeriod;
     jp->chkpntPeriod = logPtr->eventLog.unfulfillLog.chkPeriod;
     jp->pendEvent.notModified = logPtr->eventLog.unfulfillLog.notModified;
+    jp->pendEvent.role = logPtr->eventLog.unfulfillLog.role;
 
     if (jp->pendEvent.notSwitched ||
         jp->pendEvent.sig != SIG_NULL ||
@@ -1765,7 +1768,6 @@ log_newstatus(struct jData * job)
     logPtr->eventLog.jobStatusLog.subreasons = job->subreasons;
     logPtr->eventLog.jobStatusLog.exitStatus = job->exitStatus;
 
-
     if ((logPtr->eventLog.jobStatusLog.ru = (job->lsfRusage != NULL)))
         logPtr->eventLog.jobStatusLog.lsfRusage = *(job->lsfRusage);
 
@@ -1779,9 +1781,11 @@ log_newstatus(struct jData * job)
     if (job->jStatus & JOB_STAT_DONE || job->jStatus & JOB_STAT_EXIT) {
         logPtr->eventLog.jobStatusLog.maxMem = job->maxMem;
         logPtr->eventLog.jobStatusLog.avgMem = job->avgMem;
+        logPtr->eventLog.jobStatusLog.termCode = job->termCode;
     } else {
         logPtr->eventLog.jobStatusLog.maxMem = 0;
         logPtr->eventLog.jobStatusLog.avgMem = 0;
+        logPtr->eventLog.jobStatusLog.termCode = TERM_NULL;
     }
 
     if (putEventRec(fname) < 0) {
@@ -2054,6 +2058,7 @@ log_unfulfill(struct jData * jp)
     logPtr->eventLog.unfulfillLog.sig1Flags = jp->pendEvent.sig1Flags;
     logPtr->eventLog.unfulfillLog.chkPeriod = jp->chkpntPeriod;
     logPtr->eventLog.unfulfillLog.notModified = jp->pendEvent.notModified;
+    logPtr->eventLog.unfulfillLog.role = jp->pendEvent.role;
 
     if (putEventRec(fname) < 0)
         ls_syslog(LOG_ERR, I18N_JOB_FAIL_S,
@@ -2363,6 +2368,8 @@ logFinishedjob(struct jData *job)
 
     jobFinishLog->maxRMem = job->runRusage.mem;
     jobFinishLog->maxRSwap = job->runRusage.swap;
+
+    jobFinishLog->termCode = job->termCode;
 
     if (lsb_puteventrec(joblog_fp, logPtr) < 0)
         ls_syslog(LOG_ERR, I18N_JOB_FAIL_S_MM,

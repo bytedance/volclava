@@ -405,8 +405,9 @@ xdr_jobSpecs (XDR *xdrs, struct jobSpecs *jobSpecs, struct LSFHeader *hdr)
     if (!(xdr_string(xdrs, &sp[0], MAX_LSB_NAME_LEN))) {
 	ls_syslog(LOG_ERR, I18N_FUNC_S_FAIL, fname,
 			"xdr_string", "prepostUsername");
-	return (FALSE);
+	return(FALSE);
     }
+
 
     sp[0] = jobSpecs->submitCwd;
     if (!(xdr_string(xdrs, &sp[0], MAXFILENAMELEN))) {
@@ -462,6 +463,10 @@ xdr_jobSig (XDR *xdrs, struct jobSig *jobSig, struct LSFHeader *hdr)
     if (!xdr_int(xdrs, &newJobArrElemId)) {
         return (FALSE);
     }
+
+    if (!xdr_int(xdrs, &(jobSig->role))) {
+	    return (FALSE);
+	}
 
     if (xdrs->x_op == XDR_DECODE) {
 	jobId32To64(&jobSig->newJobId,newJobArrId,newJobArrElemId);
@@ -601,7 +606,11 @@ xdr_statusReq (XDR *xdrs, struct statusReq *statusReq, struct LSFHeader *hdr)
     if (!xdr_int(xdrs, &statusReq->avgMem)) {
         return (FALSE);
     }
-  
+
+    if (!xdr_int(xdrs, &(statusReq->termCode))) {
+        return (FALSE);
+    }
+    
     return(TRUE);
 } 
 

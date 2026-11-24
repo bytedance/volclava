@@ -34,8 +34,8 @@ ls_getconf ( char *fname )
     struct confNode 	*temp, *node, *prev = NULL;
     int 		beginLineNum, numLines, oldLineNum, lineNum = 0;
     char 		*linep, *sp, *word, *word1, *cp, **lines, *ptr;
-    char 		flag, **tmpPtr, **defNames, **defConds;
-    int			i, len, numDefs, defsize;
+    char 		flag, **tmpPtr, **defNames = NULL, **defConds = NULL;
+    int			i, len, numDefs = 0, defsize;
     long        	offset;
 
     lserrno = LSE_NO_ERR;
@@ -85,8 +85,7 @@ ls_getconf ( char *fname )
 		   "malloc", sizeof (defsize*sizeof(char *)));
 	lserrno = LSE_MALLOC;
    	goto Error;
-    }
-    numDefs = 0;			
+    }		
 
     fp = fopen(fname, "r");
     if (fp == NULL) {
@@ -478,10 +477,9 @@ ls_getconf ( char *fname )
     return (conf);
 
 Error:
-    				
     for ( i = 0; i < numDefs; i ++ ) {
-	FREEUP(defNames[i]);
-	FREEUP(defConds[i]);
+		if (defNames) FREEUP(defNames[i]);
+		if (defConds) FREEUP(defConds[i]);
     }
     FREEUP(defNames);
     FREEUP(defConds);

@@ -255,6 +255,7 @@ struct jobInfoReply {
     struct    limitDetailEnt *limitDetailTb;
     int       numLimitDetail;
     float     idleFactor;
+    termcode_t termCode;
 };
 
 struct infoReq {
@@ -301,13 +302,12 @@ struct jobPeekReply {
     char *pSpoolDir;
 };
 
-
-
 struct signalReq {
     int    sigValue;
     LS_LONG_INT jobId;
     time_t chkPeriod;
     int    actFlags;
+    role_t    role;
 };
 
 

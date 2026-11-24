@@ -62,7 +62,7 @@ extern struct eventLogHandle *lsb_openelog(struct eventLogFile *, int *);
 extern struct eventRec *lsb_getelogrec(struct eventLogHandle *, int *);
 extern void countLineNum(FILE *fp, long, int *);
 extern struct eventRec *lsbGetNextJobEvent(struct eventLogHandle *, int *, int, LS_LONG_INT *, struct jobIdIndexS *);
-
+extern char * termCode2Str(termcode_t termCode);
 
 struct hTab jobIdHT;
 struct jobRecord *jobRecordList;
@@ -2012,6 +2012,8 @@ actionName (char *sigName)
 	action = I18N (3432, "Kill & Requeue action"); /* catgets 3432 */
     else if (strcmp(sigName, "SIG_TERM_MEMLIMIT") == 0)
 	action = I18N (3433, "MEMLIMIT termination action"); /* catgets 3433 */
+    else if (strcmp(sigName, "SIG_TERM_SWAPLIMIT") == 0)
+    action = I18N (3434, "SWAPLIMIT termination action"); /* catgets 3434 */
     else
         action = _i18n_msg_get(ls_catd,NL_SETN,3240, "Unknow action"); /* catgets  3240  */
 
@@ -2436,6 +2438,21 @@ printEvent(struct bhistReq *bhistReq, struct jobRecord *jobRecord,
                     prtLine(". ");
                     prtLine(prline);
                 }
+            }
+
+            /* Print termination reason */
+            if (event->jStatus & JOB_STAT_EXIT) {
+                if (event->termCode != TERM_NULL) {
+                    prtLine(";\n");
+                    sprintf(prline, "%-12.19s: %s; %s", timeStampStr,
+                            I18N(3286, "Completed <exit>"),   /**< catgets  3286  */
+                            termCode2Str(event->termCode));
+                } else {
+                    prtLine(";\n");
+                    sprintf(prline, "%-12.19s: %s", timeStampStr,
+                            I18N(3287, "Completed <exit>"));   /**< catgets  3287  */
+                }
+                prtLine(prline);
             }
             break;
 

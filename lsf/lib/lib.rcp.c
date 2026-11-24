@@ -688,7 +688,7 @@ createSpoolSubDir( const char * spoolFileFullPath )
     char subDirectory2[MAXFILENAMELEN];
     int  len;
     int returnValue = 0;
-    mode_t previousUmask;
+    mode_t previousUmask = umask(000);
 
     if ( spoolFileFullPath == NULL ) {
         returnValue = -1;
@@ -711,8 +711,6 @@ createSpoolSubDir( const char * spoolFileFullPath )
 
     strncpy( subDirectory1, pBegin, len );
     subDirectory1[len] = '\0';
-
-    previousUmask = umask(000);
 
     if ( (pDir = opendir(subDirectory1)) == NULL ) {
         pBegin = (char *) &subDirectory1;
