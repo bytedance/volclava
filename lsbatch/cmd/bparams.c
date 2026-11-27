@@ -288,6 +288,11 @@ printLong (struct parameterInfo *reply)
 
     printf("%s:\n", I18N(2462, "The interval in minutes at which mbatchd calls the eadmin script, even if no job exception occurs"));
     printf("    %s = %d (minutes)\n\n", "EADMIN_TRIGGER_INTERVAL", reply->eadminTriggerInterval);
+
+    if (reply->minSwitchPeriod > 0 && reply->minSwitchPeriod != INFINIT_INT) {
+        printf("%s:\n", "The minimum time in seconds between two event log switches");
+        printf("    %s = %d (seconds)\n\n", "MIN_SWITCH_PERIOD", reply->minSwitchPeriod);
+    }
 } 
 
 

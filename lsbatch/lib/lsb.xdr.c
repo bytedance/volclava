@@ -778,6 +778,16 @@ xdr_parameterInfo (XDR *xdrs, struct parameterInfo *paramInfo,
         return (FALSE);
     }
 
+    /* Trailing field: an older mbatchd ends the reply here, so a missing
+     * value on decode only means the sender does not have it. */
+    if (!xdr_int(xdrs, &paramInfo->minSwitchPeriod)) {
+        if (xdrs->x_op == XDR_DECODE) {
+            paramInfo->minSwitchPeriod = INFINIT_INT;
+            return (TRUE);
+        }
+        return (FALSE);
+    }
+
     return(TRUE);
 }
 

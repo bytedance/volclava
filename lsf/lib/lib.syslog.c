@@ -41,10 +41,13 @@ int logclass = 0;
 int timinglevel = 0;
 
 static char logfile[MAXPATHLEN];
+static uid_t logOwner = (uid_t)-1;      /* set by ls_setlogowner(); -1 = leave it alone */
+static gid_t logGroup = (gid_t)-1;
 static char logident[10];
 static int logmask;
 static enum {LOGTO_SYS, LOGTO_FILE, LOGTO_STDERR} log_dest;
 static int openLogFile(const char *, char *);
+static void chownLogFile(void);
 
 char *
 argvmsg_(int argc, char **argv)
@@ -70,6 +73,30 @@ argvmsg_(int argc, char **argv)
     }
     *bp = '\0';
     return avbuffer;
+}
+
+/*
+ * Hand the daemon log to a given owner: a daemon that runs as one identity
+ * but switches euid for privileged steps (event log, job files) creates the
+ * log as its starting identity, while the messages of those steps are
+ * written as the switched one.  Only a daemon that knows which identity owns
+ * its data calls this; without it the owner is left exactly as created.
+ */
+void
+ls_setlogowner(uid_t uid, gid_t gid)
+{
+    logOwner = uid;
+    logGroup = gid;
+
+    if (logfile[0] != '\0')            /* already created: fix it now */
+        chownLogFile();
+}
+
+static void
+chownLogFile(void)
+{
+    if (logOwner != (uid_t)-1)
+        chown(logfile, logOwner, logGroup);
 }
 
 void
@@ -119,6 +146,7 @@ ls_openlog(const char *ident,
                                 chmod(logfile, 0666);
                             else
                                 chmod(logfile, 0644);
+                            chownLogFile();
                             log_dest = LOGTO_FILE;
                             if (msg != NULL)
                                 ls_syslog(LOG_ERR, "%s", msg);
@@ -135,6 +163,7 @@ ls_openlog(const char *ident,
                             chmod(logfile, 0666);
                         else
                             chmod(logfile, 0644);
+                        chownLogFile();
                         log_dest = LOGTO_FILE;
                         if (msg != NULL)
                             ls_syslog(LOG_ERR, "%s", msg);
@@ -200,6 +229,7 @@ openLogFile(const char *ident, char *myname)
         } else {
             chmod(logfile, 0644);
         }
+        chownLogFile();
         log_dest = LOGTO_FILE;
         return (0);
     }

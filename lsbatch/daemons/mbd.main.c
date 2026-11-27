@@ -93,6 +93,7 @@ float  clsDecay = 1.0; /* cluster-wide decay factor for history of CPU time */
 int    detectIdleJobAfter = INFINIT_INT;
 int    eadminTriggerDuration = DEF_EADMIN_TRIGGER_DURATION;
 int    eadminTriggerInterval = DEF_EADMIN_TRIGGER_INTERVAL;
+int    minSwitchPeriod = DEF_MIN_SWITCH_PERIOD;  /* MIN_SWITCH_PERIOD, seconds */
 
 int    numofqueues  = 0;
 int    numofprocs   = 0;
@@ -292,6 +293,7 @@ int
 main (int argc, char **argv)
 {
     struct timeval timeout;
+    struct timeval epollTimeout;
     int nready = 0;
     int *readyChans;
     int i;
@@ -464,6 +466,15 @@ main (int argc, char **argv)
     for (;;) {
         time_t qmbdElapsedTime = 0;
 
+        /*
+         * Publish the new event file as soon as the switch_log() child
+         * is done.  This is deliberately the only caller: committing a
+         * switch runs stat(), rename() and unlink(), all of which
+         * clobber errno, so it must not sit between a system call and
+         * the errno check that belongs to it.
+         */
+        switchLogCheckChild();
+
         now = time(0);
         if (qmbdStartedTime > 0) {
             qmbdElapsedTime = now - qmbdStartedTime;
@@ -498,7 +509,19 @@ main (int argc, char **argv)
             hsKeeping = FALSE;
             timeout.tv_sec = 0;
         }
-        nready = chanEpoll_(&readyChans, &timeout);
+        /*
+         * SIGCHLD interrupts epoll_wait(), so the completion flag is
+         * normally seen immediately; while a switch child is running the
+         * wait is additionally capped at one second as a backstop.
+         */
+        epollTimeout = timeout;
+        if (switchLogChildRunning() && epollTimeout.tv_sec > 1) {
+            epollTimeout.tv_sec = 1;
+            epollTimeout.tv_usec = 0;
+        }
+
+        nready = chanEpoll_(&readyChans, &epollTimeout);
+
         if (nready < 0) {
             if (errno != EINTR)
                 ls_syslog(LOG_ERR, "\
@@ -1145,8 +1168,11 @@ child_handler (int sig)
     sigaddset(&newmask, SIGCHLD);
     sigprocmask(SIG_BLOCK, &newmask, &oldmask);
 
-    while ((pid = waitpid(-1, &status, WNOHANG)) > 0)
-        ;
+    while ((pid = waitpid(-1, &status, WNOHANG)) > 0) {
+        /* keep reaping every child, but remember the result of the
+         * switch_log() child so that the main loop can commit it */
+        switchLogChildReaped((pid_t)pid, LS_STATUS(status));
+    }
 
     sigprocmask(SIG_SETMASK, &oldmask, NULL);
     errno = saveErrno;

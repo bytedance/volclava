@@ -941,6 +941,7 @@ struct parameterInfo {
     int  detectIdleJobAfter;
     int  eadminTriggerDuration;
     int  eadminTriggerInterval;
+    int  minSwitchPeriod;
 };
 
 

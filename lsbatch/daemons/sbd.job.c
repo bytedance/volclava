@@ -2538,6 +2538,7 @@ setIds(struct jobCard *jobCardPtr)
     struct jobSpecs *jobSpecsPtr = &(jobCardPtr->jobSpecs);
     char *tGname, *sGname = NULL;
     struct group *grEntry;
+    char errMsg[MAXLINELEN];
 
     if (! debug) {
 
@@ -2603,9 +2604,13 @@ setIds(struct jobCard *jobCardPtr)
             return (-1);
         }
 
-        if (logclass & LC_EXEC)
-            ls_syslog(LOG_DEBUG, "setIds: Job <%s> uid %d euid %d",
-                      lsb_jobid2str(jobSpecsPtr->jobId), getuid(), geteuid());
+        if (logclass & LC_EXEC) {
+            /* euid is the job user here: the daemon has to write this */
+            snprintf(errMsg, sizeof(errMsg),
+                     "setIds: Job <%s> uid %d euid %d",
+                     lsb_jobid2str(jobSpecsPtr->jobId), getuid(), geteuid());
+            sbdSyslog(LOG_DEBUG, errMsg);
+        }
     }
     return (0);
 }
@@ -3538,8 +3543,11 @@ postJobSetup(struct jobCard *jp)
         chuser(jp->jobSpecs.execUid);
 
         if (acctMapOk(jp) < 0) {
-            ls_syslog(LOG_DEBUG, "%s: acctMapOk() failed for job <%s>",
-                      fname, lsb_jobid2str(jp->jobSpecs.jobId));
+            /* euid is the job user here: the daemon has to write this */
+            snprintf(userName, sizeof(userName),
+                     "%s: acctMapOk() failed for job <%s>",
+                     fname, lsb_jobid2str(jp->jobSpecs.jobId));
+            sbdSyslog(LOG_DEBUG, userName);
             return (-1);
         }
 

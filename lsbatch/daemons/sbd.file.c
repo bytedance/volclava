@@ -618,6 +618,7 @@ static int
 mkdirRecursive(const char *path, mode_t mode)
 {
     char tmp[MAXFILENAMELEN];
+    char errMsg[MAXLINELEN];
     char *p = NULL;
     struct stat st;
 
@@ -625,7 +626,11 @@ mkdirRecursive(const char *path, mode_t mode)
         return 1;   /* already exists: not created by us, skip TTL tracking */
 
     if (errno != ENOENT) {
-        ls_syslog(LOG_ERR, "mkdirRecursive: stat(%s) failed: %m", path);
+        /* sbdSyslog(): the caller may already run as the job user, which
+         * cannot open sbatchd.log; the daemon writes it for us */
+        snprintf(errMsg, sizeof(errMsg),
+                 "mkdirRecursive: stat(%s) failed: %m", path);
+        sbdSyslog(LOG_ERR, errMsg);
         return -1;
     }
 
@@ -637,13 +642,15 @@ mkdirRecursive(const char *path, mode_t mode)
             *p = '\0';
             if (stat(tmp, &st) != 0) {
                 if (errno != ENOENT) {
-                    ls_syslog(LOG_ERR,
-                              "mkdirRecursive: stat(%s) failed: %m", tmp);
+                    snprintf(errMsg, sizeof(errMsg),
+                             "mkdirRecursive: stat(%s) failed: %m", tmp);
+                    sbdSyslog(LOG_ERR, errMsg);
                     return -1;
                 }
                 if (mkdir(tmp, mode) != 0 && errno != EEXIST) {
-                    ls_syslog(LOG_ERR,
-                              "mkdirRecursive: mkdir(%s) failed: %m", tmp);
+                    snprintf(errMsg, sizeof(errMsg),
+                             "mkdirRecursive: mkdir(%s) failed: %m", tmp);
+                    sbdSyslog(LOG_ERR, errMsg);
                     return -1;
                 }
             }
@@ -654,7 +661,9 @@ mkdirRecursive(const char *path, mode_t mode)
     if (mkdir(tmp, mode) != 0) {
         if (errno == EEXIST)
             return 1;   /* raced with a concurrent creator */
-        ls_syslog(LOG_ERR, "mkdirRecursive: mkdir(%s) failed: %m", tmp);
+        snprintf(errMsg, sizeof(errMsg),
+                 "mkdirRecursive: mkdir(%s) failed: %m", tmp);
+        sbdSyslog(LOG_ERR, errMsg);
         return -1;
     }
     return 0;
@@ -897,10 +906,14 @@ cwdTrackCreate(struct jobCard *jp)
         int rc = mkdirRecursive(cwd, 0700);
 
         if (rc == -1) {
-            /* mkdirRecursive() logs the errno; add the job context here. */
-            ls_syslog(LOG_WARNING,
-                      "cwdTrackCreate: cannot create CWD <%s> for job <%s>",
-                      cwd, lsb_jobid2str(jp->jobSpecs.jobId));
+            /* mkdirRecursive() logs the errno; add the job context here.  We
+             * are the job user by now, so the daemon has to write this. */
+            char errMsg[MAXLINELEN];
+
+            snprintf(errMsg, sizeof(errMsg),
+                     "cwdTrackCreate: cannot create CWD <%s> for job <%s>",
+                     cwd, lsb_jobid2str(jp->jobSpecs.jobId));
+            sbdSyslog(LOG_WARNING, errMsg);
         }
         created = (rc == 0);
     }

@@ -367,6 +367,7 @@ extern int errnoDecode_(int);
 extern int getLogClass_ (char *, char *);
 extern int getLogMask(char **, char *);
 extern void ls_openlog(const char *, const char *, int, char *);
+extern void ls_setlogowner(uid_t, gid_t);
 extern void ls_closelog(void);
 extern int  ls_setlogmask(int maskpri);
 extern int  ls_getlogmask();

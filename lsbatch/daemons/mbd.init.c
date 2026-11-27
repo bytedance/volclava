@@ -1865,6 +1865,10 @@ setManagers (struct clusterInfo clusterInfo)
 
     setgid(gid);
 
+    /* the daemon log belongs to this administrator, not to the root user
+     * that starts mbatchd; the switch code logs while chuser(managerId) */
+    ls_setlogowner((uid_t)managerId, gid);
+
 
     if (getenv("LSB_MANAGERID") == NULL) {
         sprintf (managerIdStr, "%d", managerId);
@@ -1963,6 +1967,10 @@ setParams(struct paramConf *paramConf)
     setValue(detectIdleJobAfter, params->detectIdleJobAfter);
     setValue(eadminTriggerDuration, params->eadminTriggerDuration);
     setValue(eadminTriggerInterval, params->eadminTriggerInterval);
+    /* not setValue(): it also compares with INFINIT_FLOAT, which every
+     * int from 2147483584 up equals once converted to float */
+    if (params->minSwitchPeriod != INFINIT_INT)
+        minSwitchPeriod = params->minSwitchPeriod;
 }
 
 static void
@@ -2276,6 +2284,7 @@ setDefaultParams(void)
     detectIdleJobAfter = INFINIT_INT;
     eadminTriggerDuration = DEF_EADMIN_TRIGGER_DURATION;
     eadminTriggerInterval = DEF_EADMIN_TRIGGER_INTERVAL;
+    minSwitchPeriod = DEF_MIN_SWITCH_PERIOD;
 }
 
 static void
