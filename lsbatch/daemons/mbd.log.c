@@ -220,6 +220,7 @@ static int              writeBaselineEvents(FILE *, FILE *, char *, int);
 static int              writeEventRec(FILE *, struct eventRec *, int, time_t);
 static int              switchLogCountArchives(void);
 static void             switchLogRebuildIndex(void);
+static void             switchLogSyncDir(void);
 
 static struct eventRec *logPtr;
 
@@ -3063,9 +3064,30 @@ switch_log(void)
     /* Step 4: history seek position = end of the baseline */
     chuser(managerId);
 
+    /*
+     * Two barriers, as in the child: the content must be on disk before the
+     * offset claims where it ends, and the offset before the rename makes
+     * this file the active one - otherwise a crash publishes a truncated
+     * lsb.events
+     */
+    if (fflush(tmpfp) != 0 || fsync(fileno(tmpfp)) < 0) {
+        chuser(batchId);
+        ls_syslog(LOG_ERR, I18N_FUNC_S_FAIL_M, fname, "fsync", tmpfn);
+        FCLOSEUP(&tmpfp);
+        goto exiterr;
+    }
+
     pos = ftell(tmpfp);
     rewind(tmpfp);
     fprintf(tmpfp, "#%ld", pos);
+
+    if (fflush(tmpfp) != 0 || fsync(fileno(tmpfp)) < 0) {
+        chuser(batchId);
+        ls_syslog(LOG_ERR, I18N_FUNC_S_FAIL_M, fname, "fsync", tmpfn);
+        FCLOSEUP(&tmpfp);
+        goto exiterr;
+    }
+
     if (FCLOSEUP(&tmpfp)) {
         chuser(batchId);
         ls_syslog(LOG_ERR, I18N_FUNC_S_FAIL_M, fname, "fclose", tmpfn);
@@ -3076,6 +3098,8 @@ switch_log(void)
     i = rename(tmpfn, elogFname);
     errnoSv = errno;
     chmod(elogFname, 0644);
+    if (i == 0)
+        switchLogSyncDir();
 
     chuser(batchId);
     errno = errnoSv;
@@ -3649,6 +3673,9 @@ switchLogPublish(const char *fname)
         ls_syslog(LOG_DEBUG, I18N_FUNC_S_FAIL_M, fname, "unlink",
                   deltaElogFname);
 
+    /* the rename and the unlink above are directory entries */
+    switchLogSyncDir();
+
     chuser(batchId);
     /* Step 4: the round is over; MIN_SWITCH_PERIOD counts from here */
     switchState = SWITCH_IDLE;
@@ -3760,6 +3787,32 @@ switchLogRollForward(int expectDelta)
     ls_syslog(LOG_DEBUG, "%s: %s published, %lld bytes of delta events merged",
                fname, elogFname, (long long)copied);
     return 0;
+}
+
+/*
+ * Make the directory entries of a round durable.  fsync() on a file does
+ * not cover the name it was published under or the removal of the delta,
+ * so the commit point needs the directory here; on NFS a directory fsync
+ * is commonly a no-op and the server commits the rename itself.
+ */
+static void
+switchLogSyncDir(void)
+{
+    static char fname[] = "switchLogSyncDir";
+    char        path[MAXFILENAMELEN];
+    int         fd;
+
+    sprintf(path, "%s/logdir", daemonParams[LSB_SHAREDIR].paramValue);
+
+    if ((fd = open(path, O_RDONLY)) < 0) {
+        ls_syslog(LOG_DEBUG, I18N_FUNC_S_FAIL_M, fname, "open", path);
+        return;
+    }
+
+    if (fsync(fd) < 0)
+        ls_syslog(LOG_DEBUG, I18N_FUNC_S_FAIL_M, fname, "fsync", path);
+
+    close(fd);
 }
 
 /*
