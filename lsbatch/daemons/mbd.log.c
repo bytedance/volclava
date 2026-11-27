@@ -149,17 +149,19 @@ static char             jlogFname[MAXFILENAMELEN];
 #define RECOVER_EXPECT_INTERRUPTED      2   /* child failed: anything partial */
 
 /* a switch child running longer than this, in seconds, is killed as
- * hung (typically a blocked NFS call); a normal run takes minutes */
-#define SWITCH_CHILD_MAX_RUNTIME        3600
+ * hung (typically a blocked NFS call); a normal run takes seconds to
+ * a few minutes */
+#define SWITCH_CHILD_MAX_RUNTIME        1200
 
 /* while the switch child runs, report it every this many seconds */
 #define SWITCH_REMIND_RUNNING           600
 
+
 /* a parked round is retried on its own this often, in seconds */
 #define SWITCH_RETRY_INTERVAL           600
 
-/* how often an unfinished switch is reported again, in seconds */
-#define SWITCH_REMIND_INTERVAL          3600
+/* how often a killed child that still has not exited is reported, in seconds */
+#define SWITCH_REMIND_INTERVAL          1200
 
 /* header of a baseline being built; replaced by the history offset */
 #define ELOG_BASELINE_HEADER    "#                                     \n"
@@ -180,6 +182,8 @@ static char            *elogWriteTarget = elogFname;
 static int              switchState = SWITCH_IDLE;  /* SWITCH_*, only changed by the main loop */
 static time_t           switchStartTime;    /* frozen before the fork */
 static int              switchChildKillSent;  /* watchdog already killed this child */
+static pid_t            switchIndexPid;       /* index rebuild child, 0 when none */
+static pid_t            eventIndexRebuildPid; /* same, for the synchronous switch_log() */
 static int              switchLogStatErrno;   /* errno when the log directory could not be checked, 0 otherwise */
 static time_t           lastSwitchDoneTime;   /* when the last switch completed; startup counts as one */
 static pid_t            switchParentPid;      /* switch child only: pid of the mbatchd that forked it */
@@ -214,6 +218,8 @@ static int              switchLogRollForward(int);
 static int              switchLogPublish(const char *);
 static int              writeBaselineEvents(FILE *, FILE *, char *, int);
 static int              writeEventRec(FILE *, struct eventRec *, int, time_t);
+static int              switchLogCountArchives(void);
+static void             switchLogRebuildIndex(void);
 
 static struct eventRec *logPtr;
 
@@ -2627,9 +2633,9 @@ still running after %d seconds", __func__, (int)switchChildPid,
             troubleSince = lastReminder = t;
         } else if (t - lastReminder >= SWITCH_REMIND_INTERVAL) {
             lastReminder = t;
-            ls_syslog(LOG_WARNING, "%s: lsb.events switch process <%d> \
-has not exited for over %d hours after being killed", __func__,
-                      (int)switchChildPid, (int)((t - troubleSince) / 3600));
+            ls_syslog(LOG_ERR, "%s: lsb.events switch process <%d> \
+has not exited for over %d minutes after being killed", __func__,
+                      (int)switchChildPid, (int)((t - troubleSince) / 60));
         }
     }
 
@@ -2794,6 +2800,12 @@ Acct_exiterr:
  * _exit()s with the proper switch child exit code.
  *
  * Returns 0 on success, -1 on failure.
+ */
+/*
+ * Scan the frozen event file and write the baseline.  In the switch child
+ * this is the longest step: it must not call chuser(), which would clear
+ * the PR_SET_PDEATHSIG that the caller armed, and that signal is what stops
+ * an orphaned child during the scan.
  */
 static int
 writeBaselineEvents(FILE *efp, FILE *tmpfp, char *tmpfn, int inChild)
@@ -2961,7 +2973,7 @@ int
 switch_log(void)
 {
     static char fname[] = "switch_log";
-    static pid_t            eventIndexRebuildPid = 0;
+    sigset_t                newmask, oldmask;
     char                    tmpfn[MAXFILENAMELEN];
     int                     i, errnoSv;
     FILE                   *efp, *tmpfp;
@@ -2975,7 +2987,7 @@ switch_log(void)
      * necessary to ensure that only one child process operates on this index
      * file at any given time.
      */
-    if (eventIndexRebuildPid != 0 && kill(eventIndexRebuildPid, 0) == 0) {
+    if (eventIndexRebuildPid != 0) {
         ls_syslog(LOG_DEBUG, "%s: event index rebuild pid=%d still running", __func__, (int)eventIndexRebuildPid);
         return -2;
     }
@@ -3089,7 +3101,19 @@ switch_log(void)
         log_logSwitch(nextJobId);
     /* Step 7: rotate the archives; Step 8: rebuild the index in a child */
     if ((totalEventFile = renameElogFiles()) > 0)  {
+        sigemptyset(&newmask);
+        sigaddset(&newmask, SIGCHLD);
+        sigprocmask(SIG_BLOCK, &newmask, &oldmask);
+
         eventIndexRebuildPid = fork();
+
+        if (eventIndexRebuildPid > 0) {
+            sigprocmask(SIG_SETMASK, &oldmask, NULL);
+            return (0);
+        }
+
+        sigprocmask(SIG_SETMASK, &oldmask, NULL);
+
         if (eventIndexRebuildPid == 0) {
             closeExceptFD(-1);
 
@@ -3422,9 +3446,23 @@ switchLogDropRound(void)
         return -1;
     }
 
-    /* Step 2: the rest is cleanup; a leftover is removed by recovery */
-    unlink(event0Fname);
-    unlink(deltaElogFname);
+    /*
+     * Step 2: the rest is cleanup.  A failure here leaves a file behind,
+     * which the next round refuses to start on (see switchLogBeginRound()),
+     * so it is reported rather than hidden
+     */
+    if ((unlink(event0Fname) < 0 && errno != ENOENT)
+        || (unlink(deltaElogFname) < 0 && errno != ENOENT)) {
+        int saveErrno = errno;
+
+        chuser(batchId);
+        ls_syslog(LOG_WARNING, "\
+%s: cannot remove the leftovers of the switch: %m; it is retried on the \
+next round", __func__);
+        errno = saveErrno;
+        switchState = SWITCH_STALLED;
+        return -1;
+    }
     chuser(batchId);
 
     /* Step 3: back to normal operation */
@@ -3636,7 +3674,6 @@ static int
 switchLogRollForward(int expectDelta)
 {
     static char fname[] = "switchLogRollForward";
-    char        indexFile[MAXFILENAMELEN];
     struct stat st;
     off_t       truncateTo = -1;
     off_t       copied = 0;
@@ -3669,17 +3706,10 @@ switchLogRollForward(int expectDelta)
             return -1;
         }
 
-        chuser(managerId);
+        chuser(batchId);
 
-        sprintf(indexFile, "%s/logdir/%s",
-                daemonParams[LSB_SHAREDIR].paramValue,
-                LSF_JOBIDINDEX_FILENAME);
-
-        chuser(managerId);
-        if (updateJobIdIndexFile(indexFile, elogFname, totalEventFile) < 0)
-            ls_syslog(LOG_ERR, "\
-%s: updateJobIdIndexFile(%s) failed: %s; rebuilt when the next switch is due",
-                 fname, indexFile, lsb_sysmsg());
+        /* the index is derived data: rebuild it after the publish, not here */
+        switchLogRebuildIndex();
     }
 
     /*
@@ -3724,9 +3754,93 @@ switchLogRollForward(int expectDelta)
     if (switchLogPublish(fname) < 0)
         return -1;
 
+    /* Step 4: the index, in a child: it reads every archive */
+    switchLogRebuildIndex();
+
     ls_syslog(LOG_DEBUG, "%s: %s published, %lld bytes of delta events merged",
                fname, elogFname, (long long)copied);
     return 0;
+}
+
+/*
+ * How many archive files exist; only stat()s, nothing is renamed.
+ */
+static int
+switchLogCountArchives(void)
+{
+    char        path[MAXFILENAMELEN];
+    struct stat st;
+    int         total = 0;
+
+    while (1) {
+        sprintf(path, "%s/logdir/lsb.events.%d",
+                daemonParams[LSB_SHAREDIR].paramValue, total + 1);
+        if (stat(path, &st) < 0)
+            break;
+        total++;
+    }
+
+    return total;
+}
+
+/*
+ * Rebuild lsb.events.index in a detached child.  The index is derived data
+ * and the rebuild reads every archive, so it must not hold up the main
+ * loop: the round is published first, and the next switch rebuilds the
+ * index again if this child dies or leaves it behind.
+ */
+static void
+switchLogRebuildIndex(void)
+{
+    static char fname[] = "switchLogRebuildIndex";
+    char        indexFile[MAXFILENAMELEN];
+    sigset_t    newmask, oldmask;
+    pid_t       pid;
+
+    if (switchIndexPid != 0)
+        return;                             /* one rebuild at a time */
+
+    /* block SIGCHLD around fork and registration: the child may exit before
+     * fork() returns, and its status is what clears the pid (see
+     * switchLogChildReaped()) */
+    sigemptyset(&newmask);
+    sigaddset(&newmask, SIGCHLD);
+    sigprocmask(SIG_BLOCK, &newmask, &oldmask);
+
+    if ((pid = fork()) < 0) {
+        sigprocmask(SIG_SETMASK, &oldmask, NULL);
+        ls_syslog(LOG_DEBUG, "%s: fork: %m; the index is rebuilt by the next switch",
+                  fname);
+        return;
+    }
+
+    if (pid > 0) {
+        switchIndexPid = pid;
+        sigprocmask(SIG_SETMASK, &oldmask, NULL);
+        return;
+    }
+
+    sigprocmask(SIG_SETMASK, &oldmask, NULL);
+
+    {
+        int total;
+
+        closeExceptFD(-1);
+        Signal_(SIGTERM, SIG_DFL);
+        Signal_(SIGINT,  SIG_DFL);
+        Signal_(SIGCHLD, SIG_DFL);
+        chuser(managerId);
+
+        total = switchLogCountArchives();
+        sprintf(indexFile, "%s/logdir/%s",
+                daemonParams[LSB_SHAREDIR].paramValue, LSF_JOBIDINDEX_FILENAME);
+        if (updateJobIdIndexFile(indexFile, elogFname, total) < 0)
+            ls_syslog(LOG_ERR, "\
+%s: updateJobIdIndexFile(%s) failed: %s; rebuilt when the next switch is due",
+                      fname, indexFile, lsb_sysmsg());
+
+        _exit(0);
+    }
 }
 
 /*
@@ -3978,8 +4092,9 @@ recovering", fname);
         if (haveDelta && unlink(deltaElogFname) < 0 && errno != ENOENT)
             ls_syslog(LOG_DEBUG, I18N_FUNC_S_FAIL_M, fname, "unlink",
                        deltaElogFname);
-        if (haveZero)
-            unlink(event0Fname);
+        if (haveZero && unlink(event0Fname) < 0 && errno != ENOENT)
+            ls_syslog(LOG_WARNING, I18N_FUNC_S_FAIL_M, fname, "unlink",
+                       event0Fname);
         chuser(batchId);
         elogWriteTarget = elogFname;
         switchState = SWITCH_IDLE;
@@ -4108,11 +4223,43 @@ static int
 switchLogBeginRound(void)
 {
     static char fname[] = "switchLogBeginRound";
+    struct stat st;
     FILE       *fp;
     int         fd;
+    int         haveDelta, haveZero;
+    int         deltaErr, zeroErr;
 
-    /* Step 1: claim the round - create lsb.events.tmp exclusively */
+    /*
+     * Step 1: a round only starts on a clean slate.  Any file an earlier
+     * round left behind is recovered first, never silently overwritten:
+     * the delta would be truncated by fopen() below and .0 by
+     * createEvent0File() in the child, which would hide the leftover.
+     */
     chuser(managerId);
+    errno = 0;
+    haveDelta = (stat(deltaElogFname, &st) == 0);
+    deltaErr = errno;
+    errno = 0;
+    haveZero = (stat(event0Fname, &st) == 0);
+    zeroErr = errno;
+
+    if (switchIndexPid != 0) {
+        /* the index rebuild child writes the same file: wait it out */
+        chuser(batchId);
+        return -1;
+    }
+
+    if (haveDelta || haveZero || deltaErr != ENOENT || zeroErr != ENOENT) {
+        chuser(batchId);
+        switchState = SWITCH_STALLED;
+        ls_syslog(LOG_DEBUG, "\
+%s: %s or %s is left over from an earlier switch, or cannot be checked; \
+this switch is skipped and the leftover is recovered on the next trigger",
+                 fname, deltaElogFname, event0Fname);
+        return -1;
+    }
+
+    /* Step 2: claim the round - create lsb.events.tmp exclusively */
 
     if ((fd = open(tmpElogFname, O_WRONLY | O_CREAT | O_EXCL, 0644)) < 0) {
         chuser(batchId);
@@ -4131,7 +4278,6 @@ switch is skipped and the leftover is recovered on the next trigger",
                       tmpElogFname);
         return -1;
     }
-    close(fd);
 
     /*
      * open() is masked by the umask, which bmod sets to 0077 and never
@@ -4140,14 +4286,15 @@ switch is skipped and the leftover is recovered on the next trigger",
     chmod(tmpElogFname, 0644);
 
     /*
-     * Step 2: create the delta, a regular event file whose header
-     * openEventFile() writes; "w" also discards a stale leftover
+     * Step 3: create the delta, a regular event file whose header
+     * openEventFile() writes
      */
     if ((fp = fopen(deltaElogFname, "w")) == NULL) {
         int saveErrno = errno;
 
         ls_syslog(LOG_DEBUG, I18N_FUNC_S_FAIL_M, fname, "fopen",
                   deltaElogFname);
+        close(fd);
         chuser(batchId);
         switchLogDropRound();
         errno = saveErrno;
@@ -4156,7 +4303,19 @@ switch is skipped and the leftover is recovered on the next trigger",
     FCLOSEUP(&fp);
     chmod(deltaElogFname, 0644);
 
-    /* Step 3: freeze the start time used by LOG_SWITCH and the watchdog */
+    /*
+     * Both files must still exist after a power loss, or the round would
+     * start with a missing one: one commit covers both directory entries
+     * (the journal is file system wide; NFS commits a CREATE before it
+     * replies).  A failure here only weakens that guarantee, the round can
+     * still run, so it is not fatal.
+     */
+    if (fsync(fd) < 0)
+        ls_syslog(LOG_DEBUG, I18N_FUNC_S_FAIL_M, fname, "fsync",
+                  tmpElogFname);
+    close(fd);
+
+    /* Step 4: freeze the start time used by LOG_SWITCH and the watchdog */
     switchStartTime = time(0);
 
     chuser(batchId);
@@ -4188,7 +4347,6 @@ static void
 switchLogChildMain(void)
 {
     static char     fname[] = "switchLogChild";
-    char            indexFile[MAXFILENAMELEN];
     struct eventRec rec;
     FILE           *tmpfp;
     FILE           *efp;
@@ -4283,19 +4441,9 @@ switchLogChildMain(void)
         switchChildAbort(TRUE);
     }
 
-    /* Step 7: the index; a failure only means the next switch rebuilds it */
-    sprintf(indexFile, "%s/logdir/%s",
-            daemonParams[LSB_SHAREDIR].paramValue, LSF_JOBIDINDEX_FILENAME);
-
-    chuser(managerId);
-    switchChildCheckParent();
-    if (updateJobIdIndexFile(indexFile, elogFname, totalEventFile) < 0)
-        ls_syslog(LOG_ERR, "\
-%s: updateJobIdIndexFile(%s) failed: %s; rebuilt when the next switch is due",
-             fname, indexFile, lsb_sysmsg());
-
     ls_syslog(LOG_DEBUG, "\
-%s: switch child done, %d archive files", fname, totalEventFile);
+%s: switch child done, %d archive files; the index is rebuilt after the \
+publish", fname, totalEventFile);
 
     _exit(SWITCH_CHILD_EXIT_OK);
 }
@@ -4423,6 +4571,18 @@ is due", fname);
 void
 switchLogChildReaped(pid_t pid, int status)
 {
+    /* a reaped rebuild child is no longer running, whatever its pid means
+     * to the system afterwards */
+    if (switchIndexPid != 0 && pid == switchIndexPid) {
+        switchIndexPid = 0;
+        return;
+    }
+
+    if (eventIndexRebuildPid != 0 && pid == eventIndexRebuildPid) {
+        eventIndexRebuildPid = 0;
+        return;
+    }
+
     if (switchChildPid == 0 || pid != switchChildPid)
         return;
 
