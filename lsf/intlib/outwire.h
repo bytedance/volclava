@@ -130,20 +130,6 @@
      LIM_OUTPUT_RESOURCES | LIM_OUTPUT_MAX_TMP | \
      LIM_OUTPUT_N_PROCS | LIM_OUTPUT_WINDOWS)
 
-/* Job and LIM compact replies each carry one 32-bit XDR word.
- * Tie the bound to the accepted field bits, not just the current bit count. */
-#if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
-_Static_assert(JOB_OUTPUT_VALID_MASK <= UINT32_MAX,
-               "job output mask exceeds its XDR word");
-_Static_assert(LIM_OUTPUT_VALID_MASK <= UINT32_MAX,
-               "LIM output mask exceeds its XDR word");
-#else
-typedef char job_output_mask_fits_xdr_word[
-    (JOB_OUTPUT_VALID_MASK <= UINT32_MAX) ? 1 : -1];
-typedef char lim_output_mask_fits_xdr_word[
-    (LIM_OUTPUT_VALID_MASK <= UINT32_MAX) ? 1 : -1];
-#endif
-
 #define OUTPUT_HOST_MEMBERS(X)                                                  \
     X(HOST_OUTPUT_HOST_NAME, string, host)                                      \
     X((HOST_OUTPUT_STATUS | HOST_OUTPUT_AVAILABLE_MEM |                         \

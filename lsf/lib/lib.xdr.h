@@ -18,9 +18,11 @@
 
 #ifndef LIB_XDR_H
 #define LIB_XDR_H
+#include <stdint.h>
 #include "lib.hdr.h"
 
 extern bool_t xdr_time_t (XDR *, time_t *);
+extern bool_t xdr_outputMask(XDR *, uint64_t *);
 extern bool_t xdr_lsfRusage(XDR *, struct lsfRusage *);
 extern bool_t xdr_lvector(XDR *, float *, int);
 extern bool_t xdr_array_string(XDR *, char **, int, int);

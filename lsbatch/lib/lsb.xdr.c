@@ -25,9 +25,8 @@
 #include <stdlib.h>
 
 #include "lsb.h"
+#include "lib.xdr.h"
 #include "../../lsf/intlib/outfields.h"
-
-bool_t xdr_var_string(XDR *, char **);
 
 static int    allocLoadIdx(float **sched, float **stop, int *outSize, int size);
 
@@ -1205,8 +1204,6 @@ xdr_jobOutputReply(XDR *xdrs, struct jobOutputReply *reply,
     int arrayIndex;
     int i;
 
-    unsigned int fields = 0;
-
     (void)hdr;
 
     if (xdrs->x_op == XDR_FREE) {
@@ -1232,19 +1229,16 @@ xdr_jobOutputReply(XDR *xdrs, struct jobOutputReply *reply,
     } else {
         if (reply->fields & ~JOB_OUTPUT_VALID_MASK)
             return FALSE;
-        fields = (unsigned int)reply->fields;
         jobId64To32(reply->jobId, &jobId, &arrayIndex);
     }
 
     if (!xdr_int(xdrs, &jobId)
         || !xdr_int(xdrs, &arrayIndex)
-        || !xdr_u_int(xdrs, &fields)
-        || ((uint64_t)fields & ~JOB_OUTPUT_VALID_MASK))
+        || !xdr_outputMask(xdrs, &reply->fields)
+        || (reply->fields & ~JOB_OUTPUT_VALID_MASK))
         return FALSE;
-    if (xdrs->x_op == XDR_DECODE) {
-        reply->fields = fields;
+    if (xdrs->x_op == XDR_DECODE)
         jobId32To64(&reply->jobId, jobId, arrayIndex);
-    }
 
     if ((reply->fields & JOB_OUTPUT_USER)
         && !xdr_var_string(xdrs, &reply->userName))
@@ -2722,19 +2716,6 @@ xdrsize_RsrcLimitInfoReply(struct rsrcLimitInfoReply *reply)
     }
 
     return len;
-}
-
-static bool_t
-xdr_outputMask(XDR *xdrs, uint64_t *mask)
-{
-    unsigned int low = 0, high = 0;
-    if (xdrs->x_op == XDR_ENCODE) {
-        low = (unsigned int)(*mask & UINT32_MAX);
-        high = (unsigned int)(*mask >> 32);
-    }
-    if (!xdr_u_int(xdrs, &low) || !xdr_u_int(xdrs, &high)) return FALSE;
-    if (xdrs->x_op == XDR_DECODE) *mask = ((uint64_t)high << 32) | low;
-    return TRUE;
 }
 
 /* Compact decoders own their arrays and strings. XDR_FREE is valid after

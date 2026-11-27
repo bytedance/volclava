@@ -1359,7 +1359,6 @@ xdr_hostOutputInfoReply(XDR *xdrs, struct hostInfoReply *reply,
                         struct LSFHeader *hdr)
 {
     struct shortLsInfo *info = reply->shortLsInfo;
-    unsigned int outputMask = 0;
     int i, j;
     (void)hdr;
     if (xdrs->x_op == XDR_FREE) {
@@ -1376,16 +1375,12 @@ xdr_hostOutputInfoReply(XDR *xdrs, struct hostInfoReply *reply,
         reply->nHost = 0;
         return TRUE;
     }
-    if (xdrs->x_op == XDR_ENCODE) {
-        if (reply->outputMask & ~LIM_OUTPUT_VALID_MASK)
-            return FALSE;
-        outputMask = (unsigned int)reply->outputMask;
-    }
-    if (!xdr_u_int(xdrs, &outputMask)
-        || ((uint64_t)outputMask & ~LIM_OUTPUT_VALID_MASK))
+    if (xdrs->x_op == XDR_ENCODE
+        && (reply->outputMask & ~LIM_OUTPUT_VALID_MASK))
         return FALSE;
-    if (xdrs->x_op == XDR_DECODE)
-        reply->outputMask = outputMask;
+    if (!xdr_outputMask(xdrs, &reply->outputMask)
+        || (reply->outputMask & ~LIM_OUTPUT_VALID_MASK))
+        return FALSE;
 
     if (!xdr_int(xdrs, &reply->nHost)
         || reply->nHost < 0 || reply->nHost > 1000000

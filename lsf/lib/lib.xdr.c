@@ -210,6 +210,23 @@ xdr_time_t(XDR *xdrs, time_t *t)
 
 }
 
+/* Compact output masks carry the low XDR word first. */
+bool_t
+xdr_outputMask(XDR *xdrs, uint64_t *mask)
+{
+    unsigned int low = 0, high = 0;
+
+    if (xdrs->x_op == XDR_ENCODE) {
+        low = (unsigned int)(*mask & UINT32_MAX);
+        high = (unsigned int)(*mask >> 32);
+    }
+    if (!xdr_u_int(xdrs, &low) || !xdr_u_int(xdrs, &high))
+        return FALSE;
+    if (xdrs->x_op == XDR_DECODE)
+        *mask = ((uint64_t)high << 32) | low;
+    return TRUE;
+}
+
 int
 readDecodeHdr_(int s,
                char *buf,
