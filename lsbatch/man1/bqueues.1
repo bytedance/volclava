@@ -9,7 +9,9 @@
 .BR
 .PP
 .PP
-\fBbqueues \fR[\fB-w\fR | \fB-l\fR | \fB-r\fR | \fB-o\fR \fIoutput_format\fR [\fB-json\fR]] [\fB-m\fR \fIhost_name\fR\fI \fR|\fI \fR\fB-m\fR\fI host_group\fR\fI | \fR\fB-m all\fR]
+\fBbqueues \fR[\fB-w\fR | \fB-l\fR | \fB-r\fR | \fB-o\fR \fIoutput_format\fR
+[\fB-json\fR]] [\fB\-noheader\fR] [\fB-m\fR \fIhost_name\fR\fI \fR|\fI
+\fR\fB-m\fR\fI host_group\fR\fI | \fR\fB-m all\fR]
 [\fB-u\fR\fB \fR\fIuser_name \fR|\fI \fR\fB-u\fR\fI user_group | \fR\fB-u all\fR] [\fIqueue_name\fR ...] 
 .PP
 \fBbqueues \fR[\fB-h\fR | \fB-V\fR]
@@ -28,6 +30,11 @@ administrator (see lsb.queues(5) and mbatchd(8)).
 .SH OPTIONS
 .BR
 .PP
+.TP
+\fB\-noheader\fR
+Suppresses column headings in the default, wide and custom text tables.
+Long, requeue and JSON output are unchanged.
+
 .TP 
 \fB-w\fR 
 

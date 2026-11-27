@@ -31,6 +31,7 @@
 #include "../lib/lproto.h"
 #include "../intlib/intlibout.h"
 #include "../intlib/outfields.h"
+#include "../intlib/outputopts.h"
 
 static int jsonflag = 0;
 
@@ -42,7 +43,7 @@ static int jsonflag = 0;
 static void usage(char *);
 static void print_long(struct hostInfo *hostInfo);
 static void print_o(struct hostInfo *hostInfo, int numHosts,
-                    const struct fmt_request *request);
+                    const struct fmt_request *request, int noheader);
 static char *stripSpaces(char *);
 
 
@@ -98,7 +99,9 @@ stripSpaces(char *field)
 static void
 usage(char *cmd)
 {
-    fprintf(stderr, "%s: %s [-h] [-V] [-w | -l | -o output_format [-json]] [-R res_req] [host_name ...]\n", I18N_Usage, cmd);
+    fprintf(stderr, "%s: %s [-h] [-V] "
+            "[-l | [[-w | -o output_format [-json]] [-noheader]]] "
+            "[-R res_req] [host_name ...]\n", I18N_Usage, cmd);
     fprintf(stderr, "%s\n %s [-h] [-V] -s [static_resouce_name ...]\n", I18N_or, cmd);
 }
 
@@ -441,7 +444,7 @@ get_host_field_value(struct hostInfo *hostInfo, const char *field,
 
 static void
 print_o(struct hostInfo *hostInfo, int numHosts,
-        const struct fmt_request *request)
+        const struct fmt_request *request, int noheader)
 {
     cJSON *records = jsonflag ? cJSON_CreateArray() : NULL;
     cJSON *record = NULL;
@@ -452,7 +455,8 @@ print_o(struct hostInfo *hostInfo, int numHosts,
     unit = get_unit_for_limits();
     needResources = fmt_output_field_requested(request, "RESOURCES");
     if (jsonflag && !records) exit(-1);
-    if (!jsonflag) fmt_output_print_header(stdout, request);
+    if (!jsonflag && !noheader)
+        fmt_output_print_header(stdout, request);
     for (i = 0; i < numHosts; i++) {
         char *resources = NULL;
 
@@ -503,6 +507,7 @@ main(int argc, char **argv)
     char   longformat = FALSE;
     char   longname = FALSE;
     char   oflag = FALSE;
+    int    noheader = FALSE;
     char   staticResource = FALSE, otherOption = FALSE;
     int extView = FALSE;
     int achar;
@@ -523,7 +528,7 @@ main(int argc, char **argv)
     if (logclass & (LC_TRACE))
         ls_syslog(LOG_DEBUG, "%s: Entering this routine...", fname);
 
-    while ((achar = getopt(argc, argv, "hVseR:lwo:j:")) != EOF) {
+    while ((achar = getopt_output(argc, argv, "hVseR:lwo:j:")) != EOF) {
         switch (achar) {
             case 'h':
                 usage(argv[0]);
@@ -531,6 +536,9 @@ main(int argc, char **argv)
             case 'V':
                 fputs(_LS_VERSION_, stdout);
                 exit(0);
+            case OPT_NOHEADER:
+                noheader = TRUE;
+                break;
             case 's':
                 staticResource = TRUE;
                 continue;
@@ -583,7 +591,7 @@ main(int argc, char **argv)
         }
         otherOption = TRUE;
     }
-    if (staticResource && otherOption) {
+    if ((staticResource && otherOption) || (longformat && noheader)) {
         usage(argv[0]);
         exit(-1);
     }
@@ -691,11 +699,11 @@ main(int argc, char **argv)
         if (oflag) {
             free(outputFields);
             outputFields = NULL;
-            print_o(hostinfo, numhosts, &formatRequest);
+            print_o(hostinfo, numhosts, &formatRequest, noheader);
             fmt_output_free(&formatRequest);
             _i18n_end ( ls_catd );
             exit(0);
-        } else if (!longformat && !longname) {
+        } else if (!noheader && !longformat && !longname) {
 	    char *buf1, *buf2, *buf3, *buf4, *buf5;
 	    char *buf6, *buf7, *buf8, *buf9;
 
@@ -722,7 +730,7 @@ main(int argc, char **argv)
 	    FREEUP(buf8);
 	    FREEUP(buf9);
 
-        } else if (longname) {
+        } else if (!noheader && longname) {
 	    char *buf1, *buf2, *buf3, *buf4, *buf5;
 	    char *buf6, *buf7, *buf8, *buf9;
 

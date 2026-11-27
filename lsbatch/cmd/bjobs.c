@@ -24,6 +24,7 @@
 #include <unistd.h>
 #include <pwd.h>
 #include "cmd.h"
+#include "../../lsf/intlib/outputopts.h"
 #include "../lib/lsb.h"
 #include <netdb.h>
 #include <errno.h>
@@ -60,6 +61,7 @@ static int foundJids;
 int uflag = FALSE;
 int Wflag = FALSE;
 int jsonflag = FALSE;
+static int noheader = FALSE;
 
 #define jobOutputFields output_job_fields
 
@@ -82,7 +84,8 @@ usage (char *cmd)
     fprintf(stderr, I18N_Usage);
 
     fprintf(stderr, \
-": %s [-h] [-V] [-w |-l |-UF] [-a] [-d] [-p] [-s] [-r] [-o output_format] [-json]", cmd);
+": %s [-h] [-V] [-w |-l |-UF] [-a] [-d] [-p] [-s] [-r]"
+" [-o output_format] [-json] [-noheader]", cmd);
 
     if (lsbMode_ == LSB_MODE_BATCH)
         fprintf(stderr, " [-A]\n");
@@ -430,7 +433,7 @@ do_options (int argc, char **argv, int *options, char **user, char **queue,
             char **host, char **jobName, float *cpuFactor, int *format, char **projectName, char **fieldName)
 {
     extern char *optarg;
-    int cc, Nflag = 0;
+    int cc, Nflag = 0, longOption = FALSE;
     char *norOp = NULL;
 
 
@@ -442,14 +445,19 @@ do_options (int argc, char **argv, int *options, char **user, char **queue,
     *jobName = NULL;
     *format = 0;
 
-    while ((cc = getopt(argc, argv, "VladpsrwWgRAhJ:q:u:m:N:P:SU:o:j:")) != EOF) {
+    while ((cc = getopt_output(argc, argv,
+                    "VladpsrwWgRAhJ:q:u:m:N:P:SU:o:j:")) != EOF) {
         switch (cc) {
+            case OPT_NOHEADER:
+                noheader = TRUE;
+                break;
             case 'w':
                 if (*format == LONG_FORMAT || *format == UF_FORMAT || *format == O_FORMAT )
                     usage(argv[0]);
                 *format = WIDE_FORMAT;
                 break;
             case 'l':
+                longOption = TRUE;
                 if (*format == WIDE_FORMAT || *format == O_FORMAT)
                     usage(argv[0]);
 
@@ -518,6 +526,7 @@ do_options (int argc, char **argv, int *options, char **user, char **queue,
                 if (*format == O_FORMAT)
                     usage(argv[0]);
                 if (strcmp(optarg,"F")==0) {
+                    longOption = TRUE;
                     *format = UF_FORMAT;
                     break;
                 }
@@ -541,6 +550,13 @@ do_options (int argc, char **argv, int *options, char **user, char **queue,
                 usage(argv[0]);
         }
     }
+
+    if (noheader && longOption) {
+        fprintf(stderr, "bjobs: -noheader cannot be used with -l or -UF.\n");
+        usage(argv[0]);
+    }
+    if (Nflag)
+        noheader = FALSE;
 
     TIMEIT(1, (numJids = getSpecJobIds (argc, argv, &usrJids, NULL)), "getSpecJobIds");
 
@@ -654,19 +670,34 @@ displayJobs (struct jobInfoEnt *job, struct jobInfoHead *jInfoH,
 
     if (first) {
         first = FALSE;
-        if (job->jType == JGRP_NODE_ARRAY)
-            printf((_i18n_msg_get(ls_catd,NL_SETN,1459, "JOBID    ARRAY_SPEC  OWNER   NJOBS PEND DONE  RUN EXIT SSUSP USUSP PSUSP\n"))); /* catgets  1459  */
-        else if (options == PEND_JOB) {
-            printf((_i18n_msg_get(ls_catd,NL_SETN,1460, "JOBID   USER    STAT  QUEUE       FROM_HOST      JOB_NAME           SUBMIT_TIME\n"))); /* catgets  1460  */
+        if (job->jType == JGRP_NODE_ARRAY) {
+            if (!noheader)
+                /* catgets 1459 */
+                printf("%s", _i18n_msg_get(ls_catd, NL_SETN, 1459,
+                    "JOBID    ARRAY_SPEC  OWNER   NJOBS"
+                    " PEND DONE  RUN EXIT SSUSP USUSP PSUSP\n"));
+        } else if (options == PEND_JOB) {
+            if (!noheader)
+                /* catgets 1460 */
+                printf("%s", _i18n_msg_get(ls_catd, NL_SETN, 1460,
+                    "JOBID   USER    STAT  QUEUE       FROM_HOST"
+                    "      JOB_NAME           SUBMIT_TIME\n"));
             exechostfmt = "  ";
         } else {
-            printf((_i18n_msg_get(ls_catd,NL_SETN,1461, "JOBID   USER    STAT  QUEUE      FROM_HOST   EXEC_HOST   JOB_NAME   SUBMIT_TIME"))); /* catgets  1461  */
+            if (!noheader) {
+                /* catgets 1461 */
+                printf("%s", _i18n_msg_get(ls_catd, NL_SETN, 1461,
+                    "JOBID   USER    STAT  QUEUE      FROM_HOST"
+                    "   EXEC_HOST   JOB_NAME   SUBMIT_TIME"));
 
-            if (Wflag == TRUE) {
-                printf((_i18n_msg_get(ls_catd,NL_SETN,1462, "  PROJ_NAME CPU_USED MEM SWAP PIDS START_TIME FINISH_TIME"))); /* catgets  1462  */
+                if (Wflag == TRUE) {
+                    /* catgets 1462 */
+                    printf("%s", _i18n_msg_get(ls_catd, NL_SETN, 1462,
+                        "  PROJ_NAME CPU_USED MEM SWAP PIDS"
+                        " START_TIME FINISH_TIME"));
+                }
+                printf("\n");
             }
-
-            printf("\n");
 
             exechostfmt = "%45s%-s\n";
         }
@@ -1167,7 +1198,8 @@ displayO(struct jobInfoEnt *job, struct jobInfoHead *jInfoH,
 
     if (first) {
         first = FALSE;
-        fmt_output_print_header(stdout, request);
+        if (!noheader)
+            fmt_output_print_header(stdout, request);
     }
 
     if (prepareJobOutputRecord(job, request, &record) < 0) {

@@ -20,9 +20,11 @@
  */
 
 #include "cmd.h"
+#include "../../lsf/intlib/outputopts.h"
 #include "../../lsf/intlib/outfields.h"
 
 static int jsonflag = 0;
+static int noheader = FALSE;
 
 #include <ctype.h>
 
@@ -72,7 +74,9 @@ static char fomt[200];
 void
 usage (char *cmd)
 {
-     fprintf(stderr, "%s: %s [-h] [-V] [-w | -l | -r | -o output_format [-json]] [-m host_name | -m cluster_name]\n", I18N_Usage, cmd);
+    fprintf(stderr, "%s: %s [-h] [-V]"
+            " [-w | -l | -r | -o output_format [-json]] [-noheader]"
+            " [-m host_name | -m cluster_name]\n", I18N_Usage, cmd);
 
     if (lsbMode_ & LSB_MODE_BATCH)
         fprintf(stderr, " [-u user_name]");
@@ -102,8 +106,11 @@ main(int argc, char **argv)
         exit(-1);
     }
 
-    while ((cc = getopt(argc, argv, "Vhlwrm:u:o:j:")) != EOF) {
+    while ((cc = getopt_output(argc, argv, "Vhlwrm:u:o:j:")) != EOF) {
         switch (cc) {
+            case OPT_NOHEADER:
+                noheader = TRUE;
+                break;
             case 'j':
                 if (strcmp(optarg, "son") != 0) usage(argv[0]);
                 jsonflag = 1;
@@ -373,7 +380,8 @@ prtQueuesO(int numQueues, struct queueInfoEnt *queueInfo,
     int i, j;
 
     if (jsonflag && !records) exit(-1);
-    if (!jsonflag) fmt_output_print_header(stdout, request);
+    if (!jsonflag && !noheader)
+        fmt_output_print_header(stdout, request);
     for (i = 0; i < numQueues; i++) {
         if (jsonflag) {
             record = cJSON_CreateObject();
@@ -802,14 +810,13 @@ prtQueuesShort(int numQueues, struct queueInfoEnt *queueInfo)
 {
     struct queueInfoEnt *qp;
     char statusStr[64];
-    char first = FALSE;
     int i;
     char userJobLimit[MAX_CHARLEN],
         procJobLimit[MAX_CHARLEN],
         hostJobLimit[MAX_CHARLEN];
     char maxJobs[MAX_CHARLEN];
 
-    if( !first ) {
+    if (!noheader) {
         prtWord(QUEUE_NAME_LENGTH, I18N_QUEUE__NAME, 0);
         prtWord(QUEUE_PRIO_LENGTH, I18N_PRIO, 1);
         prtWord(QUEUE_STATUS_LENGTH, I18N_STATUS, 0);
@@ -826,7 +833,6 @@ prtQueuesShort(int numQueues, struct queueInfoEnt *queueInfo)
         prtWord(QUEUE_RUN_LENGTH,   I18N_RUN,   -1);
         prtWord(QUEUE_SUSP_LENGTH,  I18N_SUSP,  -1);
         printf("\n");
-        first = TRUE;
     }
 
     for ( i=0; i<numQueues; i++) {

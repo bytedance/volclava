@@ -9,16 +9,19 @@
 .BR
 .PP
 .PP
-\fBbjobs\fR [\fB-a\fR] [\fB-A\fR] [\fB-w\fR | \fB-l\fR] [\fB-J\fR \fIjob_name\fR] 
+\fBbjobs\fR [\fB-a\fR] [\fB-A\fR] [\fB-w\fR | \fB-l\fR] [\fB\-noheader\fR]
+[\fB-J\fR \fIjob_name\fR]
 [\fB-m\fR \fIhost_name\fR | \fB-m\fR \fIhost_group\fR] 
 [\fB-N\fR \fIhost_name | \fR\fB-N\fR \fIhost_model | \fR\fB-N \fR\fICPU_factor\fR] [\fB-P\fR\fI project_name\fR] 
 [\fB-q\fR \fIqueue_name\fR] [\fB-u \fR\fIuser_name\fR | \fB-u\fR \fIuser_group\fR | \fB-u all\fR]\fB \fR\fIjob_ID ...
 .BR
 .PP
-\fBbjobs\fR [\fB-d\fR] [\fB-p\fR] [\fB-r\fR] [\fB-s\fR] [\fB-A\fR] [\fB-w\fR | \fB-l\fR] \fB \fR\fIjob_ID ...
+\fBbjobs\fR [\fB-d\fR] [\fB-p\fR] [\fB-r\fR] [\fB-s\fR] [\fB-A\fR] [\fB-w\fR |
+\fB-l\fR] [\fB\-noheader\fR] \fB \fR\fIjob_ID ...
 .BR
 .PP
-\fBbjobs \fR[\fB-o\fR \fIcustomized_fields\fR] [\fB-json\fR] \fB \fR\fIjob_ID ...
+\fBbjobs \fR[\fB-o\fR \fIcustomized_fields\fR] [\fB-json\fR]
+[\fB\-noheader\fR] \fB \fR\fIjob_ID ...
 .BR
 .PP
 \fBbjobs \fR[\fB-h\fR | \fB-V\fR]
@@ -35,6 +38,12 @@ To display older historical information, use bhist.
 .SH OPTIONS
 .BR
 .PP
+.TP
+\fB\-noheader\fR
+Suppresses column headings in the default, wide, and custom text tables.
+This option cannot be used with \fB\-l\fR or \fB\-UF\fR.
+It has no effect on \fB\-N\fR or JSON output.
+
 .TP 
 \fB-a
 \fR

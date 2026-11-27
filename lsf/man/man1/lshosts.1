@@ -9,7 +9,9 @@
 .BR
 .PP
 .PP
-\fBlshosts\fR [\fB-w\fR\fB | \fR\fB-l\fR | \fB-o\fR \fIoutput_format\fR [\fB-json\fR]] [\fB-R\fR\fB \fR\fB"\fR\fIres_req\fR\fB"\fR] [\fIhost_name\fR] ...
+\fBlshosts\fR [\fB-l\fR |
+[[\fB-w\fR | \fB-o\fR \fIoutput_format\fR [\fB-json\fR]]
+[\fB-noheader\fR]]] [\fB-R\fR "\fIres_req\fR"] [\fIhost_name\fR] ...
 .PP
 \fBlshosts\fR \fB-s \fR[\fIshared_resource_name\fR ...] 
 .PP
@@ -56,6 +58,11 @@ thresholds, and run windows.
 Displays only the requested custom output fields. The \fB-o\fR option
 cannot be used with \fB-w\fR, \fB-l\fR, \fB-s\fR, or \fB-e\fR. See CUSTOM OUTPUT.
 
+.TP
+\fB-noheader\fR
+Omits the column header from default, wide, and custom text output.
+Does not change JSON output. Cannot be combined with \fB-l\fR,
+\fB-s\fR, or \fB-e\fR.
 
 .TP 
 \fB-R\fR \fB"\fR\fIres_req\fR\fB"\fR 

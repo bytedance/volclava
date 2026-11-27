@@ -9,9 +9,11 @@
 .BR
 .PP
 .PP
-\fBbhosts \fR[\fB-w | -l | -o\fR \fIoutput_format\fR [\fB-json\fR]] [\fB-R "\fR\fIres_req\fR\fB"\fR] [\fIhost_name\fR\fI | \fR\fIhost_group\fR] ...
+\fBbhosts \fR[\fB-w | -l | -o\fR \fIoutput_format\fR [\fB-json\fR]]
+[\fB\-noheader\fR] [\fB-R "\fR\fIres_req\fR\fB"\fR] [\fIhost_name\fR\fI |
+\fR\fIhost_group\fR] ...
 .PP
-\fBbhosts\fR\fB \fR\fB-s\fR [\fIshared_resource_name\fR ...] 
+\fBbhosts\fR\fB \fR\fB-s\fR [\fB\-noheader\fR] [\fIshared_resource_name\fR ...]
 .PP
 \fBbhosts \fR[\fB-h\fR | \fB-V\fR] 
 .SH DESCRIPTION
@@ -28,6 +30,11 @@ resources and their associated hosts.
 .SH OPTIONS
 .BR
 .PP
+.TP
+\fB\-noheader\fR
+Suppresses column headings in the default, wide, custom text and
+shared-resource (\fB\-s\fR) tables. Long and JSON output are unchanged.
+
 .TP 
 \fB-w
 \fR

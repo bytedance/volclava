@@ -20,12 +20,14 @@
  */
 
 #include "cmd.h"
+#include "../../lsf/intlib/outputopts.h"
 
 #include <netdb.h>
 #include "../../lsf/intlib/intlibout.h"
 #include "../../lsf/intlib/outfields.h"
 
 static int jsonflag = 0;
+static int noheader = FALSE;
 
 #define HOST_NAME_LENGTH    18
 #define HOST_STATUS_LENGTH  14
@@ -127,9 +129,11 @@ void
 usage (char *cmd)
 {
     fprintf(stderr, I18N_Usage);
-    fprintf(stderr, ":\n%s [-h] [-V] [-R res_req] [-w | -l | -o output_format [-json]] [host_name ... | cluster_name]\n", cmd);
+    fprintf(stderr, ":\n%s [-h] [-V] [-R res_req]"
+            " [-w | -l | -o output_format [-json]] [-noheader]"
+            " [host_name ... | cluster_name]\n", cmd);
     fprintf(stderr, I18N_or );
-    fprintf(stderr, "\n%s [-h] [-V] -s [ resource_name ] \n", cmd);
+    fprintf(stderr, "\n%s [-h] [-V] -s [-noheader] [ resource_name ] \n", cmd);
     exit(-1);
 }
 
@@ -154,8 +158,11 @@ main(int argc, char **argv)
 	exit(-1);
     }
 
-    while ((cc = getopt(argc, argv, "hVslwR:o:j:")) != EOF) {
+    while ((cc = getopt_output(argc, argv, "hVslwR:o:j:")) != EOF) {
         switch (cc) {
+            case OPT_NOHEADER:
+                noheader = TRUE;
+                continue;
             case 'h':
                 usage(argv[0]);
                 exit(0);
@@ -422,7 +429,8 @@ prtHostsO(int numReply, struct hostInfoEnt *hInfo,
     }
 
     if (jsonflag && !records) exit(-1);
-    if (!jsonflag) fmt_output_print_header(stdout, request);
+    if (!jsonflag && !noheader)
+        fmt_output_print_header(stdout, request);
     for (i = 0; i < numReply; i++) {
         if (repeatHost(i, hInfo))
             continue;
@@ -620,7 +628,7 @@ prtHostsShort (int numReply, struct hostInfoEnt  *hInfo)
 
     for (i = 0; i < numReply; i++) {
         hPtr = &(hInfo[i]);
-        if ( first ) {
+        if (first && !noheader) {
             first = FALSE;
             prtWord(HOST_NAME_LENGTH,
 		_i18n_msg_get(ls_catd, NL_SETN, 1618, "HOST_NAME"), 0); /* catgets  1618  */
@@ -1198,17 +1206,23 @@ prtResourcesShort(int num, struct lsbSharedResourceInfo  *info)
         exit(-10);
     }
 
-    buf1 = putstr_(_i18n_msg_get(ls_catd,NL_SETN,1645, "RESOURCE")); /* catgets 1645 */
-    buf2 = putstr_(_i18n_msg_get(ls_catd,NL_SETN,1646, "TOTAL"));  /* catgets  1646 */
-    buf3 = putstr_(_i18n_msg_get(ls_catd,NL_SETN,1647, "RESERVED")); /* catgets 1647 */
-    buf4 = putstr_(_i18n_msg_get(ls_catd,NL_SETN,1648, "LOCATION")); /* catgets 1648 */
+    if (!noheader) {
+        /* catgets 1645 */
+        buf1 = putstr_(_i18n_msg_get(ls_catd, NL_SETN, 1645, "RESOURCE"));
+        /* catgets 1646 */
+        buf2 = putstr_(_i18n_msg_get(ls_catd, NL_SETN, 1646, "TOTAL"));
+        /* catgets 1647 */
+        buf3 = putstr_(_i18n_msg_get(ls_catd, NL_SETN, 1647, "RESERVED"));
+        /* catgets 1648 */
+        buf4 = putstr_(_i18n_msg_get(ls_catd, NL_SETN, 1648, "LOCATION"));
 
-    printf("%-20s%10s%15s%15s\n", buf1, buf2, buf3, buf4);
+        printf("%-20s%10s%15s%15s\n", buf1, buf2, buf3, buf4);
 
-    FREEUP(buf1);
-    FREEUP(buf2);
-    FREEUP(buf3);
-    FREEUP(buf4);
+        FREEUP(buf1);
+        FREEUP(buf2);
+        FREEUP(buf3);
+        FREEUP(buf4);
+    }
 
 
     for (i = 0; i < num; i++) {
