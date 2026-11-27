@@ -26,16 +26,27 @@
 struct queueInfoEnt *
 lsb_queueinfo (char **queues, int *numQueues, char *hosts, char *users, int options)
 {
+    return lsb_queueinfo_fields(queues, numQueues, hosts, users, options,
+                                NULL);
+}
+
+struct queueInfoEnt *
+lsb_queueinfo_fields(char **queues, int *numQueues, char *hosts, char *users,
+                     int options, const char *outputFields)
+{
     mbdReqType mbdReqtype;
-    static struct infoReq queueInfoReq;         
-    static struct queueInfoReply reply;
-    static struct queueInfoEnt **qInfo = NULL;
+    int useOutput;
+    struct infoReq queueInfoReq = {0};
+    static __thread struct queueInfoReply reply;
+    static __thread struct queueInfoEnt **qInfo = NULL;
     struct queueInfoEnt **qTmp;
     XDR xdrs, xdrs2;
     char *request_buf;
     char *reply_buf;
     int cc, i;
-    static struct LSFHeader hdr;
+    size_t outputFieldsLength;
+    size_t requestSize;
+    static __thread struct LSFHeader hdr;
     char *clusterName = NULL;
 
     
@@ -57,10 +68,6 @@ lsb_queueinfo (char **queues, int *numQueues, char *hosts, char *users, int opti
     }
 
     queueInfoReq.options = 0;                
-
-    if (queueInfoReq.names) {
-        FREEUP (queueInfoReq.names);           
-    }
 
     if (numQueues == NULL || *numQueues == 0)
         queueInfoReq.options |= ALL_QUEUE;
@@ -103,6 +110,7 @@ lsb_queueinfo (char **queues, int *numQueues, char *hosts, char *users, int opti
             queueInfoReq.names[cc] = users;
             cc++;
         } else {
+            free(queueInfoReq.names);
             lsberrno = LSBE_BAD_USER;
             *numQueues = 0;
             return (NULL);
@@ -116,6 +124,7 @@ lsb_queueinfo (char **queues, int *numQueues, char *hosts, char *users, int opti
                 queueInfoReq.names[cc] = hosts;
                 cc++;
             } else {
+                free(queueInfoReq.names);
                 lsberrno = LSBE_BAD_HOST;
                 *numQueues = 0;
                 return (NULL);
@@ -124,22 +133,32 @@ lsb_queueinfo (char **queues, int *numQueues, char *hosts, char *users, int opti
             clusterName = hosts;
     }
     queueInfoReq.resReq = "";
+    queueInfoReq.outputFields = (char *)(outputFields ? outputFields : "");
 
     
 
     
 
-    mbdReqtype = BATCH_QUE_INFO;
-    cc = sizeof(struct infoReq) + cc * MAXHOSTNAMELEN + cc + 100;
-    if ((request_buf = malloc (cc)) == NULL) {
+    useOutput = outputFields && outputFields[0];
+    outputFieldsLength = strlen(queueInfoReq.outputFields);
+    requestSize = sizeof(struct infoReq)
+                  + (size_t)cc * (MAXHOSTNAMELEN + 1)
+                  + outputFieldsLength + strlen(queueInfoReq.resReq) + 116;
+    if (requestSize > UINT_MAX
+        || (request_buf = malloc(requestSize)) == NULL) {
+        free(queueInfoReq.names);
         lsberrno = LSBE_NO_MEM;
         return(NULL);
     }
-    xdrmem_create(&xdrs, request_buf, MSGSIZE, XDR_ENCODE);
+    mbdReqtype = useOutput ? BATCH_OUTPUT : BATCH_QUE_INFO;
+    xdrmem_create(&xdrs, request_buf, (u_int)requestSize, XDR_ENCODE);
     initLSFHeader_(&hdr); 
     hdr.opCode = mbdReqtype;
-    if (!xdr_encodeMsg(&xdrs, (char*) &queueInfoReq, &hdr, xdr_infoReq,
-		       0, NULL)) {
+    hdr.reserved = useOutput ? OUTPUT_QUEUE : 0;
+    i = xdr_encodeMsg(&xdrs, (char*) &queueInfoReq, &hdr, xdr_infoReq,
+		              0, NULL);
+    free(queueInfoReq.names);
+    if (!i) {
         lsberrno = LSBE_XDR;
         xdr_destroy(&xdrs);
         free (request_buf);
@@ -161,6 +180,33 @@ lsb_queueinfo (char **queues, int *numQueues, char *hosts, char *users, int opti
     
     lsberrno = hdr.opCode;
     if (lsberrno == LSBE_NO_ERROR || lsberrno == LSBE_BAD_QUEUE) {
+        if (useOutput) {
+            struct queryOutputReplies *replies = getQueryOutputReplies();
+            struct queueInfoReply *outputReply;
+
+            if (!replies) {
+                free(reply_buf);
+                return NULL;
+            }
+            outputReply = &replies->queues;
+            xdr_lsffree(xdr_queueOutputReply, (char *)outputReply, &hdr);
+            memset(outputReply, 0, sizeof(*outputReply));
+            xdrmem_create(&xdrs2, reply_buf, XDR_DECODE_SIZE_(cc), XDR_DECODE);
+            i = xdr_queueOutputReply(&xdrs2, outputReply, &hdr);
+            xdr_destroy(&xdrs2);
+            free(reply_buf);
+            if (!i) {
+                xdr_lsffree(xdr_queueOutputReply, (char *)outputReply, &hdr);
+                lsberrno = LSBE_XDR;
+                return NULL;
+            }
+            if (lsberrno == LSBE_BAD_QUEUE) {
+                *numQueues = outputReply->badQueue;
+                return NULL;
+            }
+            *numQueues = outputReply->numQueues;
+            return outputReply->queues;
+        }
 	xdrmem_create(&xdrs2, reply_buf, XDR_DECODE_SIZE_(cc), XDR_DECODE);	
         if (!xdr_queueInfoReply(&xdrs2, &reply, &hdr)) {
 	    lsberrno = LSBE_XDR;
@@ -196,4 +242,3 @@ lsb_queueinfo (char **queues, int *numQueues, char *hosts, char *users, int opti
     return(NULL);
 
 } 
-

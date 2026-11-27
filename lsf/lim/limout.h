@@ -20,6 +20,8 @@
 #ifndef LIMOUT_H
 #define LIMOUT_H
 
+#include <stdint.h>
+
 #include "../lib/lib.hdr.h"
 
 enum ofWhat {OF_ANY, OF_HOSTS, OF_TYPE};
@@ -34,7 +36,10 @@ struct decisionReq {
     char      resReq[MAXLINELEN];
     int       numPrefs;
     char      **preferredHosts;
+    char      *outputFields;
 };
+
+int limPruneHostInfoFlags(int, uint64_t);
 
 struct placeReply {
     int   numHosts;
@@ -46,6 +51,8 @@ struct jobXfer {
     char resReq[MAXLINELEN];
     struct placeInfo *placeInfo;
 };
+
+#define LIM_OUTPUT_CAPABILITY 0x4f31 /* 'O','1', fits unsigned short replyHdr.reserved */
 
 enum limReqCode {
     LIM_PLACEMENT     = 1,
@@ -65,6 +72,7 @@ enum limReqCode {
     LIM_RM_HOST       = 15,
     LIM_GET_MASTINFO2 = 16,
     LIM_SHOWCONF      = 17,
+    LIM_HOST_OUTPUT   = 18,
 
 #define FIRST_LIM_PRIV	LIM_REBOOT
     LIM_REBOOT        = 50,
@@ -156,6 +164,7 @@ struct shortLsInfo {
 };
 
 struct hostInfoReply {
+    uint64_t outputMask;
     int    nHost;
     int    nIndex;
     struct shortLsInfo *shortLsInfo;

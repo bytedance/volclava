@@ -107,9 +107,11 @@ extern bool_t xdr_jobInfoEnt(XDR *,
 			     struct jobInfoEnt *, 
 			     struct LSFHeader *);
 
-extern bool_t xdr_jobInfoReq(XDR *, 
-			     struct jobInfoReq *, 
-			     struct LSFHeader *);
+extern bool_t xdr_jobInfoReq(XDR *,
+                             struct jobInfoReq *,
+                             struct LSFHeader *);
+extern bool_t xdr_jobOutputReply(XDR *, struct jobOutputReply *,
+                                 struct LSFHeader *);
 
 extern bool_t xdr_jobPeekReq(XDR *, 
 			     struct jobPeekReq *, 
@@ -178,3 +180,5 @@ extern bool_t xdr_rsrcLimitInfoReply(XDR *,
                                     struct LSFHeader *);
 
 extern int  xdrsize_RsrcLimitInfoReply(struct rsrcLimitInfoReply *);
+extern bool_t xdr_hostOutputReply(XDR *, struct hostDataReply *, struct LSFHeader *);
+extern bool_t xdr_queueOutputReply(XDR *, struct queueInfoReply *, struct LSFHeader *);

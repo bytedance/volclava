@@ -274,6 +274,14 @@ chuserId (uid_t uid)
    return 0;
 }
 
+/* Replace a heap-owned string with a freeable empty string for XDR. */
+void
+clearStringField(char **field)
+{
+    FREEUP(*field);
+    *field = safeSave("");
+}
+
 char *
 safeSave(char *str)
 {

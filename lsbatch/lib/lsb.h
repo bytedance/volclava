@@ -48,6 +48,13 @@
 #define MAX(x,y)        ((x) > (y) ? (x) : (y))
 #endif 
 
+struct queryOutputReplies {
+    struct hostDataReply hosts;
+    struct queueInfoReply queues;
+};
+
+struct queryOutputReplies *getQueryOutputReplies(void);
+
 #define DEF_COMMITTED_RUN_TIME_FACTOR 0.0
 
 extern struct config_param lsbParams[];
@@ -118,7 +125,6 @@ extern int runBatchEsub(struct lenData *, struct submit *, int);
 
 extern int packAllJobFiles(struct lenData *jf_array, int job_count, 
                             struct lenData *packed);
-
 #define TRAVERSE_FS_SIZE 1    
 #define TRAVERSE_FS_SACCTXDR 2
 extern int traverseSATree(struct shareAcctInfoEnt *, int, int (*)(), ...);

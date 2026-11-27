@@ -99,7 +99,7 @@ bsub_LDADD =   \
 	../../lsf/intlib/liblsfint.a  -lm
 
 bjobs_SOURCES = bjobs.c cmd.prt.c cmd.err.c cmd.job.c \
-	cmd.jobid.c cmd.misc.c cmd.h cJSON.c cJSON.h
+	cmd.jobid.c cmd.misc.c cmd.h
 bjobs_LDADD =  \
 	../lib/liblsbatch.a \
 	../../lsf/lib/liblsf.a \

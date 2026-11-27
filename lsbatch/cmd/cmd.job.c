@@ -27,6 +27,8 @@
 #define NL_SETN 8 	
 
 #include <errno.h>
+#include <float.h>
+#include <math.h>
 
 static char *strXfOptions(int);
 void prtJobRusage(struct jobInfoEnt *);
@@ -946,13 +948,59 @@ prtJobRusage(struct jobInfoEnt *job)
     prtJobRusageMem(job);
 }
 
+float
+getJobHostFactor(struct jobInfoEnt *job, char **hostPtr)
+{
+    char hostName[MAXHOSTNAMELEN];
+    char *separator;
+    char *hostSpec = job->submit.hostSpec ? job->submit.hostSpec : "";
+    float *factor;
+
+    if (hostPtr)
+        *hostPtr = hostSpec;
+    if (job->numExHosts <= 0 || !job->exHosts || !job->exHosts[0]
+        || IS_PEND(job->status)
+        || strcmp(job->exHosts[0], LOST_AND_FOUND) == 0)
+        return 1.0;
+    snprintf(hostName, sizeof(hostName), "%s", job->exHosts[0]);
+    separator = strchr(hostName, '@');
+    if (!separator)
+        return 1.0;
+    *separator = '\0';
+    if (strcmp(hostName, hostSpec) != 0)
+        return 1.0;
+    factor = getCpuFactor(hostName, TRUE);
+    if (!factor || !isfinite(*factor) || *factor <= 0) {
+        fprintf(stderr, "Cannot obtain execution host information: %s\n",
+                ls_errmsg[lserrno]);
+        exit(-1);
+    }
+    if (hostPtr)
+        *hostPtr = job->exHosts[0];
+    return *factor;
+}
+
+float
+normalizeCpuTime(float cpuTime, float hostFactor, float cpuFactor)
+{
+    double normalized;
+
+    if (cpuFactor <= 0 || cpuTime <= 0)
+        return cpuTime;
+    normalized = (double)cpuTime * hostFactor / cpuFactor;
+    if (!isfinite(normalized) || normalized > FLT_MAX) {
+        fprintf(stderr, "Normalized CPU time is out of range\n");
+        exit(-1);
+    }
+    return (float)normalized;
+}
+
 void
 displayLong (struct jobInfoEnt *job, struct jobInfoHead *jInfoH, 
 							  float cpuFactor)
 {
-    char *hostPtr, *sp;
-    char hostName[MAXHOSTNAMELEN];
-    float hostFactor, *getFactor;
+    char *hostPtr;
+    float hostFactor;
     static int first = TRUE;
     static struct lsInfo *lsInfo;
     char prline[MAXLINELEN];
@@ -971,32 +1019,7 @@ displayLong (struct jobInfoEnt *job, struct jobInfoHead *jInfoH,
     TIMEIT(1, prtFileNames(job, TRUE), "prtFileNames");
 
     
-    hostPtr = job->submit.hostSpec;
-    hostFactor = 1.0;
-
-    
-
-    if (job->numExHosts > 0 
-	  && (strcmp (job->exHosts[0], LOST_AND_FOUND) != 0)
-	  && !IS_PEND (job->status)) {
-	strcpy (hostName, job->exHosts[0]);
-        
-        if ((sp = strstr (hostName, "@")) != NULL) {
-            *sp = '\0';
-	    
-            if (strcmp(hostName, hostPtr) == 0) {
-	        if ((getFactor=getCpuFactor(hostName, TRUE)) == NULL) {
-                    printf("\n");
-		    fprintf(stderr,
-			"Cannot obtain execution host information: %s\n", ls_errmsg[lserrno]);
-    	            exit(-1);
-	        } else {
-	            hostFactor = *getFactor;
-	            hostPtr = job->exHosts[0];
-                }
-            }
-        }
-    }
+    hostFactor = getJobHostFactor(job, &hostPtr);
 
     TIMEIT(1, prtSubDetails(job, hostPtr, hostFactor), "prtSubDetails");
     if (job->numExHosts > 0 && job->reserveTime > 0) {
@@ -1018,8 +1041,7 @@ displayLong (struct jobInfoEnt *job, struct jobInfoHead *jInfoH,
 	TIMEIT(1, prtJobStart(job, BJOBS_PRINT, job->jobPid, FALSE), "prtJobStart");
     }
 
-    if ((cpuFactor > 0.0) && (job->cpuTime > 0)) 
-        job->cpuTime = job->cpuTime * hostFactor / cpuFactor;
+    job->cpuTime = normalizeCpuTime(job->cpuTime, hostFactor, cpuFactor);
 
     if (job->jType == JGRP_NODE_ARRAY) {
         
@@ -1068,14 +1090,12 @@ void
 displayUF(struct jobInfoEnt *job, struct jobInfoHead *jInfoH, float cpuFactor,
         int numQueues, struct queueInfoEnt *queueInfo)
 {
-    char *hostPtr, *sp;
-    char hostName[MAXHOSTNAMELEN];
-    float hostFactor, *getFactor;
+    char *hostPtr;
+    float hostFactor;
     static int first = TRUE;
     static struct lsInfo *lsInfo;
     char prline[MAXLINELEN];
 
-    struct queueInfoEnt *qp;
     int  i;
 
     if (first) {
@@ -1092,33 +1112,7 @@ displayUF(struct jobInfoEnt *job, struct jobInfoHead *jInfoH, float cpuFactor,
     TIMEIT(1, prtFileNamesUF(job, TRUE), "prtFileNamesUF");
 
 
-    hostPtr = job->submit.hostSpec;
-    hostFactor = 1.0;
-
-
-
-    if (job->numExHosts > 0
-        && (strcmp (job->exHosts[0], LOST_AND_FOUND) != 0)
-        && !IS_PEND (job->status)) {
-
-        strcpy (hostName, job->exHosts[0]);
-
-        if ((sp = strstr (hostName, "@")) != NULL) {
-            *sp = '\0';
-
-            if (strcmp(hostName, hostPtr) == 0) {
-                if ((getFactor=getCpuFactor(hostName, TRUE)) == NULL) {
-                    printf("\n");
-                    fprintf(stderr,
-                            "Cannot obtain execution host information: %s\n", ls_errmsg[lserrno]);
-                    exit(-1);
-                } else {
-                    hostFactor = *getFactor;
-                    hostPtr = job->exHosts[0];
-                }
-            }
-        }
-    }
+    hostFactor = getJobHostFactor(job, &hostPtr);
 
     TIMEIT(1, prtSubDetailsUF(job, hostPtr, hostFactor), "prtSubDetailsUF");
     if (job->numExHosts > 0 && job->reserveTime > 0) {
@@ -1139,8 +1133,7 @@ displayUF(struct jobInfoEnt *job, struct jobInfoHead *jInfoH, float cpuFactor,
         TIMEIT(1, prtJobStartUF(job, BJOBS_PRINT, job->jobPid, FALSE), "prtJobStartUF");
     }
 
-    if ((cpuFactor > 0.0) && (job->cpuTime > 0))
-        job->cpuTime = job->cpuTime * hostFactor / cpuFactor;
+    job->cpuTime = normalizeCpuTime(job->cpuTime, hostFactor, cpuFactor);
 
     if (job->jType == JGRP_NODE_ARRAY) {
 
@@ -1162,11 +1155,11 @@ displayUF(struct jobInfoEnt *job, struct jobInfoHead *jInfoH, float cpuFactor,
 
     if (job->submit.rLimits[LSF_RLIMIT_RUN] < 0) {
         for (i=0; i<numQueues; i++) {
-            qp = &(queueInfo[i]);
-            if (strcmp(qp->queue, job->submit.queue) == 0)
+            if (queueInfo && strcmp(queueInfo[i].queue, job->submit.queue) == 0) {
+                job->submit.rLimits[LSF_RLIMIT_RUN] = queueInfo[i].rLimits[LSF_RLIMIT_RUN];
                 break;
+            }
         }
-        job->submit.rLimits[LSF_RLIMIT_RUN] = qp->rLimits[LSF_RLIMIT_RUN];
     }
     prtResourceLimit(job->submit.rLimits, hostPtr, hostFactor, NULL);
     prtJobRusageMem(job);

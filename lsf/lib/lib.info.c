@@ -554,10 +554,20 @@ struct hostInfo *
 ls_gethostinfo(char *resReq, int *numhosts, char **hostlist, int listsize,
                int options)
 {
+    return ls_gethostinfo_fields(resReq, numhosts, hostlist, listsize,
+                                 options, NULL);
+}
+
+struct hostInfo *
+ls_gethostinfo_fields(char *resReq, int *numhosts, char **hostlist,
+                      int listsize, int options, const char *outputFields)
+{
     static char fname[] = "ls_gethostinfo";
     struct decisionReq hostInfoReq;
     static struct hostInfoReply hostInfoReply;
-    struct shortLsInfo lsInfo;
+    static struct shortLsInfo lsInfo;
+    static bool_t (*prevFreeXdr)() = NULL;
+    static struct LSFHeader prevHeader;
     char   *hname;
     int    cc, i;
 
@@ -630,12 +640,64 @@ ls_gethostinfo(char *resReq, int *numhosts, char **hostlist, int listsize,
 
     hostInfoReply.shortLsInfo = &lsInfo;
     hostInfoReq.numHosts=0;
-    cc = callLim_(LIM_GET_HOSTINFO,
-                  &hostInfoReq,
-                  xdr_decisionReq,
-                  &hostInfoReply,
-                  xdr_hostInfoReply,
-                  NULL, _USE_TCP_, NULL);
+    hostInfoReq.outputFields = (char *)(outputFields ? outputFields : "");
+    {
+        struct LSFHeader replyHeader;
+        int custom = outputFields && outputFields[0];
+        int capability = LIM_OUTPUT_CAPABILITY;
+
+        if (prevFreeXdr != NULL) {
+            xdr_lsffree(prevFreeXdr, (char *)&hostInfoReply, &prevHeader);
+            memset(&hostInfoReply, 0, sizeof(hostInfoReply));
+            prevFreeXdr = NULL;
+        }
+
+        memset(&replyHeader, 0, sizeof(replyHeader));
+        if (custom) {
+            /*
+             * Probe whether the remote LIM supports field-selective output.
+             * Legacy LIM TCP dispatchers silently drop unknown opcodes, so we probe
+             * LIM_GET_INFO with capability payload first before invoking LIM_HOST_OUTPUT.
+             */
+            cc = callLim_(LIM_GET_INFO, &capability, xdr_int, NULL, NULL,
+                          NULL, _USE_TCP_, &replyHeader);
+            if (cc < 0)
+                goto hostOutputDone;
+            if (replyHeader.reserved != LIM_OUTPUT_CAPABILITY) {
+                lserrno = LSE_PROTOC_LIM;
+                cc = -1;
+                goto hostOutputDone;
+            }
+        }
+        if (custom) {
+            hostInfoReply.shortLsInfo = &lsInfo;
+            memset(&replyHeader, 0, sizeof(replyHeader));
+            cc = callLim_(LIM_HOST_OUTPUT, &hostInfoReq, xdr_decisionReq,
+                          &hostInfoReply, xdr_hostOutputInfoReply,
+                          NULL, _USE_TCP_, &replyHeader);
+            if (cc >= 0) {
+                prevFreeXdr = xdr_hostOutputInfoReply;
+                prevHeader = replyHeader;
+            } else {
+                xdr_lsffree(xdr_hostOutputInfoReply, (char *)&hostInfoReply, &replyHeader);
+                memset(&hostInfoReply, 0, sizeof(hostInfoReply));
+            }
+        } else {
+            hostInfoReply.shortLsInfo = &lsInfo;
+            memset(&replyHeader, 0, sizeof(replyHeader));
+            cc = callLim_(LIM_GET_HOSTINFO, &hostInfoReq, xdr_decisionReq,
+                          &hostInfoReply, xdr_hostInfoReply,
+                          NULL, _USE_TCP_, &replyHeader);
+            if (cc >= 0) {
+                prevFreeXdr = xdr_hostInfoReply;
+                prevHeader = replyHeader;
+            } else {
+                xdr_lsffree(xdr_hostInfoReply, (char *)&hostInfoReply, &replyHeader);
+                memset(&hostInfoReply, 0, sizeof(hostInfoReply));
+            }
+        }
+    }
+hostOutputDone:
 
     for (i=0; i < hostInfoReq.numPrefs; i++)
         free(hostInfoReq.preferredHosts[i]);
@@ -800,4 +862,3 @@ ls_sharedresourceinfo(char **resources, int *numResources, char *hostName, int o
     return (resourceInfoReply.resources);
 
 }
-
