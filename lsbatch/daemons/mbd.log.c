@@ -3704,7 +3704,6 @@ switchLogRollForward(int expectDelta)
     struct stat st;
     off_t       truncateTo = -1;
     off_t       copied = 0;
-    int         totalEventFile;
     int         haveDelta;
     int         haveZero;
     int         recorded;
@@ -3712,8 +3711,8 @@ switchLogRollForward(int expectDelta)
     chuser(managerId);
 
     /*
-     * Step 1: an unfinished rotation (.0 exists) is completed, the index
-     * rebuilt
+     * Step 1: an unfinished rotation (.0 exists) is completed; the index is
+     * rebuilt after the publish, like in a normal round
      */
     haveZero = (stat(event0Fname, &st) == 0);
     if (!haveZero && errno != ENOENT) {
@@ -3728,15 +3727,12 @@ switchLogRollForward(int expectDelta)
         ls_syslog(LOG_DEBUG, "\
 %s: finishing the archive rotation of an interrupted switch", fname);
 
-        if ((totalEventFile = renameElogFiles()) <= 0) {
+        if (renameElogFiles() <= 0) {
             chuser(batchId);
             return -1;
         }
 
         chuser(batchId);
-
-        /* the index is derived data: rebuild it after the publish, not here */
-        switchLogRebuildIndex();
     }
 
     /*
