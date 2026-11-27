@@ -19,98 +19,130 @@
 #ifndef OUTWIRE_H
 #define OUTWIRE_H
 
+#include <stdint.h>
+
 /*
  * Pure wire protocol bit definitions for custom output RPCs.
  * Independent of formatter and cJSON to ensure protocol layering cleanliness.
  */
 
 /* Job output fields wire bits */
-#define JOB_OUTPUT_USER        (1ULL << 0)
-#define JOB_OUTPUT_STAT        (1ULL << 1)
-#define JOB_OUTPUT_QUEUE       (1ULL << 2)
-#define JOB_OUTPUT_FROM_HOST   (1ULL << 3)
-#define JOB_OUTPUT_EXEC_HOST   (1ULL << 4)
-#define JOB_OUTPUT_JOB_NAME    (1ULL << 5)
-#define JOB_OUTPUT_SUBMIT_TIME (1ULL << 6)
-#define JOB_OUTPUT_PROJ_NAME   (1ULL << 7)
-#define JOB_OUTPUT_CPU_USED    (1ULL << 8)
-#define JOB_OUTPUT_MEM         (1ULL << 9)
-#define JOB_OUTPUT_SWAP        (1ULL << 10)
-#define JOB_OUTPUT_PIDS        (1ULL << 11)
-#define JOB_OUTPUT_START_TIME  (1ULL << 12)
-#define JOB_OUTPUT_FINISH_TIME (1ULL << 13)
-#define JOB_OUTPUT_EXIT_CODE   (1ULL << 14)
-#define JOB_OUTPUT_REASONS     (1ULL << 15)
-#define JOB_OUTPUT_MAX_MEM     (1ULL << 16)
-#define JOB_OUTPUT_AVG_MEM     (1ULL << 17)
-#define JOB_OUTPUT_HOST_SPEC   (1ULL << 18)
-#define JOB_OUTPUT_VALID_MASK  ((1ULL << 19) - 1)
+#define JOB_OUTPUT_USER        (UINT64_C(1) << 0)
+#define JOB_OUTPUT_STAT        (UINT64_C(1) << 1)
+#define JOB_OUTPUT_QUEUE       (UINT64_C(1) << 2)
+#define JOB_OUTPUT_FROM_HOST   (UINT64_C(1) << 3)
+#define JOB_OUTPUT_EXEC_HOST   (UINT64_C(1) << 4)
+#define JOB_OUTPUT_JOB_NAME    (UINT64_C(1) << 5)
+#define JOB_OUTPUT_SUBMIT_TIME (UINT64_C(1) << 6)
+#define JOB_OUTPUT_PROJ_NAME   (UINT64_C(1) << 7)
+#define JOB_OUTPUT_CPU_USED    (UINT64_C(1) << 8)
+#define JOB_OUTPUT_MEM         (UINT64_C(1) << 9)
+#define JOB_OUTPUT_SWAP        (UINT64_C(1) << 10)
+#define JOB_OUTPUT_PIDS        (UINT64_C(1) << 11)
+#define JOB_OUTPUT_START_TIME  (UINT64_C(1) << 12)
+#define JOB_OUTPUT_FINISH_TIME (UINT64_C(1) << 13)
+#define JOB_OUTPUT_EXIT_CODE   (UINT64_C(1) << 14)
+#define JOB_OUTPUT_REASONS     (UINT64_C(1) << 15)
+#define JOB_OUTPUT_MAX_MEM     (UINT64_C(1) << 16)
+#define JOB_OUTPUT_AVG_MEM     (UINT64_C(1) << 17)
+#define JOB_OUTPUT_HOST_SPEC   (UINT64_C(1) << 18)
+#define JOB_OUTPUT_VALID_MASK \
+    (JOB_OUTPUT_USER | JOB_OUTPUT_STAT | \
+     JOB_OUTPUT_QUEUE | JOB_OUTPUT_FROM_HOST | \
+     JOB_OUTPUT_EXEC_HOST | JOB_OUTPUT_JOB_NAME | \
+     JOB_OUTPUT_SUBMIT_TIME | JOB_OUTPUT_PROJ_NAME | \
+     JOB_OUTPUT_CPU_USED | JOB_OUTPUT_MEM | \
+     JOB_OUTPUT_SWAP | JOB_OUTPUT_PIDS | \
+     JOB_OUTPUT_START_TIME | JOB_OUTPUT_FINISH_TIME | \
+     JOB_OUTPUT_EXIT_CODE | JOB_OUTPUT_REASONS | \
+     JOB_OUTPUT_MAX_MEM | JOB_OUTPUT_AVG_MEM | \
+     JOB_OUTPUT_HOST_SPEC)
 
 /* Host output fields wire bits */
-#define HOST_OUTPUT_HOST_NAME       (1ULL << 0)
-#define HOST_OUTPUT_STATUS          (1ULL << 1)
-#define HOST_OUTPUT_JL_U            (1ULL << 2)
-#define HOST_OUTPUT_MAX             (1ULL << 3)
-#define HOST_OUTPUT_NJOBS           (1ULL << 4)
-#define HOST_OUTPUT_RUN             (1ULL << 5)
-#define HOST_OUTPUT_SSUSP           (1ULL << 6)
-#define HOST_OUTPUT_USUSP           (1ULL << 7)
-#define HOST_OUTPUT_RSV             (1ULL << 8)
-#define HOST_OUTPUT_DISPATCH_WINDOW (1ULL << 9)
-#define HOST_OUTPUT_AVAILABLE_MEM   (1ULL << 10)
-#define HOST_OUTPUT_RESERVED_MEM    (1ULL << 11)
-#define HOST_OUTPUT_TOTAL_MEM       (1ULL << 12)
+#define HOST_OUTPUT_HOST_NAME       (UINT64_C(1) << 0)
+#define HOST_OUTPUT_STATUS          (UINT64_C(1) << 1)
+#define HOST_OUTPUT_JL_U            (UINT64_C(1) << 2)
+#define HOST_OUTPUT_MAX             (UINT64_C(1) << 3)
+#define HOST_OUTPUT_NJOBS           (UINT64_C(1) << 4)
+#define HOST_OUTPUT_RUN             (UINT64_C(1) << 5)
+#define HOST_OUTPUT_SSUSP           (UINT64_C(1) << 6)
+#define HOST_OUTPUT_USUSP           (UINT64_C(1) << 7)
+#define HOST_OUTPUT_RSV             (UINT64_C(1) << 8)
+#define HOST_OUTPUT_DISPATCH_WINDOW (UINT64_C(1) << 9)
+#define HOST_OUTPUT_AVAILABLE_MEM   (UINT64_C(1) << 10)
+#define HOST_OUTPUT_RESERVED_MEM    (UINT64_C(1) << 11)
+#define HOST_OUTPUT_TOTAL_MEM       (UINT64_C(1) << 12)
 
 /* Queue output fields wire bits */
-#define QUEUE_OUTPUT_QUEUE_NAME           (1ULL << 0)
-#define QUEUE_OUTPUT_DESCRIPTION          (1ULL << 1)
-#define QUEUE_OUTPUT_PRIORITY             (1ULL << 2)
-#define QUEUE_OUTPUT_STATUS               (1ULL << 3)
-#define QUEUE_OUTPUT_MAX                  (1ULL << 4)
-#define QUEUE_OUTPUT_JL_U                 (1ULL << 5)
-#define QUEUE_OUTPUT_JL_P                 (1ULL << 6)
-#define QUEUE_OUTPUT_JL_H                 (1ULL << 7)
-#define QUEUE_OUTPUT_NJOBS                (1ULL << 8)
-#define QUEUE_OUTPUT_PEND                 (1ULL << 9)
-#define QUEUE_OUTPUT_RUN                  (1ULL << 10)
-#define QUEUE_OUTPUT_SUSP                 (1ULL << 11)
-#define QUEUE_OUTPUT_RSV                  (1ULL << 12)
-#define QUEUE_OUTPUT_USUSP                (1ULL << 13)
-#define QUEUE_OUTPUT_SSUSP                (1ULL << 14)
-#define QUEUE_OUTPUT_NICE                 (1ULL << 15)
-#define QUEUE_OUTPUT_HOSTS                (1ULL << 16)
-#define QUEUE_OUTPUT_RES_REQ              (1ULL << 17)
-#define QUEUE_OUTPUT_MAX_CORELIMIT        (1ULL << 18)
-#define QUEUE_OUTPUT_MAX_CPULIMIT         (1ULL << 19)
-#define QUEUE_OUTPUT_DEFAULT_CPULIMIT     (1ULL << 20)
-#define QUEUE_OUTPUT_MAX_DATALIMIT        (1ULL << 21)
-#define QUEUE_OUTPUT_DEFAULT_DATALIMIT    (1ULL << 22)
-#define QUEUE_OUTPUT_MAX_FILELIMIT        (1ULL << 23)
-#define QUEUE_OUTPUT_MAX_MEMLIMIT         (1ULL << 24)
-#define QUEUE_OUTPUT_DEFAULT_MEMLIMIT     (1ULL << 25)
-#define QUEUE_OUTPUT_MAX_PROCESSLIMIT     (1ULL << 26)
-#define QUEUE_OUTPUT_DEFAULT_PROCESSLIMIT (1ULL << 27)
-#define QUEUE_OUTPUT_MAX_STACKLIMIT       (1ULL << 28)
-#define QUEUE_OUTPUT_MAX_SWAPLIMIT        (1ULL << 29)
-#define QUEUE_OUTPUT_MAX_TASKLIMIT        (1ULL << 30)
-#define QUEUE_OUTPUT_MIN_TASKLIMIT        (1ULL << 31)
-#define QUEUE_OUTPUT_DEFAULT_TASKLIMIT    (1ULL << 32)
+#define QUEUE_OUTPUT_QUEUE_NAME           (UINT64_C(1) << 0)
+#define QUEUE_OUTPUT_DESCRIPTION          (UINT64_C(1) << 1)
+#define QUEUE_OUTPUT_PRIORITY             (UINT64_C(1) << 2)
+#define QUEUE_OUTPUT_STATUS               (UINT64_C(1) << 3)
+#define QUEUE_OUTPUT_MAX                  (UINT64_C(1) << 4)
+#define QUEUE_OUTPUT_JL_U                 (UINT64_C(1) << 5)
+#define QUEUE_OUTPUT_JL_P                 (UINT64_C(1) << 6)
+#define QUEUE_OUTPUT_JL_H                 (UINT64_C(1) << 7)
+#define QUEUE_OUTPUT_NJOBS                (UINT64_C(1) << 8)
+#define QUEUE_OUTPUT_PEND                 (UINT64_C(1) << 9)
+#define QUEUE_OUTPUT_RUN                  (UINT64_C(1) << 10)
+#define QUEUE_OUTPUT_SUSP                 (UINT64_C(1) << 11)
+#define QUEUE_OUTPUT_RSV                  (UINT64_C(1) << 12)
+#define QUEUE_OUTPUT_USUSP                (UINT64_C(1) << 13)
+#define QUEUE_OUTPUT_SSUSP                (UINT64_C(1) << 14)
+#define QUEUE_OUTPUT_NICE                 (UINT64_C(1) << 15)
+#define QUEUE_OUTPUT_HOSTS                (UINT64_C(1) << 16)
+#define QUEUE_OUTPUT_RES_REQ              (UINT64_C(1) << 17)
+#define QUEUE_OUTPUT_MAX_CORELIMIT        (UINT64_C(1) << 18)
+#define QUEUE_OUTPUT_MAX_CPULIMIT         (UINT64_C(1) << 19)
+#define QUEUE_OUTPUT_DEFAULT_CPULIMIT     (UINT64_C(1) << 20)
+#define QUEUE_OUTPUT_MAX_DATALIMIT        (UINT64_C(1) << 21)
+#define QUEUE_OUTPUT_DEFAULT_DATALIMIT    (UINT64_C(1) << 22)
+#define QUEUE_OUTPUT_MAX_FILELIMIT        (UINT64_C(1) << 23)
+#define QUEUE_OUTPUT_MAX_MEMLIMIT         (UINT64_C(1) << 24)
+#define QUEUE_OUTPUT_DEFAULT_MEMLIMIT     (UINT64_C(1) << 25)
+#define QUEUE_OUTPUT_MAX_PROCESSLIMIT     (UINT64_C(1) << 26)
+#define QUEUE_OUTPUT_DEFAULT_PROCESSLIMIT (UINT64_C(1) << 27)
+#define QUEUE_OUTPUT_MAX_STACKLIMIT       (UINT64_C(1) << 28)
+#define QUEUE_OUTPUT_MAX_SWAPLIMIT        (UINT64_C(1) << 29)
+#define QUEUE_OUTPUT_MAX_TASKLIMIT        (UINT64_C(1) << 30)
+#define QUEUE_OUTPUT_MIN_TASKLIMIT        (UINT64_C(1) << 31)
+#define QUEUE_OUTPUT_DEFAULT_TASKLIMIT    (UINT64_C(1) << 32)
 
 /* LIM output fields wire bits */
-#define LIM_OUTPUT_HOST_NAME   (1u << 0)
-#define LIM_OUTPUT_TYPE        (1u << 1)
-#define LIM_OUTPUT_MODEL       (1u << 2)
-#define LIM_OUTPUT_CPU_FACTOR  (1u << 3)
-#define LIM_OUTPUT_MAX_CPUS    (1u << 4)
-#define LIM_OUTPUT_MAX_MEM     (1u << 5)
-#define LIM_OUTPUT_MAX_SWAP    (1u << 6)
-#define LIM_OUTPUT_SERVER      (1u << 7)
-#define LIM_OUTPUT_RESOURCES   (1u << 8)
-#define LIM_OUTPUT_MAX_TMP     (1u << 9)
-#define LIM_OUTPUT_N_PROCS     (1u << 10)
-#define LIM_OUTPUT_WINDOWS     (1u << 11)
+#define LIM_OUTPUT_HOST_NAME   (UINT64_C(1) << 0)
+#define LIM_OUTPUT_TYPE        (UINT64_C(1) << 1)
+#define LIM_OUTPUT_MODEL       (UINT64_C(1) << 2)
+#define LIM_OUTPUT_CPU_FACTOR  (UINT64_C(1) << 3)
+#define LIM_OUTPUT_MAX_CPUS    (UINT64_C(1) << 4)
+#define LIM_OUTPUT_MAX_MEM     (UINT64_C(1) << 5)
+#define LIM_OUTPUT_MAX_SWAP    (UINT64_C(1) << 6)
+#define LIM_OUTPUT_SERVER      (UINT64_C(1) << 7)
+#define LIM_OUTPUT_RESOURCES   (UINT64_C(1) << 8)
+#define LIM_OUTPUT_MAX_TMP     (UINT64_C(1) << 9)
+#define LIM_OUTPUT_N_PROCS     (UINT64_C(1) << 10)
+#define LIM_OUTPUT_WINDOWS     (UINT64_C(1) << 11)
 
-#define LIM_OUTPUT_VALID_MASK  0xfffu
+#define LIM_OUTPUT_VALID_MASK \
+    (LIM_OUTPUT_HOST_NAME | LIM_OUTPUT_TYPE | \
+     LIM_OUTPUT_MODEL | LIM_OUTPUT_CPU_FACTOR | \
+     LIM_OUTPUT_MAX_CPUS | LIM_OUTPUT_MAX_MEM | \
+     LIM_OUTPUT_MAX_SWAP | LIM_OUTPUT_SERVER | \
+     LIM_OUTPUT_RESOURCES | LIM_OUTPUT_MAX_TMP | \
+     LIM_OUTPUT_N_PROCS | LIM_OUTPUT_WINDOWS)
+
+/* Job and LIM compact replies each carry one 32-bit XDR word.
+ * Tie the bound to the accepted field bits, not just the current bit count. */
+#if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
+_Static_assert(JOB_OUTPUT_VALID_MASK <= UINT32_MAX,
+               "job output mask exceeds its XDR word");
+_Static_assert(LIM_OUTPUT_VALID_MASK <= UINT32_MAX,
+               "LIM output mask exceeds its XDR word");
+#else
+typedef char job_output_mask_fits_xdr_word[
+    (JOB_OUTPUT_VALID_MASK <= UINT32_MAX) ? 1 : -1];
+typedef char lim_output_mask_fits_xdr_word[
+    (LIM_OUTPUT_VALID_MASK <= UINT32_MAX) ? 1 : -1];
+#endif
 
 #define OUTPUT_HOST_MEMBERS(X)                                                  \
     X(HOST_OUTPUT_HOST_NAME, string, host)                                      \

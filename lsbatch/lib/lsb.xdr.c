@@ -1205,6 +1205,8 @@ xdr_jobOutputReply(XDR *xdrs, struct jobOutputReply *reply,
     int arrayIndex;
     int i;
 
+    unsigned int fields = 0;
+
     (void)hdr;
 
     if (xdrs->x_op == XDR_FREE) {
@@ -1228,18 +1230,21 @@ xdr_jobOutputReply(XDR *xdrs, struct jobOutputReply *reply,
     if (xdrs->x_op == XDR_DECODE) {
         memset(reply, 0, sizeof(*reply));
     } else {
+        if (reply->fields & ~JOB_OUTPUT_VALID_MASK)
+            return FALSE;
+        fields = (unsigned int)reply->fields;
         jobId64To32(reply->jobId, &jobId, &arrayIndex);
     }
 
     if (!xdr_int(xdrs, &jobId)
         || !xdr_int(xdrs, &arrayIndex)
-        || !xdr_u_int(xdrs, &reply->fields))
+        || !xdr_u_int(xdrs, &fields)
+        || ((uint64_t)fields & ~JOB_OUTPUT_VALID_MASK))
         return FALSE;
-
-    if (reply->fields & ~JOB_OUTPUT_VALID_MASK)
-        return FALSE;
-    if (xdrs->x_op == XDR_DECODE)
+    if (xdrs->x_op == XDR_DECODE) {
+        reply->fields = fields;
         jobId32To64(&reply->jobId, jobId, arrayIndex);
+    }
 
     if ((reply->fields & JOB_OUTPUT_USER)
         && !xdr_var_string(xdrs, &reply->userName))
@@ -2720,11 +2725,15 @@ xdrsize_RsrcLimitInfoReply(struct rsrcLimitInfoReply *reply)
 }
 
 static bool_t
-xdr_outputMask(XDR *xdrs, unsigned long long *mask)
+xdr_outputMask(XDR *xdrs, uint64_t *mask)
 {
-    unsigned int low = (unsigned int)*mask, high = (unsigned int)(*mask >> 32);
+    unsigned int low = 0, high = 0;
+    if (xdrs->x_op == XDR_ENCODE) {
+        low = (unsigned int)(*mask & UINT32_MAX);
+        high = (unsigned int)(*mask >> 32);
+    }
     if (!xdr_u_int(xdrs, &low) || !xdr_u_int(xdrs, &high)) return FALSE;
-    if (xdrs->x_op == XDR_DECODE) *mask = ((unsigned long long)high << 32) | low;
+    if (xdrs->x_op == XDR_DECODE) *mask = ((uint64_t)high << 32) | low;
     return TRUE;
 }
 

@@ -1359,6 +1359,7 @@ xdr_hostOutputInfoReply(XDR *xdrs, struct hostInfoReply *reply,
                         struct LSFHeader *hdr)
 {
     struct shortLsInfo *info = reply->shortLsInfo;
+    unsigned int outputMask = 0;
     int i, j;
     (void)hdr;
     if (xdrs->x_op == XDR_FREE) {
@@ -1375,11 +1376,25 @@ xdr_hostOutputInfoReply(XDR *xdrs, struct hostInfoReply *reply,
         reply->nHost = 0;
         return TRUE;
     }
-    if (!xdr_u_int(xdrs, &reply->outputMask) || (reply->outputMask & ~LIM_OUTPUT_VALID_MASK) ||
-        !xdr_int(xdrs, &reply->nHost) || reply->nHost < 0 || reply->nHost > 1000000 ||
-        !xdr_int(xdrs, &info->nTypes) || info->nTypes < 0 || info->nTypes > MAXTYPES ||
-        !xdr_int(xdrs, &info->nModels) || info->nModels < 0 || info->nModels > MAXMODELS ||
-        !xdr_int(xdrs, &info->nRes) || info->nRes < 0 || info->nRes > 65536)
+    if (xdrs->x_op == XDR_ENCODE) {
+        if (reply->outputMask & ~LIM_OUTPUT_VALID_MASK)
+            return FALSE;
+        outputMask = (unsigned int)reply->outputMask;
+    }
+    if (!xdr_u_int(xdrs, &outputMask)
+        || ((uint64_t)outputMask & ~LIM_OUTPUT_VALID_MASK))
+        return FALSE;
+    if (xdrs->x_op == XDR_DECODE)
+        reply->outputMask = outputMask;
+
+    if (!xdr_int(xdrs, &reply->nHost)
+        || reply->nHost < 0 || reply->nHost > 1000000
+        || !xdr_int(xdrs, &info->nTypes)
+        || info->nTypes < 0 || info->nTypes > MAXTYPES
+        || !xdr_int(xdrs, &info->nModels)
+        || info->nModels < 0 || info->nModels > MAXMODELS
+        || !xdr_int(xdrs, &info->nRes)
+        || info->nRes < 0 || info->nRes > 65536)
         return FALSE;
     if (xdrs->x_op == XDR_DECODE && info->nRes) {
         info->resName = calloc(info->nRes, sizeof(char *));

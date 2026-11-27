@@ -20,6 +20,8 @@
 #ifndef LIMOUT_H
 #define LIMOUT_H
 
+#include <stdint.h>
+
 #include "../lib/lib.hdr.h"
 
 enum ofWhat {OF_ANY, OF_HOSTS, OF_TYPE};
@@ -37,7 +39,7 @@ struct decisionReq {
     char      *outputFields;
 };
 
-int limPruneHostInfoFlags(int, unsigned int);
+int limPruneHostInfoFlags(int, uint64_t);
 
 struct placeReply {
     int   numHosts;
@@ -162,7 +164,7 @@ struct shortLsInfo {
 };
 
 struct hostInfoReply {
-    unsigned int outputMask;
+    uint64_t outputMask;
     int    nHost;
     int    nIndex;
     struct shortLsInfo *shortLsInfo;

@@ -34,7 +34,7 @@ static void freeResourceInfoReply (struct resourceInfoReply *);
 
 
 int
-limPruneHostInfoFlags(int flags, unsigned int mask)
+limPruneHostInfoFlags(int flags, uint64_t mask)
 {
     if (mask & (LIM_OUTPUT_SERVER | LIM_OUTPUT_WINDOWS))
         return flags & HINFO_SERVER;
@@ -540,7 +540,7 @@ hostInfoReq(XDR *xdrs,
 
     if (hostInfoRequest.outputFields
         && hostInfoRequest.outputFields[0] != '\0') {
-        unsigned int mask = (unsigned int)OUTPUT_MASK(hostInfoRequest.outputFields, lim);
+        uint64_t mask = OUTPUT_MASK(hostInfoRequest.outputFields, lim);
         int needsModel;
 
         needsModel = (mask & (LIM_OUTPUT_MODEL | LIM_OUTPUT_CPU_FACTOR));
@@ -572,7 +572,8 @@ hostInfoReq(XDR *xdrs,
     limReplyCode = LIME_NO_ERR;
 
     if (reqHdr->opCode == LIM_HOST_OUTPUT) {
-        hostInfoReply.outputMask = (unsigned int)OUTPUT_MASK(hostInfoRequest.outputFields, lim);
+        hostInfoReply.outputMask =
+            OUTPUT_MASK(hostInfoRequest.outputFields, lim);
         outputInfo = *hostInfoReply.shortLsInfo;
         if (!(hostInfoReply.outputMask & LIM_OUTPUT_TYPE)) outputInfo.nTypes = 0;
         if (!(hostInfoReply.outputMask & (LIM_OUTPUT_MODEL | LIM_OUTPUT_CPU_FACTOR))) outputInfo.nModels = 0;

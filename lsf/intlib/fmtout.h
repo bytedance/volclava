@@ -20,6 +20,7 @@
 #define FMT_OUTPUT_H
 
 #include <stddef.h>
+#include <stdint.h>
 #include <stdio.h>
 #include "cJSON.h"
 
@@ -38,7 +39,7 @@ struct fmt_field_def {
     int default_width;           /* Default column width in characters */
     unsigned int flags;          /* Formatting flags (e.g. FMT_FIELD_KEEP_TAIL) */
     const char *json_key;        /* Key name for JSON output; NULL defaults to name */
-    unsigned long long wire_mask;/* Bitmask for selective daemon RPC requests */
+    uint64_t wire_mask;          /* Bitmask for selective daemon RPC requests */
 };
 
 /* Parsed output column specification. */
@@ -112,8 +113,8 @@ void fmt_output_print_eol(FILE *out);
 /*
  * Compute the combined wire_mask for all field names appearing in 'fields'.
  */
-unsigned long long fmt_fields_mask(const char *fields,
-                                   const struct fmt_field_def *defs, int count);
+uint64_t fmt_fields_mask(const char *fields,
+                         const struct fmt_field_def *defs, int count);
 
 /*
  * Check if field 'name' is present in the space-separated string 'fields'.

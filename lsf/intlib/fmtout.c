@@ -669,10 +669,10 @@ fmt_json_print(FILE *out, const char *command, const char *count_key,
     return rc;
 }
 
-unsigned long long
+uint64_t
 fmt_fields_mask(const char *fields, const struct fmt_field_def *defs, int count)
 {
-    unsigned long long mask = 0;
+    uint64_t mask = 0;
     int i;
     for (i = 0; i < count; i++)
         if (fmt_fields_requested(fields, defs[i].name) ||

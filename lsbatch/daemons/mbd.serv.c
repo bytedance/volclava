@@ -72,7 +72,7 @@ struct controlReq mbdCtrlReq;
 static void
 pruneHostDataReplyFields(struct hostDataReply *reply, const char *fields)
 {
-    unsigned long long mask;
+    uint64_t mask;
     int needsMemoryLoads;
     int i;
 
@@ -99,7 +99,7 @@ pruneHostDataReplyFields(struct hostDataReply *reply, const char *fields)
 static void
 pruneQueueInfoReplyFields(struct queueInfoReply *reply, const char *fields)
 {
-    unsigned long long mask;
+    uint64_t mask;
     int i;
 
     if (!reply || !fields || fields[0] == '\0')
@@ -130,13 +130,13 @@ static void
 pruneJobInfoReplyFields(struct jobInfoReply *reply, const char *fields)
 {
     struct submitReq *bill;
-    unsigned int mask;
+    uint64_t mask;
     int i;
 
     if (!reply || !fields || fields[0] == '\0')
         return;
 
-    mask = (unsigned int)OUTPUT_MASK(fields, job);
+    mask = OUTPUT_MASK(fields, job);
     bill = reply->jobBill;
     reply->numReasons = 0;
     reply->nIdx = 0;
@@ -1477,10 +1477,10 @@ packJobInfo(struct jData * jobData,
 
 }
 
-static unsigned int
+static uint64_t
 jobOutputFieldMask(const char *fields)
 {
-    unsigned int mask = (unsigned int)OUTPUT_MASK(fields, job);
+    uint64_t mask = OUTPUT_MASK(fields, job);
 
     /* USER and project are needed by client visibility filters. */
     if (fmt_fields_requested(fields, "HOST_SPEC"))
@@ -2284,7 +2284,8 @@ do_hostInfoReq(XDR *xdrs,
 
         pruneHostDataReplyFields(&hostsReply, hostsReq.outputFields);
         /* Host identity is needed by sorting and duplicate-host filtering. */
-        hostsReply.outputMask = OUTPUT_MASK(hostsReq.outputFields, host) | 1ULL;
+        hostsReply.outputMask = OUTPUT_MASK(hostsReq.outputFields, host)
+                                | HOST_OUTPUT_HOST_NAME;
 
         count = hostsReply.numHosts * (sizeof(struct hostInfoEnt)
                                        + MAXLINELEN*2 + MAXHOSTNAMELEN
@@ -2457,7 +2458,8 @@ do_queueInfoReq(XDR *xdrs,
         }
         reply = checkQueues(&qInfoReq, &qInfoReply);
         pruneQueueInfoReplyFields(&qInfoReply, qInfoReq.outputFields);
-        qInfoReply.outputMask = OUTPUT_MASK(qInfoReq.outputFields, queue) | 1ULL;
+        qInfoReply.outputMask = OUTPUT_MASK(qInfoReq.outputFields, queue)
+                                | QUEUE_OUTPUT_QUEUE_NAME;
         len = sizeof(struct LSFHeader);
         len += xdrsize_QueueInfoReply(&qInfoReply);
         if (reqHdr->opCode == BATCH_OUTPUT) len += 8;

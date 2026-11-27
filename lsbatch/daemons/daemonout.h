@@ -363,7 +363,7 @@ _Static_assert(((1u << 12) - 1) == LIM_OUTPUT_VALID_MASK, "bit drift LIM_VALID_M
 
 struct jobOutputReply {
     LS_LONG_INT jobId;
-    unsigned int fields;
+    uint64_t fields;
     char *userName;
     int status;
     int reasons;
@@ -403,7 +403,7 @@ struct userInfoReply {
 };
 
 struct queueInfoReply {
-    unsigned long long outputMask;
+    uint64_t outputMask;
     int    badQueue;
     int    numQueues;
     int    nIdx; 
@@ -411,7 +411,7 @@ struct queueInfoReply {
 };
 
 struct hostDataReply {
-    unsigned long long outputMask;
+    uint64_t outputMask;
     int  badHost;
     int  numHosts;
     int  nIdx; 
